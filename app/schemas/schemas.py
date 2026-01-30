@@ -1,0 +1,342 @@
+"""
+Pydantic schemas for API request/response validation.
+"""
+
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Optional, Generic, TypeVar, List
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+T = TypeVar("T")
+
+
+# =============================================================================
+# Pagination
+# =============================================================================
+
+
+class PaginationParams(BaseModel):
+    """Common pagination parameters."""
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=20, ge=1, le=100)
+
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+    items: List[T]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+
+
+# =============================================================================
+# Outlet Schemas
+# =============================================================================
+
+
+class OutletBase(BaseModel):
+    """Base outlet fields."""
+    name: str
+    website_url: Optional[str] = None
+    logo_url: Optional[str] = None
+
+
+class OutletCreate(OutletBase):
+    """Schema for creating an outlet."""
+    opencritic_id: Optional[int] = None
+
+
+class OutletSummary(OutletBase):
+    """Summary outlet info for lists."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    opencritic_id: Optional[int] = None
+
+
+class OutletWithStats(OutletSummary):
+    """Outlet with aggregated statistics."""
+    journalist_count: int = 0
+    review_count: int = 0
+    avg_disparity: Optional[Decimal] = None
+
+
+class OutletDetail(OutletSummary):
+    """Full outlet details."""
+    created_at: datetime
+    updated_at: datetime
+
+
+# =============================================================================
+# Journalist Schemas
+# =============================================================================
+
+
+class JournalistBase(BaseModel):
+    """Base journalist fields."""
+    name: str
+    image_url: Optional[str] = None
+    bio: Optional[str] = None
+
+
+class JournalistCreate(JournalistBase):
+    """Schema for creating a journalist."""
+    opencritic_id: Optional[int] = None
+
+
+class JournalistSummary(JournalistBase):
+    """Summary journalist info for lists."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    opencritic_id: Optional[int] = None
+    review_count: int = 0
+    avg_disparity: Optional[Decimal] = None
+
+
+class JournalistStats(BaseModel):
+    """Aggregated statistics for a journalist."""
+    total_reviews: int
+    avg_score_given: Optional[Decimal] = None
+    avg_disparity_steam: Optional[Decimal] = None
+    avg_disparity_metacritic: Optional[Decimal] = None
+    avg_disparity_combined: Optional[Decimal] = None
+    std_deviation: Optional[Decimal] = None
+    alignment_rating: Optional[Decimal] = None  # Percentage aligned with users
+
+
+class JournalistOutletBreakdown(BaseModel):
+    """Journalist's stats at a specific outlet."""
+    outlet_id: int
+    outlet_name: str
+    review_count: int
+    avg_disparity: Optional[Decimal] = None
+    date_range_start: Optional[date] = None
+    date_range_end: Optional[date] = None
+
+
+class JournalistDetail(JournalistSummary):
+    """Full journalist details with stats."""
+    stats: JournalistStats
+    outlet_breakdown: List[JournalistOutletBreakdown] = []
+    created_at: datetime
+    updated_at: datetime
+
+
+# =============================================================================
+# Game Schemas
+# =============================================================================
+
+
+class GameBase(BaseModel):
+    """Base game fields."""
+    title: str
+    release_date: Optional[date] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+class GameCreate(GameBase):
+    """Schema for creating a game."""
+    opencritic_id: Optional[int] = None
+    steam_app_id: Optional[int] = None
+    metacritic_slug: Optional[str] = None
+
+
+class GameSummary(GameBase):
+    """Summary game info for lists."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    opencritic_id: Optional[int] = None
+    steam_app_id: Optional[int] = None
+    critic_review_count: int = 0
+
+
+class GameWithScores(GameSummary):
+    """Game with all score information."""
+    opencritic_score: Optional[Decimal] = None
+    steam_user_score: Optional[Decimal] = None
+    steam_sample_size: Optional[int] = None
+    metacritic_user_score: Optional[Decimal] = None
+    metacritic_sample_size: Optional[int] = None
+    avg_critic_score: Optional[Decimal] = None
+    disparity_steam: Optional[Decimal] = None
+    disparity_metacritic: Optional[Decimal] = None
+
+
+class GameDetail(GameWithScores):
+    """Full game details."""
+    tier: Optional[str] = None
+    percent_recommended: Optional[Decimal] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+# =============================================================================
+# Review Schemas
+# =============================================================================
+
+
+class ReviewBase(BaseModel):
+    """Base review fields."""
+    score_raw: str
+    score_scale: Optional[str] = None
+    score_normalized: Decimal
+    review_url: Optional[str] = None
+    snippet: Optional[str] = None
+    published_at: Optional[datetime] = None
+
+
+class ReviewCreate(ReviewBase):
+    """Schema for creating a review."""
+    journalist_id: int
+    game_id: int
+    outlet_id: Optional[int] = None
+    opencritic_review_id: Optional[str] = None
+
+
+class ReviewSummary(ReviewBase):
+    """Summary review info."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    journalist_id: int
+    game_id: int
+    outlet_id: Optional[int] = None
+
+
+class ReviewWithDisparity(ReviewSummary):
+    """Review with calculated disparity."""
+    game_title: str
+    outlet_name: Optional[str] = None
+    steam_user_score: Optional[Decimal] = None
+    metacritic_user_score: Optional[Decimal] = None
+    disparity_steam: Optional[Decimal] = None
+    disparity_metacritic: Optional[Decimal] = None
+
+
+class ReviewWithJournalist(ReviewSummary):
+    """Review with journalist info (for game detail page)."""
+    journalist_name: str
+    journalist_image_url: Optional[str] = None
+    outlet_name: Optional[str] = None
+    disparity_steam: Optional[Decimal] = None
+    disparity_metacritic: Optional[Decimal] = None
+
+
+# =============================================================================
+# User Score Schemas
+# =============================================================================
+
+
+class UserScoreBase(BaseModel):
+    """Base user score fields."""
+    score: Decimal
+    score_raw: Optional[str] = None
+    sample_size: Optional[int] = None
+
+
+class UserScoreCreate(UserScoreBase):
+    """Schema for creating a user score."""
+    game_id: int
+    source: str  # "steam" or "metacritic"
+    positive_count: Optional[int] = None
+    negative_count: Optional[int] = None
+    review_score_desc: Optional[str] = None
+    scraped_at: datetime
+
+
+class UserScoreSummary(UserScoreBase):
+    """Summary user score info."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    game_id: int
+    source: str
+    scraped_at: datetime
+
+
+# =============================================================================
+# Disparity Schemas
+# =============================================================================
+
+
+class DisparitySnapshot(BaseModel):
+    """Disparity data point for charts."""
+    date: date
+    avg_disparity_steam: Optional[Decimal] = None
+    avg_disparity_metacritic: Optional[Decimal] = None
+    avg_disparity_combined: Optional[Decimal] = None
+    review_count: int
+
+
+# =============================================================================
+# Leaderboard Schemas
+# =============================================================================
+
+
+class JournalistRanking(BaseModel):
+    """Journalist in leaderboard."""
+    rank: int
+    journalist_id: int
+    journalist_name: str
+    journalist_image_url: Optional[str] = None
+    outlet_name: Optional[str] = None  # Most recent outlet
+    avg_disparity: Decimal
+    review_count: int
+
+
+class OutletRanking(BaseModel):
+    """Outlet in leaderboard."""
+    rank: int
+    outlet_id: int
+    outlet_name: str
+    outlet_logo_url: Optional[str] = None
+    avg_disparity: Decimal
+    journalist_count: int
+    review_count: int
+
+
+class GameRanking(BaseModel):
+    """Game in leaderboard (most divisive)."""
+    rank: int
+    game_id: int
+    game_title: str
+    game_image_url: Optional[str] = None
+    release_date: Optional[date] = None
+    avg_critic_score: Decimal
+    steam_user_score: Optional[Decimal] = None
+    metacritic_user_score: Optional[Decimal] = None
+    disparity: Decimal
+    critic_review_count: int
+
+
+# =============================================================================
+# Search Schemas
+# =============================================================================
+
+
+class SearchResult(BaseModel):
+    """Combined search results."""
+    journalists: List[JournalistSummary] = []
+    outlets: List[OutletSummary] = []
+    games: List[GameSummary] = []
+
+
+# =============================================================================
+# Stats Schemas
+# =============================================================================
+
+
+class SiteStats(BaseModel):
+    """Site-wide statistics."""
+    total_journalists: int
+    total_outlets: int
+    total_games: int
+    total_reviews: int
+    avg_disparity_site: Optional[Decimal] = None
+    last_updated: datetime
