@@ -5,6 +5,7 @@ from app.services.steam import SteamService
 from app.services.metacritic import MetacriticService
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.game_matcher import GameMatcher
+from app.services.disparity import DisparityCalculator
 
 __all__ = [
     "OpenCriticService",
@@ -12,4 +13,5 @@ __all__ = [
     "MetacriticService",
     "ScoreNormalizer",
     "GameMatcher",
+    "DisparityCalculator",
 ]

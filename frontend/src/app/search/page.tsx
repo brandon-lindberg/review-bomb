@@ -1,0 +1,206 @@
+import Link from "next/link";
+import { search } from "@/lib/api";
+import { DisparityBadge } from "@/components/DisparityBadge";
+
+export const dynamic = "force-dynamic";
+
+interface PageProps {
+  searchParams: Promise<{
+    q?: string;
+  }>;
+}
+
+export default async function SearchPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const query = params.q || "";
+
+  let results = null;
+
+  if (query.length >= 2) {
+    try {
+      results = await search(query, 20);
+    } catch (error) {
+      console.error("Error searching:", error);
+    }
+  }
+
+  const hasResults =
+    results &&
+    (results.journalists.length > 0 ||
+      results.outlets.length > 0 ||
+      results.games.length > 0);
+
+  return (
+    <div className="space-y-6">
+      <h1 className="text-3xl font-bold text-gray-900">Search</h1>
+
+      {/* Search Form */}
+      <form action="/search" method="GET" className="max-w-xl">
+        <div className="relative">
+          <input
+            type="text"
+            name="q"
+            defaultValue={query}
+            placeholder="Search journalists, outlets, or games..."
+            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+          <button
+            type="submit"
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+          >
+            Search
+          </button>
+        </div>
+      </form>
+
+      {query.length >= 2 && results && (
+        <div className="space-y-8">
+          {/* Journalists */}
+          {results.journalists.length > 0 && (
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Journalists ({results.journalists.length})
+              </h2>
+              <div className="bg-white rounded-lg shadow divide-y divide-gray-200">
+                {results.journalists.map((journalist) => (
+                  <Link
+                    key={journalist.id}
+                    href={`/journalists/${journalist.id}`}
+                    className="block p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {journalist.image_url ? (
+                          <img
+                            src={journalist.image_url}
+                            alt={journalist.name}
+                            className="w-10 h-10 rounded-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                            <span className="text-gray-500 font-medium">
+                              {journalist.name.charAt(0)}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {journalist.name}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {journalist.review_count} reviews
+                          </p>
+                        </div>
+                      </div>
+                      <DisparityBadge disparity={journalist.avg_disparity} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Outlets */}
+          {results.outlets.length > 0 && (
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Outlets ({results.outlets.length})
+              </h2>
+              <div className="bg-white rounded-lg shadow divide-y divide-gray-200">
+                {results.outlets.map((outlet) => (
+                  <Link
+                    key={outlet.id}
+                    href={`/outlets/${outlet.id}`}
+                    className="block p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {outlet.logo_url ? (
+                          <img
+                            src={outlet.logo_url}
+                            alt={outlet.name}
+                            className="w-10 h-10 rounded object-contain bg-gray-100"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded bg-gray-200 flex items-center justify-center">
+                            <span className="text-gray-500 font-medium">
+                              {outlet.name.charAt(0)}
+                            </span>
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-medium text-gray-900">
+                            {outlet.name}
+                          </p>
+                          <p className="text-sm text-gray-500">
+                            {outlet.review_count} reviews
+                          </p>
+                        </div>
+                      </div>
+                      <DisparityBadge disparity={outlet.avg_disparity} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Games */}
+          {results.games.length > 0 && (
+            <section>
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Games ({results.games.length})
+              </h2>
+              <div className="bg-white rounded-lg shadow divide-y divide-gray-200">
+                {results.games.map((game) => (
+                  <Link
+                    key={game.id}
+                    href={`/games/${game.id}`}
+                    className="block p-4 hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-medium text-gray-900">{game.title}</p>
+                        {game.release_date && (
+                          <p className="text-sm text-gray-500">
+                            {new Date(game.release_date).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <DisparityBadge disparity={game.disparity} />
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* No results */}
+          {!hasResults && (
+            <div className="text-center py-12 bg-white rounded-lg shadow">
+              <p className="text-gray-600">
+                No results found for &ldquo;{query}&rdquo;
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {query.length > 0 && query.length < 2 && (
+        <div className="text-center py-12 bg-white rounded-lg shadow">
+          <p className="text-gray-600">
+            Please enter at least 2 characters to search.
+          </p>
+        </div>
+      )}
+
+      {!query && (
+        <div className="text-center py-12 bg-white rounded-lg shadow">
+          <p className="text-gray-600">
+            Enter a search term to find journalists, outlets, or games.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}

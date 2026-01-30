@@ -1,0 +1,103 @@
+"""
+Task scheduler configuration.
+
+This module configures APScheduler to run recurring tasks for data synchronization
+and disparity calculation.
+
+To run the scheduler:
+    python -m app.tasks.scheduler
+"""
+
+from apscheduler.schedulers.blocking import BlockingScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from app.tasks.sync import (
+    sync_opencritic_incremental,
+    sync_steam_scores,
+    sync_metacritic_scores,
+    match_games_to_platforms,
+)
+from app.tasks.disparity import calculate_daily_snapshots
+
+
+def create_scheduler() -> BlockingScheduler:
+    """
+    Create and configure the task scheduler.
+
+    Returns:
+        Configured BlockingScheduler instance
+    """
+    scheduler = BlockingScheduler()
+
+    # OpenCritic incremental sync - every 6 hours
+    scheduler.add_job(
+        lambda: sync_opencritic_incremental.send(),
+        trigger=IntervalTrigger(hours=6),
+        id="sync_opencritic_incremental",
+        name="Sync new reviews from OpenCritic",
+        replace_existing=True,
+    )
+
+    # Steam scores sync - daily at 2 AM UTC
+    scheduler.add_job(
+        lambda: sync_steam_scores.send(),
+        trigger=CronTrigger(hour=2, minute=0),
+        id="sync_steam_scores",
+        name="Sync Steam user scores",
+        replace_existing=True,
+    )
+
+    # Metacritic scores sync - daily at 3 AM UTC
+    scheduler.add_job(
+        lambda: sync_metacritic_scores.send(),
+        trigger=CronTrigger(hour=3, minute=0),
+        id="sync_metacritic_scores",
+        name="Sync Metacritic user scores",
+        replace_existing=True,
+    )
+
+    # Game matching - daily at 1 AM UTC
+    scheduler.add_job(
+        lambda: match_games_to_platforms.send(),
+        trigger=CronTrigger(hour=1, minute=0),
+        id="match_games",
+        name="Match games to Steam/Metacritic",
+        replace_existing=True,
+    )
+
+    # Disparity snapshots - daily at 5 AM UTC (after all syncs complete)
+    scheduler.add_job(
+        lambda: calculate_daily_snapshots.send(),
+        trigger=CronTrigger(hour=5, minute=0),
+        id="calculate_snapshots",
+        name="Calculate daily disparity snapshots",
+        replace_existing=True,
+    )
+
+    return scheduler
+
+
+def main():
+    """Run the scheduler."""
+    print("Starting task scheduler...")
+    print("Scheduled jobs:")
+    print("  - OpenCritic incremental sync: every 6 hours")
+    print("  - Steam scores sync: daily at 2 AM UTC")
+    print("  - Metacritic scores sync: daily at 3 AM UTC")
+    print("  - Game matching: daily at 1 AM UTC")
+    print("  - Disparity snapshots: daily at 5 AM UTC")
+    print()
+    print("Press Ctrl+C to exit")
+
+    scheduler = create_scheduler()
+
+    try:
+        scheduler.start()
+    except KeyboardInterrupt:
+        print("Shutting down scheduler...")
+        scheduler.shutdown()
+
+
+if __name__ == "__main__":
+    main()

@@ -249,21 +249,32 @@ class OpenCriticService:
     @staticmethod
     def transform_critic(data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform OpenCritic critic data to our model format."""
+        # Handle image_url which can be a string or dict with size variants
+        image_url = data.get("imageSrc")
+        if isinstance(image_url, dict):
+            image_url = image_url.get("og") or image_url.get("lg") or image_url.get("sm")
+
         return {
             "opencritic_id": data.get("id"),
             "name": data.get("name", "Unknown"),
-            "image_url": data.get("imageSrc"),
+            "image_url": image_url,
             "bio": None,  # OpenCritic doesn't provide bios
         }
 
     @staticmethod
     def transform_outlet(data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform OpenCritic outlet data to our model format."""
+        # Handle logo_url which can be a string or dict with size variants
+        logo_url = data.get("imageSrc")
+        if isinstance(logo_url, dict):
+            # Prefer 'og' (original), then 'lg', then 'sm'
+            logo_url = logo_url.get("og") or logo_url.get("lg") or logo_url.get("sm")
+
         return {
             "opencritic_id": data.get("id"),
             "name": data.get("name", "Unknown"),
             "website_url": data.get("externalUrl"),
-            "logo_url": data.get("imageSrc"),
+            "logo_url": logo_url,
         }
 
     @staticmethod
@@ -279,6 +290,15 @@ class OpenCriticService:
             except (ValueError, TypeError):
                 pass
 
+        # Handle image_url which can be a string or dict with size variants
+        image_url = data.get("imageSrc")
+        if isinstance(image_url, dict):
+            image_url = image_url.get("og") or image_url.get("lg") or image_url.get("sm")
+        if not image_url:
+            banner = data.get("bannerScreenshot")
+            if isinstance(banner, dict):
+                image_url = banner.get("fullRes") or banner.get("og")
+
         return {
             "opencritic_id": data.get("id"),
             "title": data.get("name", "Unknown"),
@@ -289,7 +309,7 @@ class OpenCriticService:
             "percent_recommended": Decimal(str(round(data["percentRecommended"], 2)))
                 if data.get("percentRecommended") else None,
             "tier": data.get("tier"),
-            "image_url": data.get("imageSrc") or data.get("bannerScreenshot", {}).get("fullRes"),
+            "image_url": image_url,
         }
 
     @staticmethod
