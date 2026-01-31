@@ -182,3 +182,23 @@ export interface SearchResult {
   outlets: Outlet[];
   games: Game[];
 }
+
+// History/Chart Types
+export interface DisparitySnapshot {
+  date: string;
+  avg_disparity_steam: number | null;
+  avg_disparity_metacritic: number | null;
+  avg_disparity_combined: number | null;
+  review_count: number;
+}
+
+// Compare Types
+export interface CompareJournalist {
+  journalist: JournalistDetail;
+  history: DisparitySnapshot[];
+}
+
+export interface CompareOutlet {
+  outlet: OutletWithStats;
+  history: DisparitySnapshot[];
+}

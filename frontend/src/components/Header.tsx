@@ -9,6 +9,7 @@ const navigation = [
   { name: "Journalists", href: "/journalists" },
   { name: "Outlets", href: "/outlets" },
   { name: "Leaderboards", href: "/leaderboards" },
+  { name: "Compare", href: "/compare" },
 ];
 
 export function Header() {

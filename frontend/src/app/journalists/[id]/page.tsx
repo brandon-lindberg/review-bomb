@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJournalist, getJournalistReviews } from "@/lib/api";
+import { getJournalist, getJournalistReviews, getJournalistHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { DisparityChart } from "@/components/DisparityChart";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +21,13 @@ export default async function JournalistDetailPage({
 
   let journalist = null;
   let reviews = null;
+  let history = null;
 
   try {
-    [journalist, reviews] = await Promise.all([
+    [journalist, reviews, history] = await Promise.all([
       getJournalist(parseInt(id)),
       getJournalistReviews(parseInt(id), page, 20),
+      getJournalistHistory(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
     console.error("Error fetching journalist:", error);
@@ -124,6 +127,20 @@ export default async function JournalistDetailPage({
             </div>
           )}
       </div>
+
+      {/* Disparity Trend Chart */}
+      {history && history.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Disparity Over Time
+          </h2>
+          <DisparityChart data={history} height={300} />
+          <p className="mt-4 text-sm text-gray-500 text-center">
+            Positive values indicate critic scores higher than user scores.
+            Negative values indicate critic scores lower than user scores.
+          </p>
+        </section>
+      )}
 
       {/* Reviews */}
       {reviews && reviews.items.length > 0 && (
