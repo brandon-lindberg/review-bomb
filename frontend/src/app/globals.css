@@ -1,22 +1,139 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Brand Colors */
+  --color-rust: #BB3B0E;
+  --color-orange: #DD7631;
+  --color-sage: #708160;
+  --color-tan: #D8C593;
+
+  /* Semantic Colors */
+  --color-primary: #BB3B0E;
+  --color-secondary: #DD7631;
+  --color-success: #708160;
+  --color-neutral: #D8C593;
+
+  /* Disparity Colors */
+  --color-disparity-high: #BB3B0E;
+  --color-disparity-medium: #DD7631;
+  --color-disparity-low: #708160;
+  --color-disparity-neutral: #D8C593;
+
+  /* UI Colors */
+  --background: #FDFBF7;
+  --background-card: #ffffff;
+  --foreground: #2D2A26;
+  --foreground-muted: #5C574F;
+  --border: #E8E4DC;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-rust: #BB3B0E;
+  --color-orange: #DD7631;
+  --color-sage: #708160;
+  --color-tan: #D8C593;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Dark mode styles - applied via .dark class on html element */
+html.dark {
+  --background: #1C1A17;
+  --background-card: #2D2A26;
+  --foreground: #F5F3EF;
+  --foreground-muted: #B8B4AC;
+  --border: #3D3A35;
+
+  /* Adjusted brand colors for dark mode readability */
+  --color-rust: #E05A2B;
+  --color-orange: #E8904D;
+  --color-sage: #8FA87A;
+  --color-tan: #E5D9B3;
+  --color-primary: #E05A2B;
+  --color-secondary: #E8904D;
+}
+
+html.dark .bg-white {
+  background-color: var(--background-card) !important;
+}
+
+html.dark .bg-gray-50 {
+  background-color: #252320 !important;
+}
+
+html.dark .bg-gray-100 {
+  background-color: #2D2A26 !important;
+}
+
+html.dark .text-gray-900 {
+  color: var(--foreground) !important;
+}
+
+html.dark .text-gray-700 {
+  color: #D4D0C8 !important;
+}
+
+html.dark .text-gray-600 {
+  color: #B8B4AC !important;
+}
+
+html.dark .text-gray-500 {
+  color: #9A958C !important;
+}
+
+html.dark .text-gray-400 {
+  color: #7A756C !important;
+}
+
+html.dark .border-gray-200,
+html.dark .divide-gray-200 > * + * {
+  border-color: #3D3A35 !important;
+}
+
+html.dark .border-gray-300 {
+  border-color: #4A463E !important;
+}
+
+html.dark .shadow,
+html.dark .shadow-sm {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.3), 0 1px 2px -1px rgba(0, 0, 0, 0.3) !important;
+}
+
+html.dark .hover\:bg-gray-50:hover {
+  background-color: #302D28 !important;
+}
+
+html.dark .hover\:bg-gray-100:hover {
+  background-color: #353230 !important;
+}
+
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: var(--background-card) !important;
+  color: var(--foreground) !important;
+}
+
+html.dark input::placeholder {
+  color: #6A655C !important;
+}
+
+html.dark thead.bg-gray-50 {
+  background-color: #252320 !important;
+}
+
+html.dark .text-blue-600 {
+  color: #6B9FFF !important;
+}
+
+html.dark .hover\:text-blue-600:hover {
+  color: #8BB4FF !important;
+}
+
+html.dark .hover\:text-blue-800:hover {
+  color: #6B9FFF !important;
 }
 
 body {
@@ -24,3 +141,19 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Custom utility classes for brand colors */
+.bg-rust { background-color: var(--color-rust); }
+.bg-orange { background-color: var(--color-orange); }
+.bg-sage { background-color: var(--color-sage); }
+.bg-tan { background-color: var(--color-tan); }
+
+.text-rust { color: var(--color-rust); }
+.text-orange { color: var(--color-orange); }
+.text-sage { color: var(--color-sage); }
+.text-tan { color: var(--color-tan); }
+
+.border-rust { border-color: var(--color-rust); }
+.border-orange { border-color: var(--color-orange); }
+.border-sage { border-color: var(--color-sage); }
+.border-tan { border-color: var(--color-tan); }

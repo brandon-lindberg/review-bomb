@@ -18,22 +18,31 @@ export function DisparityBadge({
   const isNegative = value < 0;
   const absValue = Math.abs(value).toFixed(1);
 
-  // Color based on disparity magnitude
-  let bgColor = "bg-gray-100 text-gray-700";
+  // Color based on disparity magnitude using brand palette
+  // Positive = critics rated higher than users (rust/orange)
+  // Negative = critics rated lower than users (sage green)
+  // Neutral = aligned with users (tan)
+  let style: React.CSSProperties = {};
+  let className = "";
+
   if (Math.abs(value) >= 15) {
-    bgColor = isPositive
-      ? "bg-red-100 text-red-800"
-      : "bg-blue-100 text-blue-800";
+    // High disparity
+    style = isPositive
+      ? { backgroundColor: "#BB3B0E", color: "white" }  // rust
+      : { backgroundColor: "#708160", color: "white" }; // sage
   } else if (Math.abs(value) >= 10) {
-    bgColor = isPositive
-      ? "bg-orange-100 text-orange-800"
-      : "bg-cyan-100 text-cyan-800";
+    // Medium-high disparity
+    style = isPositive
+      ? { backgroundColor: "#DD7631", color: "white" }  // orange
+      : { backgroundColor: "#708160", color: "white" }; // sage
   } else if (Math.abs(value) >= 5) {
-    bgColor = isPositive
-      ? "bg-yellow-100 text-yellow-800"
-      : "bg-teal-100 text-teal-800";
+    // Medium disparity
+    style = isPositive
+      ? { backgroundColor: "rgba(221, 118, 49, 0.2)", color: "#BB3B0E" }  // light orange bg
+      : { backgroundColor: "rgba(112, 129, 96, 0.2)", color: "#708160" }; // light sage bg
   } else {
-    bgColor = "bg-green-100 text-green-800";
+    // Low disparity - well aligned
+    style = { backgroundColor: "rgba(216, 197, 147, 0.3)", color: "#5C574F" }; // tan bg
   }
 
   const sizeClasses = {
@@ -44,7 +53,8 @@ export function DisparityBadge({
 
   return (
     <span
-      className={`inline-flex items-center rounded-full font-medium ${bgColor} ${sizeClasses[size]}`}
+      className={`inline-flex items-center rounded-full font-medium ${sizeClasses[size]}`}
+      style={style}
       title={`Critics scored ${isPositive ? "higher" : isNegative ? "lower" : "same as"} users`}
     >
       {isPositive ? "+" : isNegative ? "" : ""}

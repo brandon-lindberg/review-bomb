@@ -23,10 +23,10 @@ export default async function Home() {
     <div className="space-y-12">
       {/* Hero Section */}
       <section className="text-center py-12">
-        <h1 className="text-4xl font-bold text-gray-900 mb-4">
-          Review Disparity Tracker
+        <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>
+          Review<span style={{ color: "var(--color-rust)" }}>Disparity</span> Tracker
         </h1>
-        <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+        <p className="text-xl max-w-2xl mx-auto" style={{ color: "var(--foreground-muted)" }}>
           Track the gap between game journalist scores and player opinions.
           See which critics align with audiences and which diverge.
         </p>
@@ -53,7 +53,8 @@ export default async function Home() {
               </h2>
               <Link
                 href="/leaderboards?tab=journalists"
-                className="text-sm text-blue-600 hover:underline"
+                className="text-sm hover:underline"
+                style={{ color: "var(--color-rust)" }}
               >
                 View All
               </Link>
@@ -94,7 +95,8 @@ export default async function Home() {
               </h2>
               <Link
                 href="/leaderboards?tab=games"
-                className="text-sm text-blue-600 hover:underline"
+                className="text-sm hover:underline"
+                style={{ color: "var(--color-rust)" }}
               >
                 View All
               </Link>
@@ -135,19 +137,22 @@ export default async function Home() {
         <div className="flex flex-wrap justify-center gap-4">
           <Link
             href="/journalists"
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            className="px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: "var(--color-rust)" }}
           >
             Browse Journalists
           </Link>
           <Link
             href="/games"
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+            className="px-6 py-3 rounded-lg font-medium hover:opacity-80 transition-opacity"
+            style={{ backgroundColor: "var(--color-tan)", color: "var(--foreground)" }}
           >
             Browse Games
           </Link>
           <Link
             href="/leaderboards"
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg font-medium hover:bg-gray-300 transition-colors"
+            className="px-6 py-3 rounded-lg font-medium hover:opacity-80 transition-opacity"
+            style={{ backgroundColor: "var(--color-sage)", color: "white" }}
           >
             View Leaderboards
           </Link>
@@ -168,11 +173,11 @@ export default async function Home() {
 
 function StatCard({ label, value }: { label: string; value: number | undefined }) {
   return (
-    <div className="bg-white rounded-lg shadow p-6 text-center">
-      <p className="text-3xl font-bold text-gray-900">
+    <div className="bg-white rounded-lg shadow p-6 text-center" style={{ borderTop: "3px solid var(--color-rust)" }}>
+      <p className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
         {value != null ? value.toLocaleString() : "—"}
       </p>
-      <p className="text-gray-600">{label}</p>
+      <p style={{ color: "var(--foreground-muted)" }}>{label}</p>
     </div>
   );
 }

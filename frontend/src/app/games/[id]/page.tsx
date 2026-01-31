@@ -39,7 +39,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="flex-1">
-            <h1 className="text-3xl font-bold text-gray-900">{game.title}</h1>
+            <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
               {game.release_date && (
                 <span>

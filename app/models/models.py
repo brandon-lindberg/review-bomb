@@ -300,6 +300,25 @@ class DisparitySnapshot(Base):
     )
 
 
+class SyncState(Base):
+    """
+    Persistent sync state for budget-aware daily syncing.
+    Tracks which games have been synced and daily API request counts.
+    """
+    __tablename__ = "sync_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_sync_state_key", "key"),
+    )
+
+
 class SyncLog(Base):
     """
     Tracks data synchronization jobs for monitoring and debugging.

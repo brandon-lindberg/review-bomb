@@ -60,7 +60,7 @@ export default async function JournalistDetailPage({
           </div>
 
           <div className="flex-1">
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
               {journalist.name}
             </h1>
             {journalist.bio && (

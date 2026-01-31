@@ -32,7 +32,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold text-gray-900">Search</h1>
+      <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Search</h1>
 
       {/* Search Form */}
       <form action="/search" method="GET" className="max-w-xl">
@@ -42,11 +42,13 @@ export default async function SearchPage({ searchParams }: PageProps) {
             name="q"
             defaultValue={query}
             placeholder="Search journalists, outlets, or games..."
-            className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:outline-none"
+            style={{ borderColor: "var(--border)" }}
           />
           <button
             type="submit"
-            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-4 py-1.5 text-white rounded-md hover:opacity-90"
+            style={{ backgroundColor: "var(--color-rust)" }}
           >
             Search
           </button>

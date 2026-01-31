@@ -16,6 +16,7 @@ from app.schemas.schemas import (
     JournalistSummary,
     ReviewWithJournalist,
     PaginatedResponse,
+    DisparitySnapshot as DisparitySnapshotSchema,
 )
 
 router = APIRouter()
@@ -291,3 +292,39 @@ async def get_outlet_reviews(
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+
+@router.get("/{outlet_id}/history", response_model=list[DisparitySnapshotSchema])
+async def get_outlet_history(
+    outlet_id: int,
+    limit: int = Query(90, ge=1, le=365),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get historical disparity data for charts."""
+    # Verify outlet exists
+    outlet_result = await db.execute(
+        select(Outlet.id).where(Outlet.id == outlet_id)
+    )
+    if not outlet_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Outlet not found")
+
+    query = (
+        select(DisparitySnapshot)
+        .where(DisparitySnapshot.outlet_id == outlet_id)
+        .order_by(desc(DisparitySnapshot.snapshot_date))
+        .limit(limit)
+    )
+
+    result = await db.execute(query)
+    snapshots = result.scalars().all()
+
+    return [
+        DisparitySnapshotSchema(
+            date=s.snapshot_date,
+            avg_disparity_steam=s.avg_disparity_steam,
+            avg_disparity_metacritic=s.avg_disparity_metacritic,
+            avg_disparity_combined=s.avg_disparity_combined,
+            review_count=s.review_count,
+        )
+        for s in reversed(snapshots)  # Return in chronological order
+    ]

@@ -1,21 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOutlet, getJournalists } from "@/lib/api";
+import { getOutlet, getOutletReviews, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { DisparityChart } from "@/components/DisparityChart";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ page?: string }>;
 }
 
-export default async function OutletDetailPage({ params }: PageProps) {
+export default async function OutletDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const { page: pageParam } = await searchParams;
+  const page = parseInt(pageParam || "1");
 
   let outlet = null;
+  let reviews = null;
+  let history = null;
 
   try {
-    outlet = await getOutlet(parseInt(id));
+    [outlet, reviews, history] = await Promise.all([
+      getOutlet(parseInt(id)),
+      getOutletReviews(parseInt(id), page, 20),
+      getOutletHistory(parseInt(id)).catch(() => []),
+    ]);
   } catch (error) {
     console.error("Error fetching outlet:", error);
     notFound();
@@ -48,7 +58,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
 
           <div className="flex-1">
             <div className="flex items-center gap-4">
-              <h1 className="text-3xl font-bold text-gray-900">
+              <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
                 {outlet.name}
               </h1>
               {outlet.website_url && (
@@ -135,17 +145,120 @@ export default async function OutletDetailPage({ params }: PageProps) {
         </section>
       )}
 
-      {/* Recent reviews placeholder */}
-      <section className="bg-white rounded-lg shadow p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-semibold text-gray-900">
+      {/* Disparity Trend Chart */}
+      {history && history.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Disparity Over Time
+          </h2>
+          <DisparityChart data={history} height={300} />
+          <p className="mt-4 text-sm text-gray-500 text-center">
+            Positive values indicate critic scores higher than user scores.
+            Negative values indicate critic scores lower than user scores.
+          </p>
+        </section>
+      )}
+
+      {/* Reviews */}
+      {reviews && reviews.items.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
             Recent Reviews
           </h2>
-        </div>
-        <p className="text-gray-500 text-center py-8">
-          Review listings coming soon.
-        </p>
-      </section>
+          <div className="space-y-4">
+            {reviews.items.map((review) => (
+              <div
+                key={review.id}
+                className="p-4 border border-gray-200 rounded-lg"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Link
+                        href={`/games/${review.game_id}`}
+                        className="font-medium text-gray-900 hover:text-blue-600"
+                      >
+                        {review.journalist_name ? `Review by ${review.journalist_name}` : "Review"}
+                      </Link>
+                      {review.journalist_id && (
+                        <>
+                          <span className="text-gray-400">by</span>
+                          <Link
+                            href={`/journalists/${review.journalist_id}`}
+                            className="text-gray-600 hover:text-blue-600"
+                          >
+                            {review.journalist_name}
+                          </Link>
+                        </>
+                      )}
+                    </div>
+                    {review.published_at && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        {new Date(review.published_at).toLocaleDateString()}
+                      </p>
+                    )}
+                    {review.snippet && (
+                      <p className="mt-2 text-gray-600 text-sm italic">
+                        &ldquo;{review.snippet}&rdquo;
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-4 ml-4">
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-gray-900">
+                        {review.score_normalized != null
+                          ? Number(review.score_normalized).toFixed(0)
+                          : "—"}
+                      </p>
+                      {review.score_raw && review.score_scale && (
+                        <p className="text-xs text-gray-500">
+                          {review.score_raw}/{review.score_scale}
+                        </p>
+                      )}
+                    </div>
+                    {review.review_url && (
+                      <a
+                        href={review.review_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800"
+                      >
+                        Read
+                      </a>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Pagination */}
+          {reviews.total_pages > 1 && (
+            <div className="mt-6 flex justify-center gap-2">
+              {page > 1 && (
+                <Link
+                  href={`/outlets/${id}?page=${page - 1}`}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Previous
+                </Link>
+              )}
+              <span className="px-4 py-2 text-gray-600">
+                Page {page} of {reviews.total_pages}
+              </span>
+              {page < reviews.total_pages && (
+                <Link
+                  href={`/outlets/${id}?page=${page + 1}`}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Next
+                </Link>
+              )}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

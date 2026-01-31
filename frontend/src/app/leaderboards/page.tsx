@@ -46,7 +46,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-bold text-gray-900">Leaderboards</h1>
+        <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Leaderboards</h1>
 
         <div className="flex gap-2">
           <SortSelect
@@ -61,17 +61,17 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
       </div>
 
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
+      <div className="border-b" style={{ borderColor: "var(--border)" }}>
         <nav className="flex gap-4">
           {tabs.map((t) => (
             <Link
               key={t.id}
               href={`/leaderboards?tab=${t.id}&sort=${sort}`}
-              className={`py-3 px-1 border-b-2 font-medium text-sm transition-colors ${
-                tab === t.id
-                  ? "border-blue-600 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-              }`}
+              className="py-3 px-1 border-b-2 font-medium text-sm transition-colors"
+              style={tab === t.id
+                ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                : { borderColor: "transparent", color: "var(--foreground-muted)" }
+              }
             >
               {t.label}
             </Link>
@@ -146,7 +146,8 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                       <td className="px-4 py-4">
                         <Link
                           href={linkHref}
-                          className="font-medium text-gray-900 hover:text-blue-600"
+                          className="font-medium hover:opacity-80"
+                          style={{ color: "var(--foreground)" }}
                         >
                           {name}
                         </Link>

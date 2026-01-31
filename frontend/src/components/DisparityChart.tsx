@@ -93,12 +93,12 @@ export function DisparityChart({
                 : "Combined";
           }}
         />
-        <ReferenceLine y={0} stroke="#9ca3af" strokeDasharray="5 5" />
+        <ReferenceLine y={0} stroke="#D8C593" strokeDasharray="5 5" />
         {showSteam && (
           <Line
             type="monotone"
             dataKey="steam"
-            stroke="#1b9aaa"
+            stroke="#708160"
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -108,7 +108,7 @@ export function DisparityChart({
           <Line
             type="monotone"
             dataKey="metacritic"
-            stroke="#f59e0b"
+            stroke="#DD7631"
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -118,7 +118,7 @@ export function DisparityChart({
           <Line
             type="monotone"
             dataKey="combined"
-            stroke="#6366f1"
+            stroke="#BB3B0E"
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -138,7 +138,7 @@ interface MiniDisparityChartProps {
 
 export function MiniDisparityChart({
   data,
-  color = "#6366f1",
+  color = "#BB3B0E",
   height = 100,
 }: MiniDisparityChartProps) {
   if (!data || data.length === 0) {
@@ -157,7 +157,7 @@ export function MiniDisparityChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-        <ReferenceLine y={0} stroke="#e5e7eb" />
+        <ReferenceLine y={0} stroke="#D8C593" />
         <Line
           type="monotone"
           dataKey="value"
