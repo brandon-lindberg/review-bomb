@@ -1,7 +1,12 @@
 """
-Budget-aware sync orchestrator for OpenCritic data.
+Sync orchestrator for OpenCritic data.
 
-Manages API request budget (100/day) and syncs games/reviews in priority order:
+Currently running on PREMIUM plan (expires in ~1 month):
+- Unlimited requests
+- 100 requests/second rate limit
+- TODO: Revert DAILY_BUDGET to 100 after premium expires
+
+Syncs games/reviews in priority order:
 - Newest games first (2026 → 2015)
 - Extracts critics/outlets from review responses to maximize data per request
 """
@@ -29,17 +34,19 @@ from app.services.steam import SteamService
 
 class SyncOrchestrator:
     """
-    Budget-aware sync orchestrator that respects the 100 requests/day limit.
+    Sync orchestrator for OpenCritic data.
 
-    Strategy:
-    - Uses 2 requests to fetch game lists (100 games per request)
-    - Uses remaining 98 requests to fetch reviews for games
+    Premium plan strategy (100 req/s, unlimited daily):
+    - Fetches all game lists in bulk
+    - Fetches all reviews without daily budget concerns
     - Extracts critics/outlets from review responses (no extra API calls)
-    - Persists progress to resume the next day
+
+    TODO: Revert DAILY_BUDGET to 100 after premium plan expires
     """
 
-    DAILY_BUDGET = 100
-    GAMES_PER_REQUEST = 50  # OpenCritic limit
+    # Premium plan: effectively unlimited (revert to 100 after expiry)
+    DAILY_BUDGET = 100000
+    GAMES_PER_REQUEST = 50  # OpenCritic limit per request
     DATA_CUTOFF = date(2015, 1, 1)
 
     # State keys for persistence
@@ -451,14 +458,12 @@ class SyncOrchestrator:
 
     async def reset_sync_state(self) -> None:
         """Reset all sync state (for testing or starting fresh)."""
-        for key in [
-            self.STATE_DAILY_COUNT,
-            self.STATE_DAILY_DATE,
-            self.STATE_SYNCED_GAMES,
-            self.STATE_GAMES_QUEUE,
-            self.STATE_LAST_GAME_SKIP,
-        ]:
-            await self._set_state(key, "")
+        # Set proper default values (not empty strings, which break JSON parsing)
+        await self._set_state(self.STATE_DAILY_COUNT, "0")
+        await self._set_state(self.STATE_DAILY_DATE, "")
+        await self._set_state(self.STATE_SYNCED_GAMES, "[]")  # Valid empty JSON array
+        await self._set_state(self.STATE_GAMES_QUEUE, "[]")   # Valid empty JSON array
+        await self._set_state(self.STATE_LAST_GAME_SKIP, "0")
         print("Sync state reset")
 
     async def match_games_to_steam(self, limit: Optional[int] = None) -> Dict[str, Any]:

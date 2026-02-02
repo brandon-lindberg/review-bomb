@@ -17,8 +17,9 @@ from app.services.score_normalizer import ScoreNormalizer
 
 settings = get_settings()
 
-# Rate limit: 10 requests per second (adjust based on your RapidAPI plan)
-rate_limiter = AsyncLimiter(10, 1)
+# Rate limit: 100 requests per second (Premium plan - expires after 1 month)
+# TODO: Revert to 10 requests/second after premium plan expires
+rate_limiter = AsyncLimiter(100, 1)
 
 
 class OpenCriticService:
@@ -51,12 +52,23 @@ class OpenCriticService:
                         params=params,
                     )
                     response.raise_for_status()
+
+                    # Handle empty responses
+                    if not response.content:
+                        print(f"Empty response from {endpoint}")
+                        return None
+
                     return response.json()
                 except httpx.HTTPStatusError as e:
-                    print(f"HTTP error {e.response.status_code}: {e.response.text}")
+                    print(f"HTTP error {e.response.status_code}: {e.response.text[:500]}")
                     return None
                 except httpx.RequestError as e:
                     print(f"Request error: {e}")
+                    return None
+                except ValueError as e:
+                    # JSON decode error
+                    print(f"JSON decode error for {endpoint}: {e}")
+                    print(f"Response content: {response.content[:500] if response.content else 'empty'}")
                     return None
 
     # =========================================================================
@@ -99,7 +111,8 @@ class OpenCriticService:
             if len(critics) < limit:
                 break
             skip += limit
-            await asyncio.sleep(0.1)  # Be nice to the API
+            # Minimal delay with premium plan (100 req/s limit)
+            await asyncio.sleep(0.01)
 
         return all_critics
 
@@ -134,7 +147,8 @@ class OpenCriticService:
             if len(outlets) < limit:
                 break
             skip += limit
-            await asyncio.sleep(0.1)
+            # Minimal delay with premium plan (100 req/s limit)
+            await asyncio.sleep(0.01)
 
         return all_outlets
 
@@ -216,7 +230,8 @@ class OpenCriticService:
                 break
 
             skip += batch_size
-            await asyncio.sleep(0.1)
+            # Minimal delay with premium plan (100 req/s limit)
+            await asyncio.sleep(0.01)
 
         return all_games
 

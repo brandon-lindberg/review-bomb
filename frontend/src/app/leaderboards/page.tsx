@@ -108,6 +108,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   let id: number;
                   let linkHref: string;
                   let name: string;
+                  let imageUrl: string | null = null;
                   let reviewCount: number;
                   let steamDisparity: number | null = null;
                   let metacriticDisparity: number | null = null;
@@ -117,6 +118,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     id = item.journalist_id;
                     linkHref = `/journalists/${id}`;
                     name = item.journalist_name;
+                    imageUrl = item.journalist_image_url;
                     reviewCount = item.review_count;
                     steamDisparity = item.avg_disparity_steam ?? null;
                     metacriticDisparity = item.avg_disparity_metacritic ?? null;
@@ -125,6 +127,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     id = item.outlet_id;
                     linkHref = `/outlets/${id}`;
                     name = item.outlet_name;
+                    imageUrl = item.outlet_logo_url;
                     reviewCount = item.review_count;
                     steamDisparity = item.avg_disparity_steam ?? null;
                     metacriticDisparity = item.avg_disparity_metacritic ?? null;
@@ -133,6 +136,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     id = item.game_id;
                     linkHref = `/games/${id}`;
                     name = item.game_title;
+                    imageUrl = item.game_image_url;
                     reviewCount = item.critic_review_count;
                     steamDisparity = item.disparity_steam ?? null;
                     metacriticDisparity = item.disparity_metacritic ?? null;
@@ -149,10 +153,35 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                       <td className="px-4 py-4">
                         <Link
                           href={linkHref}
-                          className="font-medium hover:opacity-80"
+                          className="flex items-center gap-3 font-medium hover:opacity-80"
                           style={{ color: "var(--foreground)" }}
                         >
-                          {name}
+                          {tab !== "games" && (
+                            imageUrl ? (
+                              <img
+                                src={imageUrl}
+                                alt={name}
+                                className={`flex-shrink-0 ${
+                                  tab === "journalists"
+                                    ? "w-8 h-8 rounded-full object-cover"
+                                    : "w-8 h-8 rounded object-contain bg-gray-100"
+                                }`}
+                              />
+                            ) : (
+                              <div
+                                className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
+                                  tab === "journalists"
+                                    ? "w-8 h-8 rounded-full"
+                                    : "w-8 h-8 rounded"
+                                }`}
+                              >
+                                <span className="text-gray-500 text-xs font-medium">
+                                  {name.charAt(0)}
+                                </span>
+                              </div>
+                            )
+                          )}
+                          <span>{name}</span>
                         </Link>
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-500 text-right">

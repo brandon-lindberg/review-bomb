@@ -72,16 +72,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
             Score Breakdown
           </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <ScoreCard
               label="Critic Average"
               value={game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(1) : undefined}
               subtitle={`${game.critic_review_count || 0} reviews`}
-            />
-            <ScoreCard
-              label="Top Critic Score"
-              value={game.opencritic_score != null ? Number(game.opencritic_score).toFixed(1) : undefined}
-              subtitle="OpenCritic"
             />
             <ScoreCard
               label="Steam User Score"
