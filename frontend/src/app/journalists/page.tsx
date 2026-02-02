@@ -80,8 +80,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                           {journalist.name}
                         </h2>
                         <p className="text-sm text-gray-500">
-                          {journalist.review_count} reviews | Avg score:{" "}
-                          {journalist.avg_score != null ? Number(journalist.avg_score).toFixed(1) : "N/A"}
+                          {journalist.review_count} reviews
                         </p>
                       </div>
                     </div>

@@ -4,6 +4,7 @@ Steam API service.
 Fetches user review data from Steam Web API.
 """
 
+import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any
 from decimal import Decimal
@@ -13,8 +14,26 @@ from aiolimiter import AsyncLimiter
 
 from app.services.score_normalizer import ScoreNormalizer
 
-# Rate limit: 10 requests per second (Steam is fairly generous)
-rate_limiter = AsyncLimiter(10, 1)
+# Rate limit: 5 requests per second (more conservative to avoid blocks)
+rate_limiter = AsyncLimiter(5, 1)
+
+# Headers that mimic a real browser - Steam blocks requests without proper headers
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Cache-Control": "no-cache",
+}
+
+# Cookies for bypassing Steam age verification and other checks
+DEFAULT_COOKIES = {
+    "birthtime": "0",  # Age verification bypass (epoch = over 18)
+    "mature_content": "1",  # Allow mature content
+    "lastagecheckage": "1-0-1990",  # Age check bypass
+    "wants_mature_content": "1",
+}
 
 
 class SteamService:
@@ -36,20 +55,49 @@ class SteamService:
         self,
         url: str,
         params: Optional[Dict[str, Any]] = None,
+        max_retries: int = 3,
     ) -> Optional[Dict[str, Any]]:
-        """Make a rate-limited request to Steam API."""
+        """Make a rate-limited request to Steam API with retry logic."""
         async with rate_limiter:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                try:
-                    response = await client.get(url, params=params)
-                    response.raise_for_status()
-                    return response.json()
-                except httpx.HTTPStatusError as e:
-                    print(f"HTTP error {e.response.status_code}: {e.response.text}")
-                    return None
-                except httpx.RequestError as e:
-                    print(f"Request error: {e}")
-                    return None
+            # Small delay to avoid triggering anti-bot measures
+            await asyncio.sleep(0.5)
+
+            async with httpx.AsyncClient(
+                timeout=30.0,
+                headers=DEFAULT_HEADERS,
+                cookies=DEFAULT_COOKIES,
+                follow_redirects=True,
+            ) as client:
+                for attempt in range(max_retries):
+                    try:
+                        response = await client.get(url, params=params)
+                        response.raise_for_status()
+                        return response.json()
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code == 403:
+                            # Access denied - try with longer delay
+                            if attempt < max_retries - 1:
+                                wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                                print(f"  Access denied, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
+                                await asyncio.sleep(wait_time)
+                                continue
+                        elif e.response.status_code == 429:
+                            # Rate limited - wait longer
+                            if attempt < max_retries - 1:
+                                wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                                print(f"  Rate limited, waiting {wait_time}s...")
+                                await asyncio.sleep(wait_time)
+                                continue
+                        print(f"HTTP error {e.response.status_code}: {e.response.text}")
+                        return None
+                    except httpx.RequestError as e:
+                        if attempt < max_retries - 1:
+                            print(f"  Request error, retrying...")
+                            await asyncio.sleep(1)
+                            continue
+                        print(f"Request error: {e}")
+                        return None
+                return None
 
     async def get_app_details(self, app_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -87,8 +135,9 @@ class SteamService:
         Returns:
             Review summary including positive/negative counts and review score
         """
+        # Note: Steam appreviews endpoint is NOT under /api path
         data = await self._request(
-            f"{self.STORE_API_URL}/appreviews/{app_id}",
+            f"https://store.steampowered.com/appreviews/{app_id}",
             params={
                 "json": "1",
                 "language": "all",

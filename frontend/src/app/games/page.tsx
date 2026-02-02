@@ -86,11 +86,11 @@ export default async function GamesPage({ searchParams }: PageProps) {
 
                     <div className="flex items-center gap-6">
                       <ScoreDisplay
-                        criticScore={game.critic_avg}
-                        userScore={game.user_avg}
+                        criticScore={game.avg_critic_score}
+                        userScore={game.steam_user_score || game.metacritic_user_score}
                         size="sm"
                       />
-                      <DisparityBadge disparity={game.disparity} />
+                      <DisparityBadge disparity={game.disparity_steam ?? game.disparity_metacritic} />
                     </div>
                   </div>
                 </Link>

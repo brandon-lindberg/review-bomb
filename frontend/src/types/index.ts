@@ -17,17 +17,29 @@ export interface Journalist {
   opencritic_id: number | null;
   review_count: number;
   avg_disparity: number | null;
-  avg_score: number | null;
 }
 
 export interface JournalistStats {
   total_reviews: number;
   avg_score_given: number | null;
+
+  // Launch window disparity (reviews within 60 days of game release)
   avg_disparity_steam: number | null;
   avg_disparity_metacritic: number | null;
   avg_disparity_combined: number | null;
+
+  // Overall disparity (all reviews, including late ones)
+  overall_disparity_steam: number | null;
+  overall_disparity_metacritic: number | null;
+  overall_disparity_combined: number | null;
+
   std_deviation: number | null;
   alignment_rating: number | null;
+
+  // Transparency metrics
+  early_review_count: number;
+  launch_window_review_count: number;
+  late_review_count: number;
 }
 
 export interface OutletBreakdown {
@@ -62,6 +74,9 @@ export interface OutletWithStats extends Outlet {
   journalist_count: number;
   review_count: number;
   avg_disparity: number | null;
+  avg_disparity_steam: number | null;
+  avg_disparity_metacritic: number | null;
+  avg_disparity_combined: number | null;
   avg_score: number | null;
   journalists?: Journalist[];
 }
@@ -80,23 +95,17 @@ export interface Game {
 }
 
 export interface GameWithScores extends Game {
+  // From API - these are the actual field names returned
   opencritic_score: number | null;
-  top_critic_score: number | null;
   steam_user_score: number | null;
-  steam_score: number | null;
   steam_sample_size: number | null;
   metacritic_user_score: number | null;
-  metacritic_score: number | null;
   metacritic_sample_size: number | null;
   avg_critic_score: number | null;
-  critic_avg: number | null;
-  user_avg: number | null;
-  disparity: number | null;
   disparity_steam: number | null;
   disparity_metacritic: number | null;
   tier: string | null;
   percent_recommended: number | null;
-  review_count: number;
 }
 
 // Review Types
@@ -113,23 +122,32 @@ export interface Review {
   published_at: string | null;
 }
 
+export type ReviewTiming = "early" | "launch_window" | "late" | "unknown";
+
 export interface ReviewWithDisparity extends Review {
   game_title: string;
+  game_release_date: string | null;
   outlet_name: string | null;
   steam_user_score: number | null;
   metacritic_user_score: number | null;
   disparity: number | null;
   disparity_steam: number | null;
   disparity_metacritic: number | null;
+  is_launch_window: boolean;  // Deprecated - use review_timing
+  review_timing: ReviewTiming;
 }
 
 export interface ReviewWithJournalist extends Review {
   journalist_name: string;
   journalist_image_url: string | null;
   outlet_name: string | null;
+  game_title: string | null;
+  game_release_date: string | null;
   disparity: number | null;
   disparity_steam: number | null;
   disparity_metacritic: number | null;
+  is_launch_window: boolean;  // Deprecated - use review_timing
+  review_timing: ReviewTiming;
 }
 
 // Leaderboard Types
@@ -140,6 +158,9 @@ export interface JournalistRanking {
   journalist_image_url: string | null;
   outlet_name: string | null;
   avg_disparity: number;
+  avg_disparity_steam: number | null;
+  avg_disparity_metacritic: number | null;
+  avg_disparity_combined: number | null;
   review_count: number;
 }
 
@@ -149,6 +170,9 @@ export interface OutletRanking {
   outlet_name: string;
   outlet_logo_url: string | null;
   avg_disparity: number;
+  avg_disparity_steam: number | null;
+  avg_disparity_metacritic: number | null;
+  avg_disparity_combined: number | null;
   journalist_count: number;
   review_count: number;
 }
@@ -163,6 +187,8 @@ export interface GameRanking {
   steam_user_score: number | null;
   metacritic_user_score: number | null;
   disparity: number;
+  disparity_steam: number | null;
+  disparity_metacritic: number | null;
   critic_review_count: number;
 }
 

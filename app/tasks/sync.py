@@ -22,6 +22,7 @@ from app.services.opencritic import OpenCriticService
 from app.services.steam import SteamService
 from app.services.metacritic import MetacriticService
 from app.services.game_matcher import GameMatcher
+from app.services.score_normalizer import ScoreNormalizer
 
 
 def run_async(coro):
@@ -110,12 +111,38 @@ async def _sync_opencritic_full():
             print(f"Synced {len(critics)} critics")
 
             # Sync games (from 2015 onwards)
+            # Only import games that can be matched to Steam or Metacritic
             print("Syncing games...")
             cutoff_date = date(2015, 1, 1)
             games = await service.get_games_since_date(cutoff_date)
+            matcher = GameMatcher()
+
+            games_imported = 0
+            games_skipped = 0
+            imported_game_ids = set()  # Track OpenCritic IDs of imported games
 
             for game_data in games:
                 transformed = OpenCriticService.transform_game(game_data)
+
+                # Try to match to Steam/Metacritic BEFORE importing
+                match_result = await matcher.match_game(
+                    title=transformed.get("title", ""),
+                    release_date=transformed.get("release_date"),
+                    opencritic_id=transformed.get("opencritic_id"),
+                )
+
+                # Only import if we have a Steam match (verified via search)
+                # Metacritic slug is just generated from title, not verified
+                if not match_result["steam_app_id"]:
+                    games_skipped += 1
+                    continue
+
+                # Add platform IDs to the game data
+                if match_result["steam_app_id"]:
+                    transformed["steam_app_id"] = match_result["steam_app_id"]
+                if match_result["metacritic_slug"]:
+                    transformed["metacritic_slug"] = match_result["metacritic_slug"]
+
                 stmt = insert(Game).values(**transformed)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["opencritic_id"],
@@ -127,21 +154,25 @@ async def _sync_opencritic_full():
                         "percent_recommended": stmt.excluded.percent_recommended,
                         "tier": stmt.excluded.tier,
                         "image_url": stmt.excluded.image_url,
+                        "steam_app_id": stmt.excluded.steam_app_id,
+                        "metacritic_slug": stmt.excluded.metacritic_slug,
                         "updated_at": datetime.utcnow(),
                     },
                 )
                 await db.execute(stmt)
                 records_processed += 1
+                games_imported += 1
+                imported_game_ids.add(game_data.get("id"))
 
             await db.commit()
-            print(f"Synced {len(games)} games")
+            print(f"Synced {games_imported} games (skipped {games_skipped} without platform match)")
 
-            # Sync reviews for each game
+            # Sync reviews only for imported games
             print("Syncing reviews...")
             review_count = 0
             for game_data in games:
                 game_id = game_data.get("id")
-                if not game_id:
+                if not game_id or game_id not in imported_game_ids:
                     continue
 
                 reviews = await service.get_game_reviews(game_id)
@@ -471,3 +502,88 @@ async def _match_games_to_platforms():
 
         await db.commit()
         print(f"Matched {matched} games to Steam")
+
+
+# =============================================================================
+# Data Cleanup Tasks
+# =============================================================================
+
+@dramatiq.actor(max_retries=1, time_limit=600000)  # 10 min time limit
+def cleanup_unscored_reviews():
+    """
+    Clean up reviews that were incorrectly assigned scores.
+
+    Some outlets (Kotaku, Rock Paper Shotgun, etc.) don't use numeric scores.
+    OpenCritic may have sent recommendation-style scores (like "10" for "Recommended")
+    that we incorrectly normalized to 100.
+
+    This task re-evaluates all reviews and sets score_normalized to NULL
+    for reviews that don't have valid numeric scores.
+    """
+    run_async(_cleanup_unscored_reviews())
+
+
+async def _cleanup_unscored_reviews():
+    """Async implementation of unscored review cleanup."""
+    async with async_session_maker() as db:
+        print("Starting review cleanup...")
+
+        # Text-based "scores" that should not be normalized
+        unscored_values = {
+            # Explicit unscored indicators
+            "n/a", "tbd", "unscored", "-", "", "na", "none", "no score",
+            # Recommendation-based systems (not numeric scores)
+            "recommended", "not recommended", "yes", "no",
+            "buy", "buy it", "don't buy", "skip", "skip it",
+            "essential", "must-play", "must play", "avoid",
+            "worth playing", "worth it", "not worth it",
+            # Award/badge systems
+            "editors' choice", "editor's choice", "editors choice",
+            "platinum", "gold", "silver", "bronze",
+            # Thumbs systems
+            "thumbs up", "thumbs down",
+        }
+
+        # Get all reviews with scores
+        query = select(Review).where(Review.score_normalized.isnot(None))
+        result = await db.execute(query)
+        reviews = result.scalars().all()
+
+        print(f"Checking {len(reviews)} reviews...")
+
+        fixed_count = 0
+        for review in reviews:
+            # Check if raw_score is a text-based non-numeric value
+            raw = (review.score_raw or "").strip().lower()
+
+            should_nullify = False
+
+            # Check against known unscored values
+            if raw in unscored_values:
+                should_nullify = True
+            # Check if raw score is 0 and normalized is also 0
+            elif review.score_normalized == 0:
+                should_nullify = True
+            # Check if raw score looks numeric but resulted in exactly 100 from a non-100 scale
+            # This catches cases where "10" on a 10-scale became 100
+            elif review.score_normalized == 100 and review.score_scale != "100":
+                # Re-normalize to verify
+                try:
+                    test_value = float(raw)
+                    # If raw is exactly 10 on a 10-scale, it could be legitimate OR
+                    # it could be OpenCritic converting "Recommended" to 10
+                    # We can't be 100% sure, but we can flag suspicious cases
+                    if test_value == 10 and review.score_scale == "10":
+                        # This is suspicious - could be a fake score
+                        # Check if it's from an outlet that typically doesn't use scores
+                        pass  # Leave for manual review
+                except ValueError:
+                    # Raw score isn't numeric, shouldn't have been normalized
+                    should_nullify = True
+
+            if should_nullify:
+                review.score_normalized = None
+                fixed_count += 1
+
+        await db.commit()
+        print(f"Cleanup complete: nullified scores for {fixed_count} reviews")

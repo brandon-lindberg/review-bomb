@@ -18,6 +18,9 @@ from app.models.models import (
     UserScoreSource,
 )
 
+# Anti-gaming: minimum user reviews required for a game to count in disparity
+MIN_USER_REVIEWS = 50
+
 
 class DisparityCalculator:
     """
@@ -68,6 +71,10 @@ class DisparityCalculator:
 
         critic_score = review.score_normalized
 
+        # Skip reviews without a normalized score (unscored reviews)
+        if critic_score is None:
+            return result
+
         if steam_score is not None:
             result["disparity_steam"] = critic_score - steam_score
 
@@ -91,19 +98,19 @@ class DisparityCalculator:
         game_id: int,
     ) -> Dict[str, Optional[Decimal]]:
         """
-        Get the latest user scores for a game.
+        Get the latest user scores for a game (only if they meet minimum sample size).
 
         Args:
             game_id: Game ID
 
         Returns:
-            Dictionary with steam_score and metacritic_score
+            Dictionary with steam_score and metacritic_score (None if < MIN_USER_REVIEWS)
         """
         result = {"steam_score": None, "metacritic_score": None}
 
-        # Get latest Steam score
+        # Get latest Steam score with sample size
         steam_query = (
-            select(UserScore.score)
+            select(UserScore.score, UserScore.sample_size)
             .where(
                 UserScore.game_id == game_id,
                 UserScore.source == UserScoreSource.STEAM,
@@ -112,13 +119,13 @@ class DisparityCalculator:
             .limit(1)
         )
         steam_result = await self.db.execute(steam_query)
-        steam_score = steam_result.scalar_one_or_none()
-        if steam_score:
-            result["steam_score"] = steam_score
+        steam_row = steam_result.first()
+        if steam_row and (steam_row[1] or 0) >= MIN_USER_REVIEWS:
+            result["steam_score"] = steam_row[0]
 
-        # Get latest Metacritic score
+        # Get latest Metacritic score with sample size
         metacritic_query = (
-            select(UserScore.score)
+            select(UserScore.score, UserScore.sample_size)
             .where(
                 UserScore.game_id == game_id,
                 UserScore.source == UserScoreSource.METACRITIC,
@@ -127,9 +134,9 @@ class DisparityCalculator:
             .limit(1)
         )
         metacritic_result = await self.db.execute(metacritic_query)
-        metacritic_score = metacritic_result.scalar_one_or_none()
-        if metacritic_score:
-            result["metacritic_score"] = metacritic_score
+        metacritic_row = metacritic_result.first()
+        if metacritic_row and (metacritic_row[1] or 0) >= MIN_USER_REVIEWS:
+            result["metacritic_score"] = metacritic_row[0]
 
         return result
 

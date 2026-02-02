@@ -20,6 +20,9 @@ from app.schemas.schemas import (
 
 router = APIRouter()
 
+# Anti-gaming: minimum reviews required for leaderboard inclusion
+MIN_REVIEWS_FOR_LEADERBOARD = 10
+
 
 @router.get("/journalists", response_model=PaginatedResponse[JournalistRanking])
 async def journalist_leaderboard(
@@ -45,13 +48,17 @@ async def journalist_leaderboard(
         .subquery()
     )
 
-    # Get most recent outlet for each journalist
+    # Get most recent outlet for each journalist (from scored reviews)
     recent_outlet_subq = (
         select(
             Review.journalist_id,
             Outlet.name.label("outlet_name"),
         )
         .join(Outlet, Review.outlet_id == Outlet.id)
+        .where(
+            Review.score_normalized.isnot(None),  # Only scored reviews
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        )
         .distinct(Review.journalist_id)
         .order_by(Review.journalist_id, desc(Review.published_at))
         .subquery()
@@ -66,7 +73,10 @@ async def journalist_leaderboard(
         )
         .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
         .outerjoin(recent_outlet_subq, Journalist.id == recent_outlet_subq.c.journalist_id)
-        .where(latest_snapshot_subq.c.avg_disparity_combined.isnot(None))
+        .where(
+            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        )
     )
 
     # Sort by disparity
@@ -75,11 +85,14 @@ async def journalist_leaderboard(
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
 
-    # Get total count
+    # Get total count (with minimum review filter)
     count_query = (
         select(func.count())
         .select_from(latest_snapshot_subq)
-        .where(latest_snapshot_subq.c.avg_disparity_combined.isnot(None))
+        .where(
+            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -143,13 +156,17 @@ async def outlet_leaderboard(
         .subquery()
     )
 
-    # Get journalist count per outlet
+    # Get journalist count per outlet (from scored reviews)
     journalist_count_subq = (
         select(
             Review.outlet_id,
             func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
         )
-        .where(Review.outlet_id.isnot(None))
+        .where(
+            Review.outlet_id.isnot(None),
+            Review.score_normalized.isnot(None),  # Only scored reviews
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        )
         .group_by(Review.outlet_id)
         .subquery()
     )
@@ -163,7 +180,10 @@ async def outlet_leaderboard(
         )
         .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
         .outerjoin(journalist_count_subq, Outlet.id == journalist_count_subq.c.outlet_id)
-        .where(latest_snapshot_subq.c.avg_disparity_combined.isnot(None))
+        .where(
+            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        )
     )
 
     # Sort by disparity
@@ -172,11 +192,14 @@ async def outlet_leaderboard(
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
 
-    # Get total count
+    # Get total count (with minimum review filter)
     count_query = (
         select(func.count())
         .select_from(latest_snapshot_subq)
-        .where(latest_snapshot_subq.c.avg_disparity_combined.isnot(None))
+        .where(
+            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
@@ -216,6 +239,10 @@ async def outlet_leaderboard(
     )
 
 
+# Anti-gaming: minimum user reviews required for a game to appear in leaderboards
+MIN_USER_REVIEWS_FOR_GAME = 50
+
+
 @router.get("/games", response_model=PaginatedResponse[GameRanking])
 async def game_leaderboard(
     page: int = Query(1, ge=1),
@@ -224,22 +251,27 @@ async def game_leaderboard(
     db: AsyncSession = Depends(get_db),
 ):
     """Get games ranked by disparity (most divisive)."""
-    # Subquery for avg critic score
+    # Subquery for avg critic score (only reviews with actual scores)
     critic_subq = (
         select(
             Review.game_id,
             func.avg(Review.score_normalized).label("avg_critic_score"),
             func.count(Review.id).label("critic_review_count"),
         )
+        .where(
+            Review.score_normalized.isnot(None),  # Only scored reviews
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        )
         .group_by(Review.game_id)
         .subquery()
     )
 
-    # Subquery for latest Steam score
+    # Subquery for latest Steam score (with sample_size for filtering)
     steam_subq = (
         select(
             UserScore.game_id,
             UserScore.score.label("steam_score"),
+            UserScore.sample_size.label("steam_sample_size"),
         )
         .where(UserScore.source == "STEAM")
         .distinct(UserScore.game_id)
@@ -247,11 +279,12 @@ async def game_leaderboard(
         .subquery()
     )
 
-    # Subquery for latest Metacritic score
+    # Subquery for latest Metacritic score (with sample_size for filtering)
     metacritic_subq = (
         select(
             UserScore.game_id,
             UserScore.score.label("metacritic_score"),
+            UserScore.sample_size.label("metacritic_sample_size"),
         )
         .where(UserScore.source == "METACRITIC")
         .distinct(UserScore.game_id)
@@ -278,9 +311,9 @@ async def game_leaderboard(
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
         .where(
-            # At least one user score must exist
-            (steam_subq.c.steam_score.isnot(None)) |
-            (metacritic_subq.c.metacritic_score.isnot(None))
+            # At least one user score must exist with 50+ reviews (anti-gaming)
+            (steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS_FOR_GAME) |
+            (metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS_FOR_GAME)
         )
     )
 
@@ -290,15 +323,15 @@ async def game_leaderboard(
     else:
         query = query.order_by(asc(func.abs(disparity_expr)))
 
-    # Get total count (games with both critic reviews and user scores)
+    # Get total count (games with both critic reviews and 50+ user reviews)
     count_subq = (
         select(Game.id)
         .join(critic_subq, Game.id == critic_subq.c.game_id)
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
         .where(
-            (steam_subq.c.steam_score.isnot(None)) |
-            (metacritic_subq.c.metacritic_score.isnot(None))
+            (steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS_FOR_GAME) |
+            (metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS_FOR_GAME)
         )
     )
     count_query = select(func.count()).select_from(count_subq.subquery())

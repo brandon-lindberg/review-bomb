@@ -25,6 +25,7 @@ class OpenCriticService:
     """Service for interacting with the OpenCritic API."""
 
     BASE_URL = "https://opencritic-api.p.rapidapi.com"
+    IMAGE_CDN_URL = "https://img.opencritic.com"
     DATA_CUTOFF = date(2015, 1, 1)
 
     def __init__(self):
@@ -246,13 +247,17 @@ class OpenCriticService:
     # Data Transformation Helpers
     # =========================================================================
 
-    @staticmethod
-    def transform_critic(data: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def transform_critic(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform OpenCritic critic data to our model format."""
         # Handle image_url which can be a string or dict with size variants
         image_url = data.get("imageSrc")
         if isinstance(image_url, dict):
             image_url = image_url.get("og") or image_url.get("lg") or image_url.get("sm")
+
+        # Convert relative path to full URL
+        if image_url and not image_url.startswith("http"):
+            image_url = f"{cls.IMAGE_CDN_URL}/{image_url}"
 
         return {
             "opencritic_id": data.get("id"),
@@ -261,14 +266,18 @@ class OpenCriticService:
             "bio": None,  # OpenCritic doesn't provide bios
         }
 
-    @staticmethod
-    def transform_outlet(data: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def transform_outlet(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform OpenCritic outlet data to our model format."""
         # Handle logo_url which can be a string or dict with size variants
         logo_url = data.get("imageSrc")
         if isinstance(logo_url, dict):
             # Prefer 'og' (original), then 'lg', then 'sm'
             logo_url = logo_url.get("og") or logo_url.get("lg") or logo_url.get("sm")
+
+        # Convert relative path to full URL
+        if logo_url and not logo_url.startswith("http"):
+            logo_url = f"{cls.IMAGE_CDN_URL}/{logo_url}"
 
         return {
             "opencritic_id": data.get("id"),
@@ -277,8 +286,8 @@ class OpenCriticService:
             "logo_url": logo_url,
         }
 
-    @staticmethod
-    def transform_game(data: Dict[str, Any]) -> Dict[str, Any]:
+    @classmethod
+    def transform_game(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Transform OpenCritic game data to our model format."""
         release_date = None
         release_date_str = data.get("firstReleaseDate")
@@ -298,6 +307,10 @@ class OpenCriticService:
             banner = data.get("bannerScreenshot")
             if isinstance(banner, dict):
                 image_url = banner.get("fullRes") or banner.get("og")
+
+        # Convert relative path to full URL
+        if image_url and not image_url.startswith("http"):
+            image_url = f"{cls.IMAGE_CDN_URL}/{image_url}"
 
         return {
             "opencritic_id": data.get("id"),
@@ -329,18 +342,39 @@ class OpenCriticService:
         # Normalize score
         score_raw = str(data.get("score", ""))
         score_scale = None
+        normalized_score = None
+        detected_scale = None
 
         # OpenCritic provides scoreFormat which indicates the scale
         score_format = data.get("scoreFormat", {})
+
+        # Check if this is a recommendation-based format (not a real numeric score)
+        # These outlets don't give numeric scores, so we shouldn't normalize them
+        is_recommendation_format = False
         if score_format:
-            # Try to determine scale from format
+            format_type = score_format.get("type", "").lower()
+            format_name = score_format.get("name", "").lower()
+
+            # Detect recommendation-based formats
+            recommendation_indicators = [
+                "recommend", "binary", "thumbs", "buy", "skip",
+                "essential", "award", "badge", "yes/no",
+            ]
+            if any(ind in format_type or ind in format_name for ind in recommendation_indicators):
+                is_recommendation_format = True
+
+            # Also check if base is 0 or 1 (binary) or if there's no real scale
             base = score_format.get("base")
-            if base:
+            if base in (0, 1, "0", "1", None):
+                is_recommendation_format = True
+            elif base:
                 score_scale = str(base)
 
-        normalized_score, detected_scale = ScoreNormalizer.normalize(
-            score_raw, score_scale
-        )
+        # Only normalize if this is NOT a recommendation-based format
+        if not is_recommendation_format and score_raw:
+            normalized_score, detected_scale = ScoreNormalizer.normalize(
+                score_raw, score_scale
+            )
 
         return {
             "opencritic_review_id": str(data.get("_id") or data.get("id")),

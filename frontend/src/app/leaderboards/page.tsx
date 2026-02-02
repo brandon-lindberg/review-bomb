@@ -4,7 +4,7 @@ import {
   getOutletLeaderboard,
   getGameLeaderboard,
 } from "@/lib/api";
-import { DisparityBadge } from "@/components/DisparityBadge";
+import { DisparityScores } from "@/components/DisparityScores";
 import { SortSelect } from "@/components/SortSelect";
 
 export const dynamic = "force-dynamic";
@@ -96,10 +96,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     Reviews
                   </th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
-                    Avg Score
-                  </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
-                    Disparity
+                    Disparity (Steam / MC / Combined)
                   </th>
                 </tr>
               </thead>
@@ -112,28 +109,34 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   let linkHref: string;
                   let name: string;
                   let reviewCount: number;
-                  let avgScore: number | null = null;
-                  let disparity: number | null = null;
+                  let steamDisparity: number | null = null;
+                  let metacriticDisparity: number | null = null;
+                  let combinedDisparity: number | null = null;
 
                   if (tab === "journalists" && "journalist_id" in item) {
                     id = item.journalist_id;
                     linkHref = `/journalists/${id}`;
                     name = item.journalist_name;
                     reviewCount = item.review_count;
-                    disparity = item.avg_disparity;
+                    steamDisparity = item.avg_disparity_steam ?? null;
+                    metacriticDisparity = item.avg_disparity_metacritic ?? null;
+                    combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
                   } else if (tab === "outlets" && "outlet_id" in item) {
                     id = item.outlet_id;
                     linkHref = `/outlets/${id}`;
                     name = item.outlet_name;
                     reviewCount = item.review_count;
-                    disparity = item.avg_disparity;
+                    steamDisparity = item.avg_disparity_steam ?? null;
+                    metacriticDisparity = item.avg_disparity_metacritic ?? null;
+                    combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
                   } else if (tab === "games" && "game_id" in item) {
                     id = item.game_id;
                     linkHref = `/games/${id}`;
                     name = item.game_title;
                     reviewCount = item.critic_review_count;
-                    avgScore = item.avg_critic_score;
-                    disparity = item.disparity;
+                    steamDisparity = item.disparity_steam ?? null;
+                    metacriticDisparity = item.disparity_metacritic ?? null;
+                    combinedDisparity = item.disparity;
                   } else {
                     return null;
                   }
@@ -155,11 +158,14 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                       <td className="px-4 py-4 text-sm text-gray-500 text-right">
                         {reviewCount}
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-500 text-right">
-                        {avgScore != null ? Number(avgScore).toFixed(1) : "—"}
-                      </td>
                       <td className="px-4 py-4 text-right">
-                        <DisparityBadge disparity={disparity} />
+                        <DisparityScores
+                          steamDisparity={steamDisparity}
+                          metacriticDisparity={metacriticDisparity}
+                          combinedDisparity={combinedDisparity}
+                          layout="compact"
+                          showLabels={false}
+                        />
                       </td>
                     </tr>
                   );

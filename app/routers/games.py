@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc, asc, extract
+from sqlalchemy import select, func, desc, asc, extract, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -20,6 +20,9 @@ from app.schemas.schemas import (
 
 router = APIRouter()
 
+# Anti-gaming: minimum user reviews required for a game to appear in lists
+MIN_USER_REVIEWS = 50
+
 
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
@@ -31,12 +34,16 @@ async def list_games(
     db: AsyncSession = Depends(get_db),
 ):
     """List all games with pagination and filtering."""
-    # Subquery for review count and avg critic score
+    # Subquery for review count and avg critic score (only reviews with actual scores)
     review_stats_subq = (
         select(
             Review.game_id,
             func.count(Review.id).label("critic_review_count"),
             func.avg(Review.score_normalized).label("avg_critic_score"),
+        )
+        .where(
+            Review.score_normalized.isnot(None),  # Only reviews with scores
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
         .group_by(Review.game_id)
         .subquery()
@@ -81,6 +88,14 @@ async def list_games(
         .outerjoin(review_stats_subq, Game.id == review_stats_subq.c.game_id)
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
+        # Only include games with critic reviews AND at least one user score with 50+ reviews
+        .where(review_stats_subq.c.avg_critic_score.isnot(None))
+        .where(
+            or_(
+                steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS,
+                metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS,
+            )
+        )
     )
 
     # Filter by year if provided
@@ -103,8 +118,21 @@ async def list_games(
     else:
         query = query.order_by(asc(order_col).nulls_last())
 
-    # Get total count
-    count_query = select(func.count()).select_from(Game)
+    # Get total count (must match the same filters as the main query)
+    count_query = (
+        select(func.count(Game.id.distinct()))
+        .select_from(Game)
+        .outerjoin(review_stats_subq, Game.id == review_stats_subq.c.game_id)
+        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
+        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
+        .where(review_stats_subq.c.avg_critic_score.isnot(None))
+        .where(
+            or_(
+                steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS,
+                metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS,
+            )
+        )
+    )
     if year:
         count_query = count_query.where(extract("year", Game.release_date) == year)
     total_result = await db.execute(count_query)
@@ -178,11 +206,15 @@ async def get_game(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    # Get critic stats
+    # Get critic stats (only reviews with actual scores)
     critic_stats_query = select(
         func.count(Review.id).label("critic_review_count"),
         func.avg(Review.score_normalized).label("avg_critic_score"),
-    ).where(Review.game_id == game_id)
+    ).where(
+        Review.game_id == game_id,
+        Review.score_normalized.isnot(None),
+        Review.score_normalized > 0,  # Exclude unscored (0) reviews
+    )
 
     critic_result = await db.execute(critic_stats_query)
     critic_row = critic_result.one()
@@ -240,6 +272,34 @@ async def get_game(
     )
 
 
+# Anti-gaming constants
+LAUNCH_WINDOW_DAYS = 60
+MIN_USER_REVIEWS = 50  # Minimum user reviews required for disparity calculation
+
+
+def calculate_review_timing(review_date, game_release_date) -> str:
+    """
+    Calculate review timing category.
+
+    Returns:
+        "early" - Review published before game release
+        "launch_window" - Review published within 60 days of release
+        "late" - Review published more than 60 days after release
+        "unknown" - Cannot determine (missing dates)
+    """
+    if not review_date or not game_release_date:
+        return "unknown"
+
+    days_after_release = (review_date - game_release_date).days
+
+    if days_after_release < 0:
+        return "early"
+    elif days_after_release <= LAUNCH_WINDOW_DAYS:
+        return "launch_window"
+    else:
+        return "late"
+
+
 @router.get("/{game_id}/reviews", response_model=PaginatedResponse[ReviewWithJournalist])
 async def get_game_reviews(
     game_id: int,
@@ -248,47 +308,58 @@ async def get_game_reviews(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all critic reviews for a game."""
-    # Verify game exists
+    # Get game with release date
     game_result = await db.execute(
-        select(Game.id).where(Game.id == game_id)
+        select(Game).where(Game.id == game_id)
     )
-    if not game_result.scalar_one_or_none():
+    game = game_result.scalar_one_or_none()
+    if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    # Get user scores for disparity calculation
+    # Get user scores for disparity calculation (with sample size for filtering)
     steam_query = (
-        select(UserScore.score)
+        select(UserScore.score, UserScore.sample_size)
         .where(UserScore.game_id == game_id, UserScore.source == "STEAM")
         .order_by(desc(UserScore.scraped_at))
         .limit(1)
     )
     steam_result = await db.execute(steam_query)
-    steam_score = steam_result.scalar_one_or_none()
+    steam_row = steam_result.first()
+    steam_score = steam_row[0] if steam_row and (steam_row[1] or 0) >= MIN_USER_REVIEWS else None
 
     metacritic_query = (
-        select(UserScore.score)
+        select(UserScore.score, UserScore.sample_size)
         .where(UserScore.game_id == game_id, UserScore.source == "METACRITIC")
         .order_by(desc(UserScore.scraped_at))
         .limit(1)
     )
     metacritic_result = await db.execute(metacritic_query)
-    metacritic_score = metacritic_result.scalar_one_or_none()
+    metacritic_row = metacritic_result.first()
+    metacritic_score = metacritic_row[0] if metacritic_row and (metacritic_row[1] or 0) >= MIN_USER_REVIEWS else None
 
-    # Get total count
+    # Get total count (only reviews with actual scores)
     count_query = (
         select(func.count())
         .select_from(Review)
-        .where(Review.game_id == game_id)
+        .where(
+            Review.game_id == game_id,
+            Review.score_normalized.isnot(None),  # Only scored reviews
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Get reviews
+    # Get reviews (only reviews with actual scores)
     query = (
         select(Review, Journalist, Outlet)
         .join(Journalist, Review.journalist_id == Journalist.id)
         .outerjoin(Outlet, Review.outlet_id == Outlet.id)
-        .where(Review.game_id == game_id)
+        .where(
+            Review.game_id == game_id,
+            Review.score_normalized.isnot(None),  # Only scored reviews
+            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        )
         .order_by(desc(Review.published_at))
         .offset((page - 1) * per_page)
         .limit(per_page)
@@ -307,6 +378,10 @@ async def get_game_reviews(
         if metacritic_score:
             disparity_metacritic = review.score_normalized - metacritic_score
 
+        # Calculate review timing (early/launch_window/late)
+        review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
+        review_timing = calculate_review_timing(review_date, game.release_date)
+
         items.append(
             ReviewWithJournalist(
                 id=review.id,
@@ -322,8 +397,12 @@ async def get_game_reviews(
                 journalist_name=journalist.name,
                 journalist_image_url=journalist.image_url,
                 outlet_name=outlet.name if outlet else None,
+                game_title=None,  # Already on game page, title known
+                game_release_date=game.release_date,
                 disparity_steam=disparity_steam,
                 disparity_metacritic=disparity_metacritic,
+                is_launch_window=review_timing == "launch_window",  # Backward compatibility
+                review_timing=review_timing,
             )
         )
 

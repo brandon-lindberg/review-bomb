@@ -130,24 +130,91 @@ async def cmd_disparity(args):
 
         if args.journalists:
             print("\nProcessing journalists...")
-            await calculator.calculate_journalist_disparities()
-            print("Journalist disparities calculated.")
+            count = await calculator.generate_journalist_snapshots()
+            print(f"Created {count} journalist snapshots.")
 
         if args.outlets:
             print("\nProcessing outlets...")
-            await calculator.calculate_outlet_disparities()
-            print("Outlet disparities calculated.")
+            count = await calculator.generate_outlet_snapshots()
+            print(f"Created {count} outlet snapshots.")
 
         if args.games:
             print("\nProcessing games...")
-            await calculator.calculate_game_disparities()
-            print("Game disparities calculated.")
+            count = await calculator.generate_game_snapshots()
+            print(f"Created {count} game snapshots.")
 
         if not (args.journalists or args.outlets or args.games):
             # Calculate all by default
-            print("\nCalculating all disparities...")
-            await calculator.calculate_all_disparities()
-            print("All disparities calculated.")
+            print("\nGenerating all snapshots...")
+            results = await calculator.generate_all_snapshots()
+            print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
+
+
+async def cmd_refresh_images(args):
+    """Fix image URLs by adding CDN base URL to relative paths."""
+    from app.services.opencritic import OpenCriticService
+    from app.models.models import Journalist, Outlet, Game
+    from sqlalchemy import select
+
+    CDN_URL = OpenCriticService.IMAGE_CDN_URL
+
+    async with async_session_maker() as db:
+        updated_journalists = 0
+        updated_outlets = 0
+        updated_games = 0
+
+        # Fix journalist images
+        print("Fixing journalist image URLs...")
+        result = await db.execute(
+            select(Journalist).where(
+                Journalist.image_url.isnot(None),
+                ~Journalist.image_url.startswith("http")
+            )
+        )
+        journalists = result.scalars().all()
+
+        for journalist in journalists:
+            journalist.image_url = f"{CDN_URL}/{journalist.image_url}"
+            updated_journalists += 1
+
+        await db.commit()
+        print(f"Fixed {updated_journalists} journalist image URLs")
+
+        # Fix outlet logos
+        print("Fixing outlet logo URLs...")
+        result = await db.execute(
+            select(Outlet).where(
+                Outlet.logo_url.isnot(None),
+                ~Outlet.logo_url.startswith("http")
+            )
+        )
+        outlets = result.scalars().all()
+
+        for outlet in outlets:
+            outlet.logo_url = f"{CDN_URL}/{outlet.logo_url}"
+            updated_outlets += 1
+
+        await db.commit()
+        print(f"Fixed {updated_outlets} outlet logo URLs")
+
+        # Fix game images
+        print("Fixing game image URLs...")
+        result = await db.execute(
+            select(Game).where(
+                Game.image_url.isnot(None),
+                ~Game.image_url.startswith("http")
+            )
+        )
+        games = result.scalars().all()
+
+        for game in games:
+            game.image_url = f"{CDN_URL}/{game.image_url}"
+            updated_games += 1
+
+        await db.commit()
+        print(f"Fixed {updated_games} game image URLs")
+
+        print(f"\nImage URL fix complete: {updated_journalists} journalists, {updated_outlets} outlets, {updated_games} games")
 
 
 async def cmd_match(args):
@@ -248,6 +315,9 @@ def main():
     # Clear command
     subparsers.add_parser("clear", help="Clear all data from database")
 
+    # Refresh images command
+    subparsers.add_parser("refresh-images", help="Refresh image URLs from OpenCritic")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -265,6 +335,8 @@ def main():
         return asyncio.run(cmd_disparity(args))
     elif args.command == "clear":
         return asyncio.run(cmd_clear(args))
+    elif args.command == "refresh-images":
+        return asyncio.run(cmd_refresh_images(args))
     else:
         parser.print_help()
         return 1

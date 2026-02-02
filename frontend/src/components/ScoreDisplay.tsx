@@ -45,7 +45,7 @@ export function ScoreDisplay({
           <div
             className={`${classes.score} font-bold ${criticScore != null ? "text-purple-600" : "text-gray-300"}`}
           >
-            {criticScore != null ? criticScore.toFixed(0) : "—"}
+            {criticScore != null ? Number(criticScore).toFixed(0) : "—"}
           </div>
         </div>
 
@@ -58,7 +58,7 @@ export function ScoreDisplay({
           <div
             className={`${classes.score} font-bold ${userScore != null ? "text-blue-600" : "text-gray-300"}`}
           >
-            {userScore != null ? userScore.toFixed(0) : "—"}
+            {userScore != null ? Number(userScore).toFixed(0) : "—"}
           </div>
         </div>
       </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -12,6 +13,43 @@ import {
   ReferenceLine,
 } from "recharts";
 import type { DisparitySnapshot } from "@/types";
+
+// Hook to detect dark mode
+function useIsDarkMode() {
+  const [isDark, setIsDark] = useState(false);
+
+  useEffect(() => {
+    const checkDarkMode = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+
+    checkDarkMode();
+
+    // Watch for class changes on html element
+    const observer = new MutationObserver(checkDarkMode);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
+  return isDark;
+}
+
+// Theme colors
+const getThemeColors = (isDark: boolean) => ({
+  rust: isDark ? "#E05A2B" : "#BB3B0E",
+  orange: isDark ? "#E8904D" : "#DD7631",
+  sage: isDark ? "#8FA87A" : "#708160",
+  tan: isDark ? "#E5D9B3" : "#D8C593",
+  grid: isDark ? "#3D3A35" : "#e5e7eb",
+  axis: isDark ? "#6A655C" : "#9ca3af",
+  text: isDark ? "#B8B4AC" : "#6b7280",
+  background: isDark ? "#2D2A26" : "#ffffff",
+  border: isDark ? "#3D3A35" : "#e5e7eb",
+});
 
 interface DisparityChartProps {
   data: DisparitySnapshot[];
@@ -28,6 +66,9 @@ export function DisparityChart({
   showMetacritic = true,
   showCombined = true,
 }: DisparityChartProps) {
+  const isDark = useIsDarkMode();
+  const colors = getThemeColors(isDark);
+
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[200px] text-gray-500">
@@ -51,27 +92,29 @@ export function DisparityChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 12 }}
-          tickLine={{ stroke: "#9ca3af" }}
-          axisLine={{ stroke: "#9ca3af" }}
+          tick={{ fontSize: 12, fill: colors.text }}
+          tickLine={{ stroke: colors.axis }}
+          axisLine={{ stroke: colors.axis }}
         />
         <YAxis
-          tick={{ fontSize: 12 }}
-          tickLine={{ stroke: "#9ca3af" }}
-          axisLine={{ stroke: "#9ca3af" }}
+          tick={{ fontSize: 12, fill: colors.text }}
+          tickLine={{ stroke: colors.axis }}
+          axisLine={{ stroke: colors.axis }}
           domain={["auto", "auto"]}
           tickFormatter={(value) => `${value > 0 ? "+" : ""}${value}`}
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: "white",
-            border: "1px solid #e5e7eb",
+            backgroundColor: colors.background,
+            border: `1px solid ${colors.border}`,
             borderRadius: "8px",
             boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            color: colors.text,
           }}
+          labelStyle={{ color: colors.text }}
           formatter={(value, name) => {
             if (value === null || value === undefined) return ["N/A", String(name)];
             const numValue = Number(value);
@@ -92,13 +135,14 @@ export function DisparityChart({
                 ? "Metacritic"
                 : "Combined";
           }}
+          wrapperStyle={{ color: colors.text }}
         />
-        <ReferenceLine y={0} stroke="#D8C593" strokeDasharray="5 5" />
+        <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
         {showSteam && (
           <Line
             type="monotone"
             dataKey="steam"
-            stroke="#708160"
+            stroke={colors.sage}
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -108,7 +152,7 @@ export function DisparityChart({
           <Line
             type="monotone"
             dataKey="metacritic"
-            stroke="#DD7631"
+            stroke={colors.orange}
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -118,7 +162,7 @@ export function DisparityChart({
           <Line
             type="monotone"
             dataKey="combined"
-            stroke="#BB3B0E"
+            stroke={colors.rust}
             strokeWidth={2}
             dot={false}
             connectNulls
@@ -141,6 +185,9 @@ export function MiniDisparityChart({
   color = "#BB3B0E",
   height = 100,
 }: MiniDisparityChartProps) {
+  const isDark = useIsDarkMode();
+  const colors = getThemeColors(isDark);
+
   if (!data || data.length === 0) {
     return (
       <div className="flex items-center justify-center h-[80px] text-gray-400 text-sm">
@@ -157,7 +204,7 @@ export function MiniDisparityChart({
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-        <ReferenceLine y={0} stroke="#D8C593" />
+        <ReferenceLine y={0} stroke={colors.tan} />
         <Line
           type="monotone"
           dataKey="value"

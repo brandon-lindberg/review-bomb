@@ -62,6 +62,10 @@ class OutletWithStats(OutletSummary):
     journalist_count: int = 0
     review_count: int = 0
     avg_disparity: Optional[Decimal] = None
+    avg_disparity_steam: Optional[Decimal] = None
+    avg_disparity_metacritic: Optional[Decimal] = None
+    avg_disparity_combined: Optional[Decimal] = None
+    avg_score: Optional[Decimal] = None
 
 
 class OutletDetail(OutletSummary):
@@ -101,11 +105,24 @@ class JournalistStats(BaseModel):
     """Aggregated statistics for a journalist."""
     total_reviews: int
     avg_score_given: Optional[Decimal] = None
+
+    # Launch window disparity (reviews within 60 days of game release)
     avg_disparity_steam: Optional[Decimal] = None
     avg_disparity_metacritic: Optional[Decimal] = None
     avg_disparity_combined: Optional[Decimal] = None
+
+    # Overall disparity (all reviews, including late ones)
+    overall_disparity_steam: Optional[Decimal] = None
+    overall_disparity_metacritic: Optional[Decimal] = None
+    overall_disparity_combined: Optional[Decimal] = None
+
     std_deviation: Optional[Decimal] = None
     alignment_rating: Optional[Decimal] = None  # Percentage aligned with users
+
+    # Transparency metrics
+    early_review_count: int = 0  # Reviews before game release
+    launch_window_review_count: int = 0  # Reviews within 60 days of release
+    late_review_count: int = 0  # Reviews after 60 days
 
 
 class JournalistOutletBreakdown(BaseModel):
@@ -212,20 +229,27 @@ class ReviewSummary(ReviewBase):
 class ReviewWithDisparity(ReviewSummary):
     """Review with calculated disparity."""
     game_title: str
+    game_release_date: Optional[date] = None  # For review timing tooltip
     outlet_name: Optional[str] = None
     steam_user_score: Optional[Decimal] = None
     metacritic_user_score: Optional[Decimal] = None
     disparity_steam: Optional[Decimal] = None
     disparity_metacritic: Optional[Decimal] = None
+    is_launch_window: bool = False  # Deprecated - use review_timing instead
+    review_timing: str = "unknown"  # "early" | "launch_window" | "late" | "unknown"
 
 
 class ReviewWithJournalist(ReviewSummary):
-    """Review with journalist info (for game detail page)."""
+    """Review with journalist info (for game/outlet detail pages)."""
     journalist_name: str
     journalist_image_url: Optional[str] = None
     outlet_name: Optional[str] = None
+    game_title: Optional[str] = None  # For outlet pages
+    game_release_date: Optional[date] = None  # For review timing tooltip
     disparity_steam: Optional[Decimal] = None
     disparity_metacritic: Optional[Decimal] = None
+    is_launch_window: bool = False  # Deprecated - use review_timing instead
+    review_timing: str = "unknown"  # "early" | "launch_window" | "late" | "unknown"
 
 
 # =============================================================================

@@ -19,7 +19,12 @@ export function YearFilter({ years, defaultValue }: YearFilterProps) {
 
   return (
     <select
-      className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+      className="pl-4 pr-10 py-2 border border-gray-300 rounded-lg text-sm appearance-none bg-no-repeat"
+      style={{
+        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235C574F' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`,
+        backgroundPosition: "right 0.75rem center",
+        backgroundSize: "1rem",
+      }}
       defaultValue={defaultValue || ""}
       onChange={handleChange}
     >

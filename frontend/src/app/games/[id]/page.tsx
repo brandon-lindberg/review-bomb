@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getGame, getGameReviews } from "@/lib/api";
-import { DisparityBadge } from "@/components/DisparityBadge";
+import { getGame, getGameReviews, getGameAllReviews } from "@/lib/api";
+import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
+import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
 
 export const dynamic = "force-dynamic";
 
@@ -18,11 +19,13 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
 
   let game = null;
   let reviews = null;
+  let allReviews = null;
 
   try {
-    [game, reviews] = await Promise.all([
+    [game, reviews, allReviews] = await Promise.all([
       getGame(parseInt(id)),
       getGameReviews(parseInt(id), page, 20),
+      getGameAllReviews(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
     console.error("Error fetching game:", error);
@@ -57,35 +60,32 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             )}
           </div>
 
-          <div className="flex items-center gap-6">
-            <ScoreDisplay
-              criticScore={game.critic_avg}
-              userScore={game.user_avg}
-              size="lg"
-            />
-            <DisparityBadge disparity={game.disparity} size="lg" />
-          </div>
+          <ScoreDisplay
+            criticScore={game.avg_critic_score}
+            userScore={game.steam_user_score || game.metacritic_user_score}
+            size="lg"
+          />
         </div>
 
         {/* Score Breakdown */}
         <div className="mt-6 pt-6 border-t border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">
+          <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
             Score Breakdown
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <ScoreCard
               label="Critic Average"
-              value={game.critic_avg != null ? Number(game.critic_avg).toFixed(1) : undefined}
-              subtitle={`${game.review_count || 0} reviews`}
+              value={game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(1) : undefined}
+              subtitle={`${game.critic_review_count || 0} reviews`}
             />
             <ScoreCard
               label="Top Critic Score"
-              value={game.top_critic_score != null ? Number(game.top_critic_score).toFixed(1) : undefined}
+              value={game.opencritic_score != null ? Number(game.opencritic_score).toFixed(1) : undefined}
               subtitle="OpenCritic"
             />
             <ScoreCard
               label="Steam User Score"
-              value={game.steam_score != null ? Number(game.steam_score).toFixed(0) : undefined}
+              value={game.steam_user_score != null ? Number(game.steam_user_score).toFixed(0) : undefined}
               subtitle={
                 game.steam_sample_size
                   ? `${game.steam_sample_size.toLocaleString()} reviews`
@@ -94,7 +94,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             />
             <ScoreCard
               label="Metacritic User Score"
-              value={game.metacritic_score != null ? Number(game.metacritic_score).toFixed(0) : undefined}
+              value={game.metacritic_user_score != null ? Number(game.metacritic_user_score).toFixed(0) : undefined}
               subtitle={
                 game.metacritic_sample_size
                   ? `${game.metacritic_sample_size.toLocaleString()} reviews`
@@ -103,7 +103,43 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             />
           </div>
         </div>
+
+        {/* Disparity Breakdown */}
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
+            Disparity Breakdown
+          </h2>
+          <DisparityScoreCards
+            steamDisparity={game.disparity_steam}
+            metacriticDisparity={game.disparity_metacritic}
+            combinedDisparity={game.disparity_steam != null && game.disparity_metacritic != null
+              ? (Number(game.disparity_steam) + Number(game.disparity_metacritic)) / 2
+              : game.disparity_steam ?? game.disparity_metacritic}
+            steamUserScore={game.steam_user_score}
+            metacriticUserScore={game.metacritic_user_score}
+            criticScore={game.avg_critic_score}
+          />
+        </div>
       </div>
+
+      {/* Disparity Chart */}
+      {allReviews && allReviews.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold text-gray-900 mb-4">
+            Review Disparities
+          </h2>
+          <ReviewDisparityChart
+            reviews={allReviews}
+            context="game"
+            gameTitle={game.title}
+            height={300}
+          />
+          <p className="mt-4 text-sm text-gray-500 text-center">
+            Each point represents a critic review. Hover for details.
+            Positive = critic higher than users. Negative = critic lower.
+          </p>
+        </section>
+      )}
 
       {/* Reviews */}
       {reviews && reviews.items.length > 0 && (
@@ -138,11 +174,31 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
                         </>
                       )}
                     </div>
-                    {review.published_at && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        {new Date(review.published_at).toLocaleDateString()}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      {review.published_at && (
+                        <p className="text-sm text-gray-500">
+                          {new Date(review.published_at).toLocaleDateString()}
+                        </p>
+                      )}
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
+                          review.review_timing === "early"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+                            : review.review_timing === "launch_window"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        }`}
+                        title={review.game_release_date
+                          ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
+                              review.review_timing === "early" ? " (before release)" :
+                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
+                            }`
+                          : "Release date unknown"}
+                      >
+                        {review.review_timing === "early" ? "Early Review" :
+                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
+                      </span>
+                    </div>
                     {review.snippet && (
                       <p className="mt-2 text-gray-600 text-sm italic">
                         &ldquo;{review.snippet}&rdquo;

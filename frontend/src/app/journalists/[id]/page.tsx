@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJournalist, getJournalistReviews, getJournalistHistory } from "@/lib/api";
+import { getJournalist, getJournalistReviews, getJournalistAllReviews } from "@/lib/api";
+import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
-import { DisparityChart } from "@/components/DisparityChart";
+import { ReviewScoreCards } from "@/components/ReviewScoreTable";
+import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
 
 export const dynamic = "force-dynamic";
 
@@ -21,13 +23,13 @@ export default async function JournalistDetailPage({
 
   let journalist = null;
   let reviews = null;
-  let history = null;
+  let allReviews = null;
 
   try {
-    [journalist, reviews, history] = await Promise.all([
+    [journalist, reviews, allReviews] = await Promise.all([
       getJournalist(parseInt(id)),
       getJournalistReviews(parseInt(id), page, 20),
-      getJournalistHistory(parseInt(id)).catch(() => []),
+      getJournalistAllReviews(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
     console.error("Error fetching journalist:", error);
@@ -67,33 +69,133 @@ export default async function JournalistDetailPage({
               <p className="mt-2 text-gray-600">{journalist.bio}</p>
             )}
 
-            {/* Stats Grid */}
-            <div className="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
-              <StatCard
-                label="Overall Disparity"
-                value={
-                  journalist.avg_disparity !== null ? (
-                    <DisparityBadge
-                      disparity={journalist.avg_disparity}
-                      size="lg"
-                    />
-                  ) : (
-                    "N/A"
-                  )
-                }
-              />
-              <StatCard
-                label="Total Reviews"
-                value={journalist.review_count.toString()}
-              />
-              <StatCard
-                label="Average Score"
-                value={journalist.avg_score != null ? Number(journalist.avg_score).toFixed(1) : "N/A"}
-              />
-              <StatCard
-                label="Score Std Dev"
-                value={journalist.std_deviation != null ? Number(journalist.std_deviation).toFixed(1) : "N/A"}
-              />
+            {/* Scoring Stats */}
+            <div className="mt-6">
+              {/* Use launch window disparity if available, otherwise fall back to overall */}
+              {(() => {
+                const steamDisparity = journalist.stats?.avg_disparity_steam ?? journalist.stats?.overall_disparity_steam;
+                const mcDisparity = journalist.stats?.avg_disparity_metacritic ?? journalist.stats?.overall_disparity_metacritic;
+                const combinedDisparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
+                const isUsingOverall = journalist.stats?.avg_disparity_combined == null && journalist.stats?.overall_disparity_combined != null;
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      {/* Avg Score Given */}
+                      <div
+                        className="p-4 rounded-lg text-center"
+                        style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+                      >
+                        <div className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+                          {journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given).toFixed(1) : "N/A"}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                          Avg Score Given
+                        </div>
+                      </div>
+
+                      {/* Steam Disparity */}
+                      <div
+                        className="p-4 rounded-lg text-center"
+                        style={{
+                          backgroundColor: getDisparityBgColor(steamDisparity),
+                          border: `1px solid ${getDisparityBorderColor(steamDisparity)}`
+                        }}
+                      >
+                        <div
+                          className="text-2xl font-bold"
+                          style={{ color: getDisparityColor(steamDisparity) }}
+                        >
+                          {formatDisparity(steamDisparity)}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: "#708160" }}>
+                          Steam Disparity
+                        </div>
+                      </div>
+
+                      {/* Metacritic Disparity */}
+                      <div
+                        className="p-4 rounded-lg text-center"
+                        style={{
+                          backgroundColor: getDisparityBgColor(mcDisparity),
+                          border: `1px solid ${getDisparityBorderColor(mcDisparity)}`
+                        }}
+                      >
+                        <div
+                          className="text-2xl font-bold"
+                          style={{ color: getDisparityColor(mcDisparity) }}
+                        >
+                          {formatDisparity(mcDisparity)}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: "#DD7631" }}>
+                          MC Disparity
+                        </div>
+                      </div>
+
+                      {/* Combined Disparity */}
+                      <div
+                        className="p-4 rounded-lg text-center"
+                        style={{
+                          backgroundColor: getDisparityBgColor(combinedDisparity),
+                          border: `1px solid ${getDisparityBorderColor(combinedDisparity)}`
+                        }}
+                      >
+                        <div
+                          className="text-2xl font-bold"
+                          style={{ color: getDisparityColor(combinedDisparity) }}
+                        >
+                          {formatDisparity(combinedDisparity)}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: "#5C574F" }}>
+                          Combined Disparity{isUsingOverall && "*"}
+                        </div>
+                      </div>
+
+                      {/* Review Count */}
+                      <div
+                        className="p-4 rounded-lg text-center"
+                        style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+                      >
+                        <div className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+                          {journalist.review_count}
+                        </div>
+                        <div className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                          Reviews
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Transparency: Early, launch window, and late review breakdown */}
+                    {(journalist.stats?.early_review_count != null || journalist.stats?.launch_window_review_count != null || journalist.stats?.late_review_count != null) && (
+                      <div className="mt-3 text-xs" style={{ color: "var(--foreground-muted)" }}>
+                        {(journalist.stats?.early_review_count ?? 0) > 0 && (
+                          <>
+                            <span className="inline-flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              {journalist.stats?.early_review_count ?? 0} early reviews (before release)
+                            </span>
+                            <span className="mx-2">|</span>
+                          </>
+                        )}
+                        <span className="inline-flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                          {journalist.stats?.launch_window_review_count ?? 0} launch window reviews (within 60 days of release)
+                        </span>
+                        <span className="mx-2">|</span>
+                        <span className="inline-flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                          {journalist.stats?.late_review_count ?? 0} late reviews
+                        </span>
+                        {isUsingOverall && (
+                          <span className="ml-2 text-amber-600">
+                            *No launch window reviews - showing overall disparity
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -129,15 +231,15 @@ export default async function JournalistDetailPage({
       </div>
 
       {/* Disparity Trend Chart */}
-      {history && history.length > 0 && (
+      {allReviews && allReviews.length > 0 && (
         <section className="bg-white rounded-lg shadow p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
             Disparity Over Time
           </h2>
-          <DisparityChart data={history} height={300} />
+          <ReviewDisparityChart reviews={allReviews} context="journalist" height={300} />
           <p className="mt-4 text-sm text-gray-500 text-center">
-            Positive values indicate critic scores higher than user scores.
-            Negative values indicate critic scores lower than user scores.
+            Each point represents a review. Hover for details.
+            Positive = critic higher than users. Negative = critic lower.
           </p>
         </section>
       )}
@@ -150,67 +252,88 @@ export default async function JournalistDetailPage({
             {reviews.items.map((review) => (
               <div
                 key={review.id}
-                className="p-4 border border-gray-200 rounded-lg"
+                className="p-4 border rounded-lg"
+                style={{ borderColor: "var(--border)" }}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                {/* Header: Game title, outlet, date */}
+                <div className="flex items-start justify-between mb-3">
+                  <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
                         href={`/games/${review.game_id}`}
-                        className="font-medium text-gray-900 hover:text-blue-600"
+                        className="font-medium hover:opacity-80"
+                        style={{ color: "var(--foreground)" }}
                       >
                         {review.game_title}
                       </Link>
                       {review.outlet_name && (
                         <>
-                          <span className="text-gray-400">via</span>
+                          <span style={{ color: "var(--foreground-muted)" }}>via</span>
                           <Link
                             href={`/outlets/${review.outlet_id}`}
-                            className="text-gray-600 hover:text-blue-600"
+                            className="hover:opacity-80"
+                            style={{ color: "var(--foreground-muted)" }}
                           >
                             {review.outlet_name}
                           </Link>
                         </>
                       )}
                     </div>
-                    {review.published_at && (
-                      <p className="text-sm text-gray-500 mt-1">
-                        {new Date(review.published_at).toLocaleDateString()}
-                      </p>
-                    )}
-                    {review.snippet && (
-                      <p className="mt-2 text-gray-600 text-sm italic">
-                        &ldquo;{review.snippet}&rdquo;
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-4 ml-4">
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {review.score_normalized != null
-                          ? Number(review.score_normalized).toFixed(0)
-                          : "—"}
-                      </p>
-                      {review.score_raw && review.score_scale && (
-                        <p className="text-xs text-gray-500">
-                          {review.score_raw}/{review.score_scale}
+                    <div className="flex items-center gap-2 mt-1">
+                      {review.published_at && (
+                        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                          {new Date(review.published_at).toLocaleDateString()}
                         </p>
                       )}
-                    </div>
-                    <DisparityBadge disparity={review.disparity} />
-                    {review.review_url && (
-                      <a
-                        href={review.review_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
+                          review.review_timing === "early"
+                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+                            : review.review_timing === "launch_window"
+                            ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                        }`}
+                        title={review.game_release_date
+                          ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
+                              review.review_timing === "early" ? " (before release)" :
+                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
+                            }`
+                          : "Release date unknown"}
                       >
-                        Read
-                      </a>
-                    )}
+                        {review.review_timing === "early" ? "Early Review" :
+                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
+                      </span>
+                    </div>
                   </div>
+                  {review.review_url && (
+                    <a
+                      href={review.review_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm px-3 py-1 rounded hover:opacity-80"
+                      style={{ backgroundColor: "var(--color-rust)", color: "white" }}
+                    >
+                      Read Review
+                    </a>
+                  )}
                 </div>
+
+                {/* Snippet */}
+                {review.snippet && (
+                  <p className="mb-3 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
+                    &ldquo;{review.snippet}&rdquo;
+                  </p>
+                )}
+
+                {/* Score breakdown */}
+                <ReviewScoreCards
+                  criticScore={review.score_normalized}
+                  steamScore={review.steam_user_score}
+                  steamDisparity={review.disparity_steam}
+                  metacriticScore={review.metacritic_user_score}
+                  metacriticDisparity={review.disparity_metacritic}
+                  combinedDisparity={review.disparity}
+                />
               </div>
             ))}
           </div>
@@ -241,23 +364,6 @@ export default async function JournalistDetailPage({
           )}
         </section>
       )}
-    </div>
-  );
-}
-
-function StatCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="p-4 bg-gray-50 rounded-lg text-center">
-      <div className="text-2xl font-bold text-gray-900 flex justify-center">
-        {value}
-      </div>
-      <p className="text-sm text-gray-600 mt-1">{label}</p>
     </div>
   );
 }

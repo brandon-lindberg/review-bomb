@@ -157,3 +157,8 @@ body {
 .border-orange { border-color: var(--color-orange); }
 .border-sage { border-color: var(--color-sage); }
 .border-tan { border-color: var(--color-tan); }
+
+/* Mobile nav link hover */
+.mobile-nav-link:hover {
+  background-color: var(--border);
+}

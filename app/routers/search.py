@@ -34,7 +34,7 @@ async def search(
     journalist_result = await db.execute(journalist_query)
     journalists = journalist_result.scalars().all()
 
-    # Get review counts for journalists
+    # Get review counts for journalists (only scored reviews)
     journalist_ids = [j.id for j in journalists]
     if journalist_ids:
         review_counts_query = (
@@ -42,7 +42,11 @@ async def search(
                 Review.journalist_id,
                 func.count(Review.id).label("review_count"),
             )
-            .where(Review.journalist_id.in_(journalist_ids))
+            .where(
+                Review.journalist_id.in_(journalist_ids),
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            )
             .group_by(Review.journalist_id)
         )
         review_counts_result = await db.execute(review_counts_query)
@@ -93,7 +97,7 @@ async def search(
     game_result = await db.execute(game_query)
     games = game_result.scalars().all()
 
-    # Get review counts for games
+    # Get review counts for games (only scored reviews)
     game_ids = [g.id for g in games]
     if game_ids:
         game_review_counts_query = (
@@ -101,7 +105,11 @@ async def search(
                 Review.game_id,
                 func.count(Review.id).label("review_count"),
             )
-            .where(Review.game_id.in_(game_ids))
+            .where(
+                Review.game_id.in_(game_ids),
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            )
             .group_by(Review.game_id)
         )
         game_review_counts_result = await db.execute(game_review_counts_query)

@@ -177,7 +177,7 @@ class Review(Base):
     # Score information
     score_raw: Mapped[str] = mapped_column(String(50), nullable=False)  # "8.5", "4/5", "B+"
     score_scale: Mapped[Optional[str]] = mapped_column(String(50))  # "10", "5", "100", "letter"
-    score_normalized: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)  # 0-100
+    score_normalized: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # 0-100, NULL for unscored
 
     # Citation (link to original article)
     review_url: Mapped[Optional[str]] = mapped_column(String(1024))

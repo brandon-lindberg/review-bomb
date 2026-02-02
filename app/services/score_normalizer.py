@@ -52,8 +52,23 @@ class ScoreNormalizer:
 
         raw_score = raw_score.strip().upper()
 
-        # Handle "N/A", "TBD", etc.
-        if raw_score in ("N/A", "TBD", "UNSCORED", "-", ""):
+        # Handle "N/A", "TBD", text-based recommendations, and other non-numeric indicators
+        # These are NOT real scores and should not be included in disparity calculations
+        unscored_values = {
+            # Explicit unscored indicators
+            "N/A", "TBD", "UNSCORED", "-", "", "NA", "NONE", "NO SCORE",
+            # Recommendation-based systems (not numeric scores)
+            "RECOMMENDED", "NOT RECOMMENDED", "YES", "NO",
+            "BUY", "BUY IT", "DON'T BUY", "SKIP", "SKIP IT",
+            "ESSENTIAL", "MUST-PLAY", "MUST PLAY", "AVOID",
+            "WORTH PLAYING", "WORTH IT", "NOT WORTH IT",
+            # Award/badge systems
+            "EDITORS' CHOICE", "EDITOR'S CHOICE", "EDITORS CHOICE",
+            "PLATINUM", "GOLD", "SILVER", "BRONZE",
+            # Thumbs systems
+            "THUMBS UP", "THUMBS DOWN",
+        }
+        if raw_score in unscored_values:
             return None, None
 
         # Try letter grade first
