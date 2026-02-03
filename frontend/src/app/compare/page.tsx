@@ -241,14 +241,17 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 {/* Trend Chart Row */}
                 <tr className="bg-gray-50">
                   <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    Disparity Trend
+                    <div>Disparity Trend</div>
+                    <div className="text-xs font-normal text-gray-500 mt-1">
+                      Combined disparity over time
+                    </div>
                   </td>
                   {compareData.map((item, index) => (
                     <td key={item.id} className="px-4 py-4">
                       <MiniDisparityChart
                         data={item.history}
                         color={colors[index]}
-                        height={80}
+                        height={100}
                       />
                     </td>
                   ))}

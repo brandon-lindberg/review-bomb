@@ -21,7 +21,7 @@ export function SearchInput({
   const searchParams = useSearchParams();
   const [value, setValue] = useState(defaultValue);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const isFirstRender = useRef(true);
+  const previousValueRef = useRef(defaultValue);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Perform the search by updating the URL without full page reload
@@ -41,13 +41,15 @@ export function SearchInput({
     [paramName, pathname, router, searchParams]
   );
 
-  // Debounced search effect
+  // Debounced search effect - only triggers when value actually changes from user input
   useEffect(() => {
-    // Skip the first render to avoid searching on page load
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
+    // Only proceed if value actually changed (not just from URL/props change)
+    if (value === previousValueRef.current) {
       return;
     }
+    
+    // Update previous value
+    previousValueRef.current = value;
 
     // Clear existing timer
     if (debounceTimerRef.current) {
@@ -70,6 +72,7 @@ export function SearchInput({
 
   const handleClear = useCallback(() => {
     setValue("");
+    previousValueRef.current = ""; // Update ref to prevent duplicate search
     // Immediately clear without debounce
     const params = new URLSearchParams(searchParams.toString());
     params.delete(paramName);
@@ -87,6 +90,7 @@ export function SearchInput({
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
+      previousValueRef.current = value; // Update ref to prevent duplicate search
       performSearch(value);
     },
     [value, performSearch]

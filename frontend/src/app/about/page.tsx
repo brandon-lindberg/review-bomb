@@ -142,48 +142,73 @@ export default function AboutPage() {
       {/* Launch Window Methodology */}
       <section className="bg-white rounded-lg shadow p-8">
         <h2 className="text-2xl font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-          Launch Window Methodology
+          Review Timing Categories
         </h2>
         <p className="mb-6" style={{ color: "var(--foreground-muted)" }}>
-          To ensure fair and meaningful disparity scores, we focus on reviews published within a
-          <strong style={{ color: "var(--foreground)" }}> 60-day launch window</strong> after a game&apos;s release.
-          This approach prevents score manipulation and ensures we&apos;re comparing critic opinions
-          against the most relevant user feedback.
+          We categorize reviews based on when they were published relative to a game&apos;s release date.
+          This helps identify review patterns and ensures fair disparity calculations.
         </p>
 
-        <div className="grid md:grid-cols-2 gap-4 mb-6">
+        <div className="grid md:grid-cols-3 gap-4 mb-6">
           <div className="p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
             <div className="flex items-center gap-2 mb-2">
-              <span className="w-3 h-3 rounded-full bg-green-500"></span>
-              <span className="font-semibold" style={{ color: "var(--foreground)" }}>Launch Window Reviews</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300">
+                Early Review
+              </span>
             </div>
             <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              Reviews published within 60 days of the game&apos;s release. These are used for the
-              <strong> primary disparity score</strong> shown on journalist and outlet profiles.
+              Reviews published <strong>before</strong> the game&apos;s official release date. These are typically
+              from reviewers who received early access copies from publishers.
             </p>
           </div>
           <div className="p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
             <div className="flex items-center gap-2 mb-2">
-              <span className="w-3 h-3 rounded-full bg-gray-400"></span>
-              <span className="font-semibold" style={{ color: "var(--foreground)" }}>Late Reviews</span>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300">
+                Launch Window
+              </span>
             </div>
             <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              Reviews published more than 60 days after release. These count toward the
-              <strong> overall disparity</strong>, which serves as a secondary metric.
+              Reviews published within <strong>60 days</strong> of the game&apos;s release. These are used for the
+              <strong> primary disparity score</strong> shown on profiles.
+            </p>
+          </div>
+          <div className="p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                Late Review
+              </span>
+            </div>
+            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+              Reviews published <strong>more than 60 days</strong> after release. These count toward the
+              overall disparity as a secondary metric.
             </p>
           </div>
         </div>
 
-        <div
-          className="p-4 rounded-lg"
-          style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
-        >
-          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-            <strong style={{ color: "var(--foreground)" }}>Why 60 days?</strong> This window captures the period
-            when most professional reviews are published and when user scores are most actively being submitted.
-            It also prevents journalists from gaming their scores by selectively reviewing older games where
-            user sentiment has shifted or stabilized.
-          </p>
+        <div className="space-y-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+          >
+            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+              <strong style={{ color: "var(--foreground)" }}>Why 60 days?</strong> This window captures the period
+              when most professional reviews are published and when user scores are most actively being submitted.
+              It also prevents journalists from gaming their scores by selectively reviewing older games where
+              user sentiment has shifted or stabilized.
+            </p>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: "rgba(59, 130, 246, 0.1)", border: "1px solid rgba(59, 130, 246, 0.3)" }}
+          >
+            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+              <strong style={{ color: "#3B82F6" }}>About early reviews:</strong> Early reviews are included in
+              disparity calculations and count toward the launch window. However, they&apos;re marked separately
+              so you can see which critics frequently receive early access—a potential indicator of closer
+              publisher relationships.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -262,11 +287,44 @@ export default function AboutPage() {
               10
             </div>
             <div>
-              <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Minimum Reviews for Leaderboards</h3>
+              <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Minimum Critic Reviews for Journalists/Outlets</h3>
               <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
                 Journalists and outlets must have at least 10 scored reviews to appear on the leaderboards.
                 This prevents new or occasional reviewers with just a few reviews from dominating the rankings
                 due to small sample sizes.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-4 p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+            <div
+              className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 text-xl font-bold"
+              style={{ backgroundColor: "var(--color-rust)", color: "white" }}
+            >
+              10
+            </div>
+            <div>
+              <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Minimum Critic Reviews for Games</h3>
+              <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                Games must have at least 10 critic reviews to appear on the games leaderboard.
+                This ensures we have enough professional opinions to calculate a meaningful disparity score.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-4 p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+            <div
+              className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 text-xl font-bold"
+              style={{ backgroundColor: "var(--color-orange)", color: "white" }}
+            >
+              10
+            </div>
+            <div>
+              <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Minimum Score Spread</h3>
+              <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                Journalists and outlets must have a score spread (standard deviation) of at least 10 to appear
+                on leaderboards. This filters out reviewers who use binary scoring (only 0 or 100) or an
+                extremely narrow scoring range, which can artificially inflate disparity metrics.
               </p>
             </div>
           </div>
@@ -277,9 +335,9 @@ export default function AboutPage() {
           style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
         >
           <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-            <strong style={{ color: "var(--foreground)" }}>Note:</strong> Individual journalist profiles are
-            still accessible even if they don&apos;t meet the leaderboard threshold—they just won&apos;t appear in
-            the ranked lists until they have enough reviews.
+            <strong style={{ color: "var(--foreground)" }}>Note:</strong> Individual journalist and game profiles are
+            still accessible even if they don&apos;t meet the leaderboard thresholds—they just won&apos;t appear in
+            the ranked lists.
           </p>
         </div>
       </section>
@@ -494,7 +552,101 @@ export default function AboutPage() {
         </div>
       </section>
 
-      {/* Data Cutoff */}
+      {/* Score Spread vs Disparity */}
+      <section className="bg-white rounded-lg shadow p-8">
+        <h2 className="text-2xl font-semibold mb-4" style={{ color: "var(--foreground)" }}>
+          Score Spread vs. Disparity
+        </h2>
+        <p className="mb-6" style={{ color: "var(--foreground-muted)" }}>
+          On journalist and outlet profiles, you&apos;ll see both <strong>Disparity</strong> and{" "}
+          <strong>Score Spread</strong>. These measure different things:
+        </p>
+
+        <div className="grid md:grid-cols-2 gap-6 mb-6">
+          <div className="p-4 rounded-lg border-l-4" style={{ backgroundColor: "var(--background-card)", borderLeftColor: "var(--color-rust)" }}>
+            <h3 className="font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+              Disparity
+            </h3>
+            <p className="text-sm mb-3" style={{ color: "var(--foreground-muted)" }}>
+              How far the critic&apos;s scores are from <strong>user scores</strong> (Steam/Metacritic).
+            </p>
+            <div className="text-sm font-mono p-2 rounded" style={{ backgroundColor: "var(--background)", color: "var(--color-rust)" }}>
+              Critic Score − User Score
+            </div>
+            <p className="text-xs mt-2" style={{ color: "var(--foreground-muted)" }}>
+              Example: A critic gives 90, users give 70 → Disparity is +20
+            </p>
+          </div>
+
+          <div className="p-4 rounded-lg border-l-4" style={{ backgroundColor: "var(--background-card)", borderLeftColor: "var(--color-sage)" }}>
+            <h3 className="font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+              Score Spread
+            </h3>
+            <p className="text-sm mb-3" style={{ color: "var(--foreground-muted)" }}>
+              How varied the critic&apos;s <strong>own scores</strong> are (variance in their scoring).
+            </p>
+            <div className="text-sm font-mono p-2 rounded" style={{ backgroundColor: "var(--background)", color: "var(--color-sage)" }}>
+              Standard Deviation of Critic&apos;s Scores
+            </div>
+            <p className="text-xs mt-2" style={{ color: "var(--foreground-muted)" }}>
+              Example: Scores range from 40 to 95 → High spread (uses full range)
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: "rgba(112, 129, 96, 0.15)", border: "1px solid rgba(112, 129, 96, 0.3)" }}
+          >
+            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+              <strong style={{ color: "#708160" }}>High Score Spread (10+):</strong> The critic uses a wide
+              range of scores, differentiating between games they love and games they don&apos;t. This suggests
+              thoughtful, discriminating reviews. These reviewers appear on leaderboards.
+            </p>
+          </div>
+
+          <div
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: "rgba(212, 160, 23, 0.15)", border: "1px solid rgba(212, 160, 23, 0.3)" }}
+          >
+            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+              <strong style={{ color: "#D4A017" }}>Low Score Spread (&lt;10):</strong> The critic gives similar
+              scores to most games, or uses binary scoring (only 0s and 100s). This can artificially inflate
+              disparity metrics and make their scores less meaningful.
+            </p>
+          </div>
+        </div>
+
+        <div
+          className="p-4 rounded-lg mt-6"
+          style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+        >
+          <h4 className="font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+            How we handle low score spread reviewers:
+          </h4>
+          <ul className="text-sm space-y-2" style={{ color: "var(--foreground-muted)" }}>
+            <li className="flex items-start gap-2">
+              <span style={{ color: "var(--color-rust)" }}>•</span>
+              <span><strong>Leaderboards:</strong> Journalists and outlets with score spread below 10 are excluded from leaderboard rankings to prevent skewed data.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span style={{ color: "var(--color-sage)" }}>•</span>
+              <span><strong>Profile pages:</strong> Their individual profiles remain fully accessible with all their reviews and statistics.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span style={{ color: "var(--color-orange)" }}>•</span>
+              <span><strong>Warning indicator:</strong> A warning message appears on profiles when score spread is below 10, helping you understand why their disparity might be less reliable.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span style={{ color: "var(--foreground-muted)" }}>•</span>
+              <span><strong>Search results:</strong> They still appear in search results on the Journalists and Outlets listing pages.</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      {/* Data Coverage */}
       <section className="bg-white rounded-lg shadow p-8">
         <h2 className="text-2xl font-semibold mb-4" style={{ color: "var(--foreground)" }}>
           Data Coverage
@@ -503,17 +655,17 @@ export default function AboutPage() {
           <div>
             <h3 className="font-semibold mb-2" style={{ color: "var(--foreground)" }}>Time Period</h3>
             <p style={{ color: "var(--foreground-muted)" }}>
-              We track reviews from <strong>January 1, 2015</strong> onwards. Older reviews are excluded
-              to focus on modern gaming journalism and to ensure consistent data availability across
-              our sources.
+              We track all available review data from OpenCritic, going back to the earliest reviews
+              in their database. This gives us comprehensive coverage of gaming journalism history
+              and allows tracking of long-term reviewer patterns.
             </p>
           </div>
           <div>
             <h3 className="font-semibold mb-2" style={{ color: "var(--foreground)" }}>Update Frequency</h3>
             <p style={{ color: "var(--foreground-muted)" }}>
-              Critic reviews are synced multiple times daily. User scores from Steam and Metacritic
-              are updated daily. Historical disparity snapshots are calculated daily to power our
-              trend charts.
+              Critic reviews are synced continuously from OpenCritic. User scores from Steam and Metacritic
+              are updated regularly. Historical disparity data powers our trend charts, showing how
+              journalists&apos; alignment with users has changed over time.
             </p>
           </div>
         </div>
@@ -541,6 +693,12 @@ export default function AboutPage() {
             5 reviews will have a less reliable disparity score than one with 500 reviews. We display
             review counts so you can judge the statistical significance yourself. Journalists need at least
             10 reviews to appear on leaderboards.
+          </p>
+          <p>
+            <strong style={{ color: "var(--foreground)" }}>Check score spread:</strong> A journalist&apos;s
+            &quot;Score Spread&quot; tells you how varied their own scores are. Low spread means they give
+            similar scores to most games (or use binary 0/100 scoring), which can make their disparity
+            less meaningful. We filter out very low spread reviewers from leaderboards.
           </p>
           <p>
             <strong style={{ color: "var(--foreground)" }}>Launch window focus:</strong> Our primary disparity

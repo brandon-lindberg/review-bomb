@@ -198,22 +198,82 @@ export function MiniDisparityChart({
 
   const chartData = data.map((point) => ({
     date: point.date,
+    dateFormatted: new Date(point.date).toLocaleDateString("en-US", {
+      month: "short",
+      year: "numeric",
+    }),
     value: point.avg_disparity_combined != null ? Number(point.avg_disparity_combined) : null,
   }));
 
+  // Get first and last valid data points for labels
+  const firstPoint = chartData.find(p => p.value !== null);
+  const lastPoint = [...chartData].reverse().find(p => p.value !== null);
+  
+  // Get start and end values for trend display
+  const startVal = firstPoint?.value ?? null;
+  const endVal = lastPoint?.value ?? null;
+
   return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-        <ReferenceLine y={0} stroke={colors.tan} />
-        <Line
-          type="monotone"
-          dataKey="value"
-          stroke={color}
-          strokeWidth={2}
-          dot={false}
-          connectNulls
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="relative">
+      {/* Chart */}
+      <ResponsiveContainer width="100%" height={height}>
+        <LineChart data={chartData} margin={{ top: 10, right: 10, left: 10, bottom: 5 }}>
+          <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="3 3" />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: colors.background,
+              border: `1px solid ${colors.border}`,
+              borderRadius: "6px",
+              fontSize: "12px",
+              padding: "6px 10px",
+            }}
+            labelFormatter={(label, payload) => {
+              if (payload && payload[0]) {
+                return payload[0].payload.dateFormatted;
+              }
+              return label;
+            }}
+            formatter={(value: number) => {
+              if (value === null || value === undefined) return ["N/A", "Disparity"];
+              return [`${value > 0 ? "+" : ""}${value.toFixed(1)}`, "Disparity"];
+            }}
+          />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke={color}
+            strokeWidth={2}
+            dot={false}
+            activeDot={{ r: 4, fill: color, stroke: colors.background, strokeWidth: 2 }}
+            connectNulls
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      
+      {/* Timeline labels - show start date, start→end values, end date */}
+      <div className="flex justify-between items-center mt-1 px-2">
+        <div className="text-[10px] text-left" style={{ color: colors.axis }}>
+          <div>{firstPoint?.dateFormatted || "—"}</div>
+          {startVal !== null && (
+            <div className="font-medium" style={{ color: color }}>
+              {startVal > 0 ? "+" : ""}{startVal.toFixed(0)}
+            </div>
+          )}
+        </div>
+        {startVal !== null && endVal !== null && startVal !== endVal && (
+          <span className="text-[10px]" style={{ color: colors.axis }}>
+            →
+          </span>
+        )}
+        <div className="text-[10px] text-right" style={{ color: colors.axis }}>
+          <div>{lastPoint?.dateFormatted || "—"}</div>
+          {endVal !== null && (
+            <div className="font-medium" style={{ color: color }}>
+              {endVal > 0 ? "+" : ""}{endVal.toFixed(0)}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
