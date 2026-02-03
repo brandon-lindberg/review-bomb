@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import {
   ComposedChart,
   Line,
@@ -8,7 +8,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
@@ -66,11 +65,11 @@ function isReviewWithJournalist(review: ReviewData): review is ReviewWithJournal
 }
 
 interface ChartDataPoint {
-  date: number; // timestamp for sorting (may include offset for overlapping points)
-  originalDate?: number; // original timestamp without offset
+  date: number; // timestamp for sorting
   dateLabel: string;
   disparity: number | null;
   rollingAvg?: number | null; // Rolling average for trend line
+  index: number; // unique index for identification
   // Context info for tooltip
   gameName?: string;
   journalistName?: string;
@@ -129,6 +128,9 @@ export function ReviewDisparityChart({
   const colors = getThemeColors(isDark);
   const [activeType, setActiveType] = useState<DisparityType>("combined");
   const [chartMode, setChartMode] = useState<ChartMode>("trend");
+  const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const chartContainerRef = useRef<HTMLDivElement>(null);
   
   // Calculate rolling window size based on data volume
   const rollingWindowSize = useMemo(() => {
@@ -143,7 +145,7 @@ export function ReviewDisparityChart({
   const allChartData = useMemo(() => {
     return reviews
       .filter((review) => review.published_at != null)
-      .map((review) => {
+      .map((review, idx) => {
         const date = new Date(review.published_at!);
 
         // Calculate combined disparity
@@ -164,6 +166,7 @@ export function ReviewDisparityChart({
             year: "numeric",
           }),
           disparity: null, // Will be set based on activeType
+          index: idx,
           steamDisparity: steamDisp != null ? Number(steamDisp) : null,
           metacriticDisparity: mcDisp != null ? Number(mcDisp) : null,
           criticScore: review.score_normalized != null ? Number(review.score_normalized) : null,
@@ -198,11 +201,12 @@ export function ReviewDisparityChart({
     combined: allChartData.some((p) => (p as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity != null),
   }), [allChartData]);
 
-  // Filter chart data for the active type, add offsets for overlapping dates, and calculate rolling average
+  // Filter chart data for the active type and calculate rolling average
   const chartData = useMemo(() => {
     const filtered = allChartData
-      .map((point) => ({
+      .map((point, idx) => ({
         ...point,
+        index: idx, // Re-assign index after filtering
         disparity:
           activeType === "steam" ? point.steamDisparity :
           activeType === "metacritic" ? point.metacriticDisparity :
@@ -210,28 +214,80 @@ export function ReviewDisparityChart({
       }))
       .filter((point) => point.disparity != null);
     
-    // Add small time offsets to separate points with the same date
-    // This allows each point to be individually selectable
-    const dateCountMap = new Map<number, number>();
-    const offsetData = filtered.map((point) => {
-      const baseDate = point.date;
-      const count = dateCountMap.get(baseDate) || 0;
-      dateCountMap.set(baseDate, count + 1);
-      
-      // Add offset: each duplicate date gets 1 hour offset (3600000 ms)
-      // This spreads points visually while keeping them on roughly the same day
-      const offsetDate = baseDate + (count * 3600000);
-      
-      return {
-        ...point,
-        date: offsetDate,
-        originalDate: baseDate, // Keep original for display
-      };
-    });
-    
     // Calculate rolling average for trend line
-    return calculateRollingAverage(offsetData, rollingWindowSize);
+    return calculateRollingAverage(filtered, rollingWindowSize);
   }, [allChartData, activeType, rollingWindowSize]);
+
+  // Calculate domain bounds for scaling
+  const { xDomain, yDomain } = useMemo(() => {
+    if (chartData.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
+    
+    const dates = chartData.map(d => d.date);
+    const disparities = chartData.map(d => d.disparity!);
+    
+    const minDate = Math.min(...dates);
+    const maxDate = Math.max(...dates);
+    const minDisp = Math.min(...disparities);
+    const maxDisp = Math.max(...disparities);
+    
+    // Add 7 days padding to x-axis
+    const xPadding = 86400000 * 7;
+    // Add 10% padding to y-axis
+    const yRange = maxDisp - minDisp || 20;
+    const yPadding = yRange * 0.1;
+    
+    return {
+      xDomain: [minDate - xPadding, maxDate + xPadding],
+      yDomain: [minDisp - yPadding, maxDisp + yPadding],
+    };
+  }, [chartData]);
+
+  // Store point positions after rendering
+  const pointPositionsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+
+  // Handle mouse move to find closest point using stored positions
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    if (!chartContainerRef.current || chartData.length === 0) return;
+    
+    const rect = chartContainerRef.current.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    // Find closest point by pixel distance using stored positions
+    let closestPoint: ChartDataPoint | null = null;
+    let closestDistance = Infinity;
+    
+    for (const point of chartData) {
+      if (point.disparity === null) continue;
+      
+      const pos = pointPositionsRef.current.get(point.index);
+      if (!pos) continue;
+      
+      // Calculate distance from mouse to point
+      const dx = mouseX - pos.x;
+      const dy = mouseY - pos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      if (distance < closestDistance) {
+        closestDistance = distance;
+        closestPoint = point;
+      }
+    }
+    
+    // Only show tooltip if within reasonable distance (50px)
+    if (closestPoint && closestDistance < 50) {
+      setHoveredPoint(closestPoint);
+      setTooltipPosition({ x: mouseX, y: mouseY });
+    } else {
+      setHoveredPoint(null);
+      setTooltipPosition(null);
+    }
+  }, [chartData]);
+
+  const handleMouseLeave = useCallback(() => {
+    setHoveredPoint(null);
+    setTooltipPosition(null);
+  }, []);
 
   if (!reviews || reviews.length === 0) {
     return (
@@ -251,18 +307,39 @@ export function ReviewDisparityChart({
     );
   }
 
-  // Custom tooltip component
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: ChartDataPoint }> }) => {
-    if (!active || !payload || payload.length === 0) return null;
+  // Get color for current active type
+  const getActiveColor = () => {
+    switch (activeType) {
+      case "steam": return colors.sage;
+      case "metacritic": return colors.orange;
+      case "combined": return colors.rust;
+    }
+  };
 
-    const data = payload[0].payload;
-
+  // Render custom tooltip
+  const renderTooltip = () => {
+    if (!hoveredPoint || !tooltipPosition) return null;
+    
+    const data = hoveredPoint;
+    
+    // Calculate tooltip position (avoid going off-screen)
+    let tooltipX = tooltipPosition.x + 15;
+    let tooltipY = tooltipPosition.y - 10;
+    
+    // Adjust if too far right
+    if (chartContainerRef.current && tooltipX > chartContainerRef.current.offsetWidth - 200) {
+      tooltipX = tooltipPosition.x - 215;
+    }
+    
     return (
       <div
-        className="p-3 rounded-lg shadow-lg text-sm"
+        className="absolute z-50 p-3 rounded-lg shadow-lg text-sm pointer-events-none"
         style={{
+          left: tooltipX,
+          top: tooltipY,
           backgroundColor: colors.background,
           border: `1px solid ${colors.border}`,
+          maxWidth: 200,
         }}
       >
         {/* Primary info based on context */}
@@ -338,15 +415,6 @@ export function ReviewDisparityChart({
     );
   };
 
-  // Get color for current active type
-  const getActiveColor = () => {
-    switch (activeType) {
-      case "steam": return colors.sage;
-      case "metacritic": return colors.orange;
-      case "combined": return colors.rust;
-    }
-  };
-
   return (
     <div>
       {/* Toggle buttons */}
@@ -418,89 +486,123 @@ export function ReviewDisparityChart({
           No {activeType} disparity data available
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={height}>
-          <ComposedChart 
-            data={chartData} 
-            margin={{ top: 10, right: 30, left: 20, bottom: 10 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
-            <XAxis
-              dataKey="date"
-              type="number"
-              domain={[(dataMin: number) => dataMin - 86400000 * 7, (dataMax: number) => dataMax + 86400000 * 7]}
-              tick={{ fontSize: 12, fill: colors.text }}
-              tickLine={{ stroke: colors.axis }}
-              axisLine={{ stroke: colors.axis }}
-              tickFormatter={(value) => {
-                const date = new Date(value);
-                return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-              }}
-              padding={{ left: 20, right: 20 }}
-            />
-            <YAxis
-              tick={{ fontSize: 12, fill: colors.text }}
-              tickLine={{ stroke: colors.axis }}
-              axisLine={{ stroke: colors.axis }}
-              domain={["auto", "auto"]}
-              tickFormatter={(value) => `${value > 0 ? "+" : ""}${value}`}
-            />
-            <Tooltip 
-              content={<CustomTooltip />} 
-              cursor={{ strokeDasharray: '3 3', stroke: colors.axis }}
-            />
-            <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
-            
-            {chartMode === "trend" ? (
-              <>
-                {/* Rolling average trend line */}
-                <Line
-                  type="monotone"
-                  dataKey="rollingAvg"
-                  stroke={getActiveColor()}
-                  strokeWidth={3}
-                  dot={false}
-                  activeDot={false}
-                  connectNulls
-                  name="Rolling Average"
-                  isAnimationActive={false}
-                />
-                {/* Trend mode: Scatter points for individual reviews (better hover detection) */}
-                <Scatter
-                  dataKey="disparity"
-                  fill={getActiveColor()}
-                  fillOpacity={0.4}
-                  isAnimationActive={false}
-                  shape={(props: { cx: number; cy: number }) => (
-                    <circle cx={props.cx} cy={props.cy} r={6} fill={getActiveColor()} fillOpacity={0.4} />
-                  )}
-                />
-              </>
-            ) : (
-              <>
-                {/* All points mode: Connecting line */}
-                <Line
-                  type="monotone"
-                  dataKey="disparity"
-                  stroke={getActiveColor()}
-                  strokeWidth={1.5}
-                  strokeOpacity={0.5}
-                  dot={false}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-                {/* Scatter points for better hover detection */}
-                <Scatter
-                  dataKey="disparity"
-                  fill={getActiveColor()}
-                  isAnimationActive={false}
-                  shape={(props: { cx: number; cy: number }) => (
-                    <circle cx={props.cx} cy={props.cy} r={6} fill={getActiveColor()} />
-                  )}
-                />
-              </>
-            )}
-          </ComposedChart>
-        </ResponsiveContainer>
+        <div 
+          ref={chartContainerRef}
+          className="relative"
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        >
+          <ResponsiveContainer width="100%" height={height}>
+            <ComposedChart 
+              data={chartData} 
+              margin={{ top: 10, right: 30, left: 60, bottom: 30 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
+              <XAxis
+                dataKey="date"
+                type="number"
+                domain={xDomain as [number, number]}
+                tick={{ fontSize: 12, fill: colors.text }}
+                tickLine={{ stroke: colors.axis }}
+                axisLine={{ stroke: colors.axis }}
+                tickFormatter={(value) => {
+                  const date = new Date(value);
+                  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+                }}
+              />
+              <YAxis
+                tick={{ fontSize: 12, fill: colors.text }}
+                tickLine={{ stroke: colors.axis }}
+                axisLine={{ stroke: colors.axis }}
+                domain={yDomain as [number, number]}
+                tickFormatter={(value) => `${value > 0 ? "+" : ""}${value}`}
+              />
+              <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
+              
+              {chartMode === "trend" ? (
+                <>
+                  {/* Rolling average trend line */}
+                  <Line
+                    type="monotone"
+                    dataKey="rollingAvg"
+                    stroke={getActiveColor()}
+                    strokeWidth={3}
+                    dot={false}
+                    connectNulls
+                    name="Rolling Average"
+                    isAnimationActive={false}
+                  />
+                  {/* Individual points */}
+                  <Scatter
+                    dataKey="disparity"
+                    fill={getActiveColor()}
+                    fillOpacity={0.4}
+                    isAnimationActive={false}
+                    shape={(props: { cx: number; cy: number; payload: ChartDataPoint }) => {
+                      // Store position for hover detection
+                      if (props.cx && props.cy) {
+                        pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
+                      }
+                      const isHovered = hoveredPoint?.index === props.payload.index;
+                      return (
+                        <circle 
+                          cx={props.cx} 
+                          cy={props.cy} 
+                          r={isHovered ? 10 : 5} 
+                          fill={getActiveColor()} 
+                          fillOpacity={isHovered ? 1 : 0.4}
+                          stroke={isHovered ? colors.background : "none"}
+                          strokeWidth={isHovered ? 2 : 0}
+                        />
+                      );
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  {/* Connecting line */}
+                  <Line
+                    type="monotone"
+                    dataKey="disparity"
+                    stroke={getActiveColor()}
+                    strokeWidth={1.5}
+                    strokeOpacity={0.5}
+                    dot={false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                  {/* Individual points */}
+                  <Scatter
+                    dataKey="disparity"
+                    fill={getActiveColor()}
+                    isAnimationActive={false}
+                    shape={(props: { cx: number; cy: number; payload: ChartDataPoint }) => {
+                      // Store position for hover detection
+                      if (props.cx && props.cy) {
+                        pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
+                      }
+                      const isHovered = hoveredPoint?.index === props.payload.index;
+                      return (
+                        <circle 
+                          cx={props.cx} 
+                          cy={props.cy} 
+                          r={isHovered ? 10 : 5} 
+                          fill={getActiveColor()} 
+                          fillOpacity={isHovered ? 1 : 0.7}
+                          stroke={isHovered ? colors.background : "none"}
+                          strokeWidth={isHovered ? 2 : 0}
+                        />
+                      );
+                    }}
+                  />
+                </>
+              )}
+            </ComposedChart>
+          </ResponsiveContainer>
+          
+          {/* Custom tooltip */}
+          {renderTooltip()}
+        </div>
       )}
     </div>
   );
