@@ -66,6 +66,10 @@ class OutletWithStats(OutletSummary):
     avg_disparity_metacritic: Optional[Decimal] = None
     avg_disparity_combined: Optional[Decimal] = None
     avg_score: Optional[Decimal] = None
+    # Transparency metrics - scoring patterns
+    min_score_given: Optional[Decimal] = None
+    max_score_given: Optional[Decimal] = None
+    score_std_deviation: Optional[Decimal] = None  # Std dev of scores given
 
 
 class OutletDetail(OutletSummary):
@@ -119,10 +123,15 @@ class JournalistStats(BaseModel):
     std_deviation: Optional[Decimal] = None
     alignment_rating: Optional[Decimal] = None  # Percentage aligned with users
 
-    # Transparency metrics
+    # Transparency metrics - timing
     early_review_count: int = 0  # Reviews before game release
     launch_window_review_count: int = 0  # Reviews within 60 days of release
     late_review_count: int = 0  # Reviews after 60 days
+
+    # Transparency metrics - scoring patterns
+    min_score_given: Optional[Decimal] = None
+    max_score_given: Optional[Decimal] = None
+    score_std_deviation: Optional[Decimal] = None  # Std dev of scores given (not disparity)
 
 
 class JournalistOutletBreakdown(BaseModel):

@@ -20,8 +20,9 @@ from app.schemas.schemas import (
 
 router = APIRouter()
 
-# Anti-gaming: minimum reviews required for leaderboard inclusion
+# Anti-gaming: minimum requirements for leaderboard inclusion
 MIN_REVIEWS_FOR_LEADERBOARD = 10
+MIN_SCORE_STD_DEV = 10  # Minimum score standard deviation (filters out binary/extreme scorers)
 
 
 @router.get("/journalists", response_model=PaginatedResponse[JournalistRanking])
@@ -64,6 +65,20 @@ async def journalist_leaderboard(
         .subquery()
     )
 
+    # Get score std deviation for each journalist (to filter binary scorers)
+    score_variance_subq = (
+        select(
+            Review.journalist_id,
+            func.stddev(Review.score_normalized).label("score_std_dev"),
+        )
+        .where(
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+        .group_by(Review.journalist_id)
+        .subquery()
+    )
+
     query = (
         select(
             Journalist,
@@ -73,9 +88,12 @@ async def journalist_leaderboard(
         )
         .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
         .outerjoin(recent_outlet_subq, Journalist.id == recent_outlet_subq.c.journalist_id)
+        .join(score_variance_subq, Journalist.id == score_variance_subq.c.journalist_id)
         .where(
             latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
             latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+            # Anti-gaming: filter out binary/extreme scorers (std dev < 10)
+            func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
         )
     )
 
@@ -85,13 +103,19 @@ async def journalist_leaderboard(
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
 
-    # Get total count (with minimum review filter)
+    # Get total count (with minimum review and variance filters)
     count_query = (
         select(func.count())
-        .select_from(latest_snapshot_subq)
-        .where(
-            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        .select_from(
+            select(Journalist.id)
+            .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
+            .join(score_variance_subq, Journalist.id == score_variance_subq.c.journalist_id)
+            .where(
+                latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+                latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,
+                func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
+            )
+            .subquery()
         )
     )
     total_result = await db.execute(count_query)
@@ -171,6 +195,21 @@ async def outlet_leaderboard(
         .subquery()
     )
 
+    # Get score std deviation for each outlet (to filter binary scorers)
+    score_variance_subq = (
+        select(
+            Review.outlet_id,
+            func.stddev(Review.score_normalized).label("score_std_dev"),
+        )
+        .where(
+            Review.outlet_id.isnot(None),
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+        .group_by(Review.outlet_id)
+        .subquery()
+    )
+
     query = (
         select(
             Outlet,
@@ -180,9 +219,12 @@ async def outlet_leaderboard(
         )
         .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
         .outerjoin(journalist_count_subq, Outlet.id == journalist_count_subq.c.outlet_id)
+        .join(score_variance_subq, Outlet.id == score_variance_subq.c.outlet_id)
         .where(
             latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
             latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+            # Anti-gaming: filter out binary/extreme scorers (std dev < 10)
+            func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
         )
     )
 
@@ -192,13 +234,19 @@ async def outlet_leaderboard(
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
 
-    # Get total count (with minimum review filter)
+    # Get total count (with minimum review and variance filters)
     count_query = (
         select(func.count())
-        .select_from(latest_snapshot_subq)
-        .where(
-            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
+        .select_from(
+            select(Outlet.id)
+            .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
+            .join(score_variance_subq, Outlet.id == score_variance_subq.c.outlet_id)
+            .where(
+                latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
+                latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,
+                func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
+            )
+            .subquery()
         )
     )
     total_result = await db.execute(count_query)

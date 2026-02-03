@@ -177,6 +177,8 @@ async def get_journalist(
     stats_query = select(
         func.count(Review.id).label("total_reviews"),
         func.avg(Review.score_normalized).label("avg_score_given"),
+        func.min(Review.score_normalized).label("min_score_given"),
+        func.max(Review.score_normalized).label("max_score_given"),
     ).where(
         Review.journalist_id == journalist_id,
         Review.score_normalized.isnot(None),  # Only scored reviews
@@ -338,6 +340,13 @@ async def get_journalist(
         from statistics import stdev
         std_deviation = Decimal(str(round(stdev(all_launch_disparities), 2)))
 
+    # Calculate score std deviation (variance in scores given)
+    score_std_deviation = None
+    if len(review_rows) > 1:
+        from statistics import stdev
+        scores = [float(review.score_normalized) for review, _ in review_rows]
+        score_std_deviation = Decimal(str(round(stdev(scores), 2)))
+
     stats = JournalistStats(
         total_reviews=stats_row.total_reviews or 0,
         avg_score_given=Decimal(str(round(stats_row.avg_score_given, 2))) if stats_row.avg_score_given else None,
@@ -351,10 +360,14 @@ async def get_journalist(
         overall_disparity_combined=overall_disparity_combined,
         std_deviation=std_deviation,
         alignment_rating=None,  # Calculate based on disparity threshold
-        # Transparency metrics
+        # Transparency metrics - timing
         early_review_count=early_review_count,
         launch_window_review_count=launch_window_review_count,
         late_review_count=late_review_count,
+        # Transparency metrics - scoring patterns
+        min_score_given=Decimal(str(round(stats_row.min_score_given, 2))) if stats_row.min_score_given else None,
+        max_score_given=Decimal(str(round(stats_row.max_score_given, 2))) if stats_row.max_score_given else None,
+        score_std_deviation=score_std_deviation,
     )
 
     return JournalistDetail(
@@ -492,7 +505,7 @@ async def get_journalist_reviews(
 @router.get("/{journalist_id}/history", response_model=list[DisparitySnapshotSchema])
 async def get_journalist_history(
     journalist_id: int,
-    limit: int = Query(90, ge=1, le=365),
+    limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -503,6 +516,8 @@ async def get_journalist_history(
 
     Only includes launch window reviews (within 60 days of game release)
     and games with 50+ user reviews.
+    
+    Returns full career timeline (no practical limit).
     """
     # Verify journalist exists
     journalist_result = await db.execute(

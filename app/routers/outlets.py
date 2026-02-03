@@ -184,6 +184,9 @@ async def get_outlet(
         func.count(Review.id).label("review_count"),
         func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
         func.avg(Review.score_normalized).label("avg_score"),
+        func.min(Review.score_normalized).label("min_score"),
+        func.max(Review.score_normalized).label("max_score"),
+        func.stddev(Review.score_normalized).label("score_std_dev"),
     ).where(
         Review.outlet_id == outlet_id,
         Review.score_normalized.isnot(None),  # Only scored reviews
@@ -228,6 +231,10 @@ async def get_outlet(
         avg_disparity_metacritic=avg_disparity_metacritic,
         avg_disparity_combined=avg_disparity_combined,
         avg_score=stats_row.avg_score,
+        # Transparency metrics - scoring patterns
+        min_score_given=Decimal(str(round(stats_row.min_score, 2))) if stats_row.min_score else None,
+        max_score_given=Decimal(str(round(stats_row.max_score, 2))) if stats_row.max_score else None,
+        score_std_deviation=Decimal(str(round(stats_row.score_std_dev, 2))) if stats_row.score_std_dev else None,
     )
 
 
@@ -463,10 +470,10 @@ async def get_outlet_reviews(
 @router.get("/{outlet_id}/history", response_model=list[DisparitySnapshotSchema])
 async def get_outlet_history(
     outlet_id: int,
-    limit: int = Query(90, ge=1, le=365),
+    limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get historical disparity data for charts."""
+    """Get historical disparity data for charts. Returns full timeline."""
     # Verify outlet exists
     outlet_result = await db.execute(
         select(Outlet.id).where(Outlet.id == outlet_id)
