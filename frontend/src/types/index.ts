@@ -36,10 +36,15 @@ export interface JournalistStats {
   std_deviation: number | null;
   alignment_rating: number | null;
 
-  // Transparency metrics
+  // Transparency metrics - timing
   early_review_count: number;
   launch_window_review_count: number;
   late_review_count: number;
+
+  // Transparency metrics - scoring patterns
+  min_score_given: number | null;
+  max_score_given: number | null;
+  score_std_deviation: number | null;
 }
 
 export interface OutletBreakdown {
@@ -79,6 +84,10 @@ export interface OutletWithStats extends Outlet {
   avg_disparity_combined: number | null;
   avg_score: number | null;
   journalists?: Journalist[];
+  // Transparency metrics - scoring patterns
+  min_score_given: number | null;
+  max_score_given: number | null;
+  score_std_deviation: number | null;
 }
 
 // Game Types

@@ -200,6 +200,46 @@ export default async function JournalistDetailPage({
           </div>
         </div>
 
+        {/* Scoring Pattern - Transparency metrics */}
+        {(journalist.stats?.min_score_given != null || journalist.stats?.max_score_given != null || journalist.stats?.score_std_deviation != null) && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Scoring Pattern
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-4 bg-gray-50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-gray-900">
+                  {journalist.stats?.min_score_given != null ? Number(journalist.stats.min_score_given).toFixed(0) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">Lowest Score</div>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-gray-900">
+                  {journalist.stats?.max_score_given != null ? Number(journalist.stats.max_score_given).toFixed(0) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">Highest Score</div>
+              </div>
+              <div 
+                className="p-4 bg-gray-50 rounded-lg text-center cursor-help"
+                title="Score Variance measures how varied this critic's scores are (not vs users). Low variance = gives similar scores to most games. High variance = uses the full scoring range."
+              >
+                <div className="text-2xl font-bold text-gray-900">
+                  {journalist.stats?.score_std_deviation != null ? Number(journalist.stats.score_std_deviation).toFixed(1) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  Score Spread
+                  <span className="block text-[10px] text-gray-400">(variance in their own scores)</span>
+                </div>
+              </div>
+            </div>
+            {journalist.stats?.score_std_deviation != null && Number(journalist.stats.score_std_deviation) < 10 && (
+              <p className="mt-3 text-xs text-amber-600">
+                Low score spread detected. This reviewer may use a narrow scoring range or binary scoring system.
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Outlet Breakdown */}
         {journalist.outlet_breakdown &&
           journalist.outlet_breakdown.length > 0 && (

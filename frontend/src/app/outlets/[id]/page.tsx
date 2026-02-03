@@ -103,6 +103,46 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
             combinedDisparity={outlet.avg_disparity_combined ?? outlet.avg_disparity}
           />
         </div>
+
+        {/* Scoring Pattern - Transparency metrics */}
+        {(outlet.min_score_given != null || outlet.max_score_given != null || outlet.score_std_deviation != null) && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">
+              Scoring Pattern
+            </h2>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="p-4 bg-gray-50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-gray-900">
+                  {outlet.min_score_given != null ? Number(outlet.min_score_given).toFixed(0) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">Lowest Score</div>
+              </div>
+              <div className="p-4 bg-gray-50 rounded-lg text-center">
+                <div className="text-2xl font-bold text-gray-900">
+                  {outlet.max_score_given != null ? Number(outlet.max_score_given).toFixed(0) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">Highest Score</div>
+              </div>
+              <div 
+                className="p-4 bg-gray-50 rounded-lg text-center cursor-help"
+                title="Score Spread measures how varied this outlet's scores are (not vs users). Low spread = gives similar scores to most games. High spread = uses the full scoring range."
+              >
+                <div className="text-2xl font-bold text-gray-900">
+                  {outlet.score_std_deviation != null ? Number(outlet.score_std_deviation).toFixed(1) : "N/A"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  Score Spread
+                  <span className="block text-[10px] text-gray-400">(variance in their own scores)</span>
+                </div>
+              </div>
+            </div>
+            {outlet.score_std_deviation != null && Number(outlet.score_std_deviation) < 10 && (
+              <p className="mt-3 text-xs text-amber-600">
+                Low score spread detected. This outlet may use a narrow scoring range or binary scoring system.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Journalists at this outlet */}
@@ -172,23 +212,27 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
             {reviews.items.map((review) => (
               <div
                 key={review.id}
-                className="p-4 border border-gray-200 rounded-lg"
+                className="p-4 border rounded-lg"
+                style={{ borderColor: "var(--border)" }}
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                <div className="flex items-start justify-between gap-4">
+                  {/* Left side: Review info */}
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
                         href={`/games/${review.game_id}`}
-                        className="font-medium text-gray-900 hover:text-blue-600"
+                        className="font-medium hover:opacity-80"
+                        style={{ color: "var(--foreground)" }}
                       >
-                        {review.journalist_name ? `Review by ${review.journalist_name}` : "Review"}
+                        {review.game_title || "Unknown Game"}
                       </Link>
-                      {review.journalist_id && (
+                      {review.journalist_id && review.journalist_name && (
                         <>
-                          <span className="text-gray-400">by</span>
+                          <span style={{ color: "var(--foreground-muted)" }}>by</span>
                           <Link
                             href={`/journalists/${review.journalist_id}`}
-                            className="text-gray-600 hover:text-blue-600"
+                            className="hover:opacity-80"
+                            style={{ color: "var(--foreground-muted)" }}
                           >
                             {review.journalist_name}
                           </Link>
@@ -197,7 +241,7 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
                     </div>
                     <div className="flex items-center gap-2 mt-1">
                       {review.published_at && (
-                        <p className="text-sm text-gray-500">
+                        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
                           {new Date(review.published_at).toLocaleDateString()}
                         </p>
                       )}
@@ -220,32 +264,51 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
                          review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
                       </span>
                     </div>
+                    {/* Snippet */}
                     {review.snippet && (
-                      <p className="mt-2 text-gray-600 text-sm italic">
+                      <p className="mt-2 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
                         &ldquo;{review.snippet}&rdquo;
                       </p>
                     )}
                   </div>
 
-                  <div className="flex items-center gap-4 ml-4">
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {review.score_normalized != null
-                          ? Number(review.score_normalized).toFixed(0)
-                          : "—"}
-                      </p>
-                      {review.score_raw && review.score_scale && (
-                        <p className="text-xs text-gray-500">
-                          {review.score_raw}/{review.score_scale}
-                        </p>
-                      )}
+                  {/* Right side: Scores and Read button */}
+                  <div className="flex items-center gap-4 flex-shrink-0">
+                    {/* Compact score display */}
+                    <div className="flex items-center gap-2">
+                      {/* Critic Score */}
+                      <div className="text-center px-3 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+                        <div className="text-xs" style={{ color: "var(--foreground-muted)" }}>Critic</div>
+                        <div className="text-lg font-bold" style={{ color: "var(--foreground)" }}>
+                          {review.score_normalized != null ? Number(review.score_normalized).toFixed(0) : "—"}
+                        </div>
+                      </div>
+                      {/* Steam Disparity */}
+                      <div className="text-center px-3 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+                        <div className="text-xs" style={{ color: "#708160" }}>Steam</div>
+                        <div className="text-lg font-bold" style={{ color: "#708160" }}>
+                          {review.disparity_steam != null 
+                            ? `${Number(review.disparity_steam) > 0 ? "+" : ""}${Number(review.disparity_steam).toFixed(0)}`
+                            : "N/A"}
+                        </div>
+                      </div>
+                      {/* Metacritic Disparity */}
+                      <div className="text-center px-3 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
+                        <div className="text-xs" style={{ color: "#DD7631" }}>MC</div>
+                        <div className="text-lg font-bold" style={{ color: "#DD7631" }}>
+                          {review.disparity_metacritic != null 
+                            ? `${Number(review.disparity_metacritic) > 0 ? "+" : ""}${Number(review.disparity_metacritic).toFixed(0)}`
+                            : "N/A"}
+                        </div>
+                      </div>
                     </div>
                     {review.review_url && (
                       <a
                         href={review.review_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
+                        className="text-sm px-3 py-2 rounded hover:opacity-80"
+                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
                       >
                         Read
                       </a>

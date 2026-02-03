@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo } from "react";
 import {
   ComposedChart,
-  Scatter,
   Line,
+  Scatter,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -66,9 +66,11 @@ function isReviewWithJournalist(review: ReviewData): review is ReviewWithJournal
 }
 
 interface ChartDataPoint {
-  date: number; // timestamp for sorting
+  date: number; // timestamp for sorting (may include offset for overlapping points)
+  originalDate?: number; // original timestamp without offset
   dateLabel: string;
   disparity: number | null;
+  rollingAvg?: number | null; // Rolling average for trend line
   // Context info for tooltip
   gameName?: string;
   journalistName?: string;
@@ -76,6 +78,27 @@ interface ChartDataPoint {
   criticScore?: number | null;
   steamDisparity?: number | null;
   metacriticDisparity?: number | null;
+}
+
+// Calculate rolling average
+function calculateRollingAverage(data: ChartDataPoint[], windowSize: number): ChartDataPoint[] {
+  return data.map((point, index) => {
+    if (point.disparity === null) return point;
+    
+    // Get window of points (up to windowSize previous points including current)
+    const start = Math.max(0, index - windowSize + 1);
+    const window = data.slice(start, index + 1).filter(p => p.disparity !== null);
+    
+    if (window.length === 0) return point;
+    
+    const sum = window.reduce((acc, p) => acc + (p.disparity || 0), 0);
+    const avg = sum / window.length;
+    
+    return {
+      ...point,
+      rollingAvg: avg,
+    };
+  });
 }
 
 interface ReviewDisparityChartProps {
@@ -94,6 +117,8 @@ interface ReviewDisparityChartProps {
   gameTitle?: string;
 }
 
+type ChartMode = "trend" | "all";
+
 export function ReviewDisparityChart({
   reviews,
   height = 300,
@@ -103,6 +128,16 @@ export function ReviewDisparityChart({
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
   const [activeType, setActiveType] = useState<DisparityType>("combined");
+  const [chartMode, setChartMode] = useState<ChartMode>("trend");
+  
+  // Calculate rolling window size based on data volume
+  const rollingWindowSize = useMemo(() => {
+    const count = reviews.length;
+    if (count > 500) return 30;  // Large dataset: 30-review rolling avg
+    if (count > 200) return 20;  // Medium dataset: 20-review rolling avg
+    if (count > 50) return 10;   // Small dataset: 10-review rolling avg
+    return 5;                     // Very small: 5-review rolling avg
+  }, [reviews.length]);
 
   // Transform reviews into chart data points (calculate all disparity types)
   const allChartData = useMemo(() => {
@@ -163,9 +198,9 @@ export function ReviewDisparityChart({
     combined: allChartData.some((p) => (p as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity != null),
   }), [allChartData]);
 
-  // Filter chart data for the active type
+  // Filter chart data for the active type, add offsets for overlapping dates, and calculate rolling average
   const chartData = useMemo(() => {
-    return allChartData
+    const filtered = allChartData
       .map((point) => ({
         ...point,
         disparity:
@@ -174,7 +209,29 @@ export function ReviewDisparityChart({
           (point as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity,
       }))
       .filter((point) => point.disparity != null);
-  }, [allChartData, activeType]);
+    
+    // Add small time offsets to separate points with the same date
+    // This allows each point to be individually selectable
+    const dateCountMap = new Map<number, number>();
+    const offsetData = filtered.map((point) => {
+      const baseDate = point.date;
+      const count = dateCountMap.get(baseDate) || 0;
+      dateCountMap.set(baseDate, count + 1);
+      
+      // Add offset: each duplicate date gets 1 hour offset (3600000 ms)
+      // This spreads points visually while keeping them on roughly the same day
+      const offsetDate = baseDate + (count * 3600000);
+      
+      return {
+        ...point,
+        date: offsetDate,
+        originalDate: baseDate, // Keep original for display
+      };
+    });
+    
+    // Calculate rolling average for trend line
+    return calculateRollingAverage(offsetData, rollingWindowSize);
+  }, [allChartData, activeType, rollingWindowSize]);
 
   if (!reviews || reviews.length === 0) {
     return (
@@ -268,6 +325,13 @@ export function ReviewDisparityChart({
                 </span>
               </p>
             )}
+            {chartMode === "trend" && data.rollingAvg != null && (
+              <p className="mt-1 pt-1 border-t" style={{ borderColor: colors.border, color: colors.text }}>
+                Trend ({rollingWindowSize}-review avg): <span className="font-medium">
+                  {data.rollingAvg > 0 ? "+" : ""}{data.rollingAvg.toFixed(1)}
+                </span>
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -286,35 +350,64 @@ export function ReviewDisparityChart({
   return (
     <div>
       {/* Toggle buttons */}
-      <div className="flex gap-2 mb-4">
-        {(["combined", "steam", "metacritic"] as DisparityType[]).map((type) => {
-          const typeHasData = hasData[type];
-          return (
-            <button
-              key={type}
-              onClick={() => setActiveType(type)}
-              disabled={!typeHasData}
-              className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                activeType === type
-                  ? "text-white"
-                  : !typeHasData
-                  ? "bg-gray-100 dark:bg-gray-800 opacity-50 cursor-not-allowed"
-                  : "bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
-              }`}
-              style={activeType === type ? {
-                backgroundColor:
-                  type === "steam" ? colors.sage :
-                  type === "metacritic" ? colors.orange :
-                  colors.rust,
-              } : {
-                color: colors.text,
-              }}
-            >
-              {type.charAt(0).toUpperCase() + type.slice(1)}
-              {!typeHasData && " (N/A)"}
-            </button>
-          );
-        })}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        {/* Disparity type toggles */}
+        <div className="flex gap-2">
+          {(["combined", "steam", "metacritic"] as DisparityType[]).map((type) => {
+            const typeHasData = hasData[type];
+            return (
+              <button
+                key={type}
+                onClick={() => setActiveType(type)}
+                disabled={!typeHasData}
+                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  activeType === type
+                    ? "text-white"
+                    : !typeHasData
+                    ? "bg-gray-100 dark:bg-gray-800 opacity-50 cursor-not-allowed"
+                    : "bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+                }`}
+                style={activeType === type ? {
+                  backgroundColor:
+                    type === "steam" ? colors.sage :
+                    type === "metacritic" ? colors.orange :
+                    colors.rust,
+                } : {
+                  color: colors.text,
+                }}
+              >
+                {type.charAt(0).toUpperCase() + type.slice(1)}
+                {!typeHasData && " (N/A)"}
+              </button>
+            );
+          })}
+        </div>
+        
+        {/* Chart mode toggle */}
+        <div className="flex gap-1 text-xs">
+          <button
+            onClick={() => setChartMode("trend")}
+            className={`px-2 py-1 rounded transition-colors ${
+              chartMode === "trend"
+                ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
+            }`}
+            style={chartMode !== "trend" ? { color: colors.text } : {}}
+          >
+            Trend
+          </button>
+          <button
+            onClick={() => setChartMode("all")}
+            className={`px-2 py-1 rounded transition-colors ${
+              chartMode === "all"
+                ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
+            }`}
+            style={chartMode !== "all" ? { color: colors.text } : {}}
+          >
+            All Points
+          </button>
+        </div>
       </div>
 
       {chartData.length === 0 ? (
@@ -326,12 +419,15 @@ export function ReviewDisparityChart({
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 20, bottom: 10 }}>
+          <ComposedChart 
+            data={chartData} 
+            margin={{ top: 10, right: 30, left: 20, bottom: 10 }}
+          >
             <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
             <XAxis
               dataKey="date"
               type="number"
-              domain={["dataMin", "dataMax"]}
+              domain={[(dataMin: number) => dataMin - 86400000 * 7, (dataMax: number) => dataMax + 86400000 * 7]}
               tick={{ fontSize: 12, fill: colors.text }}
               tickLine={{ stroke: colors.axis }}
               axisLine={{ stroke: colors.axis }}
@@ -339,6 +435,7 @@ export function ReviewDisparityChart({
                 const date = new Date(value);
                 return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
               }}
+              padding={{ left: 20, right: 20 }}
             />
             <YAxis
               tick={{ fontSize: 12, fill: colors.text }}
@@ -347,20 +444,61 @@ export function ReviewDisparityChart({
               domain={["auto", "auto"]}
               tickFormatter={(value) => `${value > 0 ? "+" : ""}${value}`}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip 
+              content={<CustomTooltip />} 
+              cursor={{ strokeDasharray: '3 3', stroke: colors.axis }}
+            />
             <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
-            <Line
-              type="monotone"
-              dataKey="disparity"
-              stroke={getActiveColor()}
-              strokeWidth={2}
-              dot={false}
-              connectNulls
-            />
-            <Scatter
-              dataKey="disparity"
-              fill={getActiveColor()}
-            />
+            
+            {chartMode === "trend" ? (
+              <>
+                {/* Rolling average trend line */}
+                <Line
+                  type="monotone"
+                  dataKey="rollingAvg"
+                  stroke={getActiveColor()}
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={false}
+                  connectNulls
+                  name="Rolling Average"
+                  isAnimationActive={false}
+                />
+                {/* Trend mode: Scatter points for individual reviews (better hover detection) */}
+                <Scatter
+                  dataKey="disparity"
+                  fill={getActiveColor()}
+                  fillOpacity={0.4}
+                  isAnimationActive={false}
+                  shape={(props: { cx: number; cy: number }) => (
+                    <circle cx={props.cx} cy={props.cy} r={6} fill={getActiveColor()} fillOpacity={0.4} />
+                  )}
+                />
+              </>
+            ) : (
+              <>
+                {/* All points mode: Connecting line */}
+                <Line
+                  type="monotone"
+                  dataKey="disparity"
+                  stroke={getActiveColor()}
+                  strokeWidth={1.5}
+                  strokeOpacity={0.5}
+                  dot={false}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+                {/* Scatter points for better hover detection */}
+                <Scatter
+                  dataKey="disparity"
+                  fill={getActiveColor()}
+                  isAnimationActive={false}
+                  shape={(props: { cx: number; cy: number }) => (
+                    <circle cx={props.cx} cy={props.cy} r={6} fill={getActiveColor()} />
+                  )}
+                />
+              </>
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       )}
