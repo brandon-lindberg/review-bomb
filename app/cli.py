@@ -3,13 +3,13 @@
 CLI for managing the Game Journalist Review Disparity Tracker.
 
 Usage:
-    python -m app.cli sync              Run daily OpenCritic sync (budget: 100 req/day)
-    python -m app.cli sync --status     Show sync status and progress
-    python -m app.cli sync --reset      Reset sync state (start fresh)
-    python -m app.cli match             Match games to Steam/Metacritic IDs
-    python -m app.cli steam             Sync Steam user scores
-    python -m app.cli disparity         Calculate disparity snapshots
-    python -m app.cli clear             Clear all data from database
+    python -m app sync              Run OpenCritic sync (fetches all games)
+    python -m app sync --status     Show sync status and progress
+    python -m app sync --reset      Reset sync state (start fresh)
+    python -m app match             Match games to Steam/Metacritic IDs
+    python -m app steam             Sync Steam user scores
+    python -m app disparity         Calculate disparity snapshots
+    python -m app clear             Clear all data from database
 """
 
 import argparse
@@ -29,10 +29,9 @@ async def cmd_sync(args):
         if args.status:
             status = await orchestrator.get_sync_status()
             print("\n=== Sync Status ===")
-            print(f"Today's requests: {status['today_requests']}/{100}")
-            print(f"Budget remaining: {status['budget_remaining']}")
             print(f"Games synced (total): {status['games_synced_total']}")
             print(f"Games in queue: {status['games_in_queue']}")
+            print(f"Last skip position: {status['last_skip_position']}")
             print("\n--- Database Stats ---")
             for key, value in status['database_stats'].items():
                 print(f"  {key}: {value:,}")

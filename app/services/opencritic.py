@@ -5,7 +5,7 @@ Fetches critics, outlets, games, and reviews from OpenCritic via RapidAPI.
 """
 
 import asyncio
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 
@@ -27,7 +27,6 @@ class OpenCriticService:
 
     BASE_URL = "https://opencritic-api.p.rapidapi.com"
     IMAGE_CDN_URL = "https://img.opencritic.com"
-    DATA_CUTOFF = date(2015, 1, 1)
 
     def __init__(self):
         self.headers = {
@@ -40,36 +39,52 @@ class OpenCriticService:
         method: str,
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
+        max_retries: int = 3,
     ) -> Optional[Dict[str, Any]]:
-        """Make a rate-limited request to the OpenCritic API."""
-        async with rate_limiter:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                try:
-                    response = await client.request(
-                        method,
-                        f"{self.BASE_URL}{endpoint}",
-                        headers=self.headers,
-                        params=params,
-                    )
-                    response.raise_for_status()
+        """Make a rate-limited request to the OpenCritic API with retry logic."""
+        retryable_status_codes = {429, 500, 502, 503, 504}
+        
+        for attempt in range(max_retries):
+            async with rate_limiter:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    try:
+                        response = await client.request(
+                            method,
+                            f"{self.BASE_URL}{endpoint}",
+                            headers=self.headers,
+                            params=params,
+                        )
+                        response.raise_for_status()
 
-                    # Handle empty responses
-                    if not response.content:
-                        print(f"Empty response from {endpoint}")
+                        # Handle empty responses
+                        if not response.content:
+                            print(f"Empty response from {endpoint}")
+                            return None
+
+                        return response.json()
+                    except httpx.HTTPStatusError as e:
+                        status_code = e.response.status_code
+                        if status_code in retryable_status_codes and attempt < max_retries - 1:
+                            wait_time = (2 ** attempt) + 1  # 2, 3, 5 seconds
+                            print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        print(f"HTTP error {status_code}: {e.response.text[:200]}")
                         return None
-
-                    return response.json()
-                except httpx.HTTPStatusError as e:
-                    print(f"HTTP error {e.response.status_code}: {e.response.text[:500]}")
-                    return None
-                except httpx.RequestError as e:
-                    print(f"Request error: {e}")
-                    return None
-                except ValueError as e:
-                    # JSON decode error
-                    print(f"JSON decode error for {endpoint}: {e}")
-                    print(f"Response content: {response.content[:500] if response.content else 'empty'}")
-                    return None
+                    except httpx.RequestError as e:
+                        if attempt < max_retries - 1:
+                            wait_time = (2 ** attempt) + 1
+                            print(f"Request error, retrying in {wait_time}s: {e}")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        print(f"Request error after {max_retries} attempts: {e}")
+                        return None
+                    except ValueError as e:
+                        # JSON decode error - don't retry
+                        print(f"JSON decode error for {endpoint}: {e}")
+                        return None
+        
+        return None
 
     # =========================================================================
     # Critics (Journalists)
@@ -183,44 +198,29 @@ class OpenCriticService:
         )
         return data if isinstance(data, list) else []
 
-    async def get_games_since_date(
+    async def get_all_games(
         self,
-        since_date: date,
         batch_size: int = 50,
     ) -> List[Dict[str, Any]]:
         """
-        Fetch all games released since a specific date.
+        Fetch all games from OpenCritic.
 
-        Filters out games before DATA_CUTOFF (2015-01-01).
+        Uses descending date sort to get newest games first.
         """
         all_games = []
         skip = 0
 
         while True:
+            # Fetch games batch
             games = await self.get_games(skip=skip, limit=batch_size, sort="date")
             if not games:
                 break
 
             for game in games:
-                # Parse release date
+                # Include games with release dates
                 release_date_str = game.get("firstReleaseDate")
                 if release_date_str:
-                    try:
-                        release_date = datetime.fromisoformat(
-                            release_date_str.replace("Z", "+00:00")
-                        ).date()
-
-                        # Skip games before cutoff
-                        if release_date < self.DATA_CUTOFF:
-                            continue
-
-                        # Stop if we've gone past our since_date
-                        if release_date < since_date:
-                            return all_games
-
-                        all_games.append(game)
-                    except (ValueError, TypeError):
-                        continue
+                    all_games.append(game)
                 else:
                     # Include games without release date if they have reviews
                     if game.get("numReviews", 0) > 0:

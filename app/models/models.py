@@ -199,7 +199,9 @@ class Review(Base):
     outlet: Mapped[Optional["Outlet"]] = relationship(back_populates="reviews")
 
     __table_args__ = (
-        UniqueConstraint("journalist_id", "game_id", name="uq_journalist_game"),
+        # Note: uq_journalist_game was removed - journalists can review
+        # the same game multiple times (different platforms, updated reviews).
+        # The opencritic_review_id unique constraint prevents true duplicates.
         Index("idx_reviews_published_at", "published_at"),
         Index("idx_reviews_score_normalized", "score_normalized"),
     )

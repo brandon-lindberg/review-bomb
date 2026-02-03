@@ -6,7 +6,7 @@ and storing it in the database.
 """
 
 import asyncio
-from datetime import datetime, date
+from datetime import datetime
 from typing import Optional
 
 import dramatiq
@@ -110,11 +110,10 @@ async def _sync_opencritic_full():
             await db.commit()
             print(f"Synced {len(critics)} critics")
 
-            # Sync games (from 2015 onwards)
+            # Sync all games
             # Only import games that can be matched to Steam or Metacritic
             print("Syncing games...")
-            cutoff_date = date(2015, 1, 1)
-            games = await service.get_games_since_date(cutoff_date)
+            games = await service.get_all_games()
             matcher = GameMatcher()
 
             games_imported = 0

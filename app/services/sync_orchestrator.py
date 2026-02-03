@@ -1,19 +1,20 @@
 """
 Sync orchestrator for OpenCritic data.
 
-Currently running on PREMIUM plan (expires in ~1 month):
+API Plan: MEGA ($50/mo)
 - Unlimited requests
-- 100 requests/second rate limit
-- TODO: Revert DAILY_BUDGET to 100 after premium expires
+- 100 requests/second rate limit (enforced by rate_limiter in opencritic.py)
+- 10GB bandwidth/month
 
-Syncs games/reviews in priority order:
-- Newest games first (2026 → 2015)
+Features:
+- Continuous sync mode: fetches ALL games until complete
 - Extracts critics/outlets from review responses to maximize data per request
+- Saves progress periodically to allow resuming
 """
 
 import asyncio
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
@@ -36,22 +37,16 @@ class SyncOrchestrator:
     """
     Sync orchestrator for OpenCritic data.
 
-    Premium plan strategy (100 req/s, unlimited daily):
+    MEGA plan strategy (100 req/s, unlimited requests):
     - Fetches all game lists in bulk
-    - Fetches all reviews without daily budget concerns
+    - Fetches all reviews without request limits
     - Extracts critics/outlets from review responses (no extra API calls)
-
-    TODO: Revert DAILY_BUDGET to 100 after premium plan expires
+    - Rate limiting handled by opencritic.py (100 req/s)
     """
 
-    # Premium plan: effectively unlimited (revert to 100 after expiry)
-    DAILY_BUDGET = 100000
     GAMES_PER_REQUEST = 50  # OpenCritic limit per request
-    DATA_CUTOFF = date(2015, 1, 1)
 
     # State keys for persistence
-    STATE_DAILY_COUNT = "daily_request_count"
-    STATE_DAILY_DATE = "daily_count_date"
     STATE_SYNCED_GAMES = "synced_opencritic_game_ids"
     STATE_GAMES_QUEUE = "games_queue"
     STATE_LAST_GAME_SKIP = "last_game_skip"
@@ -59,8 +54,7 @@ class SyncOrchestrator:
     def __init__(self, db: AsyncSession):
         self.db = db
         self.service = OpenCriticService()
-        self._request_count = 0
-        self._request_date: Optional[date] = None
+        self._request_count = 0  # For stats tracking only
 
     async def _get_state(self, key: str, default: str = "") -> str:
         """Get a sync state value."""
@@ -79,32 +73,6 @@ class SyncOrchestrator:
         )
         await self.db.execute(stmt)
         await self.db.commit()
-
-    async def _load_budget_state(self) -> None:
-        """Load daily budget state, reset if new day."""
-        today = date.today()
-        stored_date = await self._get_state(self.STATE_DAILY_DATE)
-        stored_count = await self._get_state(self.STATE_DAILY_COUNT, "0")
-
-        if stored_date == str(today):
-            self._request_count = int(stored_count)
-            self._request_date = today
-        else:
-            # New day, reset counter
-            self._request_count = 0
-            self._request_date = today
-            await self._set_state(self.STATE_DAILY_DATE, str(today))
-            await self._set_state(self.STATE_DAILY_COUNT, "0")
-
-    async def _increment_request_count(self) -> None:
-        """Increment and persist request count."""
-        self._request_count += 1
-        await self._set_state(self.STATE_DAILY_COUNT, str(self._request_count))
-
-    @property
-    def remaining_budget(self) -> int:
-        """Remaining API requests for today."""
-        return max(0, self.DAILY_BUDGET - self._request_count)
 
     async def _get_synced_game_ids(self) -> Set[int]:
         """Get set of already-synced OpenCritic game IDs."""
@@ -126,43 +94,40 @@ class SyncOrchestrator:
         """Update the games queue."""
         await self._set_state(self.STATE_GAMES_QUEUE, json.dumps(queue))
 
-    async def _fetch_game_batch(self, skip: int = 0) -> List[Dict[str, Any]]:
+    async def _fetch_game_batch(self, skip: int = 0) -> tuple[List[Dict[str, Any]], bool]:
         """
         Fetch a batch of games from OpenCritic.
-
-        Returns games sorted by date (newest first), filtered to 2015+.
+        
+        Returns:
+            Tuple of (games_list, success_flag)
+            - If API returns data: (games, True)
+            - If API returns empty but succeeded: ([], True) 
+            - If API error after retries: ([], False)
         """
-        if self.remaining_budget <= 0:
-            print("Daily budget exhausted")
-            return []
-
         print(f"Fetching games batch (skip={skip})...")
         games = await self.service.get_games(skip=skip, limit=self.GAMES_PER_REQUEST, sort="date")
-        await self._increment_request_count()
+        self._request_count += 1
 
-        # Filter to games from 2015+
+        # If games is empty, it could be end of data OR API error
+        # The API should return at least some games if skip is valid
+        if not games:
+            # If we're at a high skip value, empty might mean API error
+            if skip > 0:
+                return [], False  # Indicate potential API failure
+            return [], True  # skip=0 returning empty means genuinely no data
+
+        # Filter to games with valid data
         filtered = []
         for game in games:
             release_str = game.get("firstReleaseDate")
             if release_str:
-                try:
-                    release_date = datetime.fromisoformat(
-                        release_str.replace("Z", "+00:00")
-                    ).date()
-                    if release_date >= self.DATA_CUTOFF:
-                        filtered.append(game)
-                    else:
-                        # Stop if we've reached games before cutoff
-                        print(f"Reached cutoff date at game: {game.get('name')}")
-                        break
-                except (ValueError, TypeError):
-                    continue
+                filtered.append(game)
             else:
                 # Include games without release date if they have reviews
                 if game.get("numReviews", 0) > 0:
                     filtered.append(game)
 
-        return filtered
+        return filtered, True
 
     async def _upsert_outlet_from_review(self, outlet_data: Dict[str, Any]) -> Optional[int]:
         """Insert/update outlet from review data and return internal ID."""
@@ -244,11 +209,8 @@ class SyncOrchestrator:
 
         Returns number of reviews synced.
         """
-        if self.remaining_budget <= 0:
-            return 0
-
         reviews = await self.service.get_game_reviews(opencritic_game_id)
-        await self._increment_request_count()
+        self._request_count += 1
 
         synced_count = 0
         for review_data in reviews:
@@ -307,20 +269,22 @@ class SyncOrchestrator:
         await self.db.commit()
         return synced_count
 
-    async def run_daily_sync(self) -> Dict[str, Any]:
+    async def run_daily_sync(self, continuous: bool = True) -> Dict[str, Any]:
         """
-        Run the daily sync with budget awareness.
+        Run the sync.
+
+        Args:
+            continuous: If True, keep fetching until all games are synced.
+                       If False, only fetch one batch.
 
         Returns stats about what was synced.
         """
-        await self._load_budget_state()
-
-        print(f"Starting daily sync. Budget remaining: {self.remaining_budget}")
+        print(f"Starting sync (continuous={continuous})")
 
         # Create sync log
         sync_log = SyncLog(
             source=SyncSource.OPENCRITIC,
-            sync_type=SyncType.INCREMENTAL,
+            sync_type=SyncType.FULL if continuous else SyncType.INCREMENTAL,
             status=SyncStatus.RUNNING,
         )
         self.db.add(sync_log)
@@ -333,7 +297,6 @@ class SyncOrchestrator:
             "journalists_discovered": 0,
             "outlets_discovered": 0,
             "requests_used": 0,
-            "budget_remaining": self.remaining_budget,
         }
 
         try:
@@ -345,57 +308,74 @@ class SyncOrchestrator:
 
             synced_ids = await self._get_synced_game_ids()
             games_queue = await self._get_games_queue()
+            all_games_fetched = False
 
-            # If queue is empty, fetch more games
-            if not games_queue and self.remaining_budget >= 2:
-                last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
+            # Main sync loop - keeps running until all games are fetched and processed
+            while not all_games_fetched:
+                # If queue is empty, fetch more games
+                if not games_queue:
+                    last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
 
-                # Fetch two batches of games (use 2 requests)
-                batch1 = await self._fetch_game_batch(skip=last_skip)
-                batch2 = await self._fetch_game_batch(skip=last_skip + self.GAMES_PER_REQUEST) if self.remaining_budget > 0 else []
+                    # Fetch a batch of games
+                    batch, api_success = await self._fetch_game_batch(skip=last_skip)
 
-                all_games = batch1 + batch2
+                    if not batch:
+                        if api_success:
+                            # Empty batch with success = genuinely no more games
+                            all_games_fetched = True
+                            print("All games fetched from API")
+                        else:
+                            # API error - save state and exit gracefully
+                            print(f"API error at skip={last_skip}. Run sync again to resume.")
+                            stats["api_error"] = True
+                        break
 
-                # Filter out already-synced games
-                games_queue = [
-                    g for g in all_games
-                    if g.get("id") and g["id"] not in synced_ids
-                ]
+                    # Filter out already-synced games
+                    games_queue = [
+                        g for g in batch
+                        if g.get("id") and g["id"] not in synced_ids
+                    ]
 
-                await self._set_games_queue(games_queue)
-                await self._set_state(self.STATE_LAST_GAME_SKIP, str(last_skip + len(batch1) + len(batch2)))
+                    await self._set_state(self.STATE_LAST_GAME_SKIP, str(last_skip + len(batch)))
 
-                print(f"Queued {len(games_queue)} games for sync")
+                    if games_queue:
+                        print(f"Fetched {len(batch)} games, {len(games_queue)} new to sync (skip={last_skip})")
 
-            # Process games from queue until budget exhausted
-            while games_queue and self.remaining_budget > 0:
-                game_data = games_queue.pop(0)
-                opencritic_game_id = game_data.get("id")
+                    # In non-continuous mode, only fetch once
+                    if not continuous and not games_queue:
+                        break
 
-                if not opencritic_game_id or opencritic_game_id in synced_ids:
-                    continue
+                # Process games from queue
+                while games_queue:
+                    game_data = games_queue.pop(0)
+                    opencritic_game_id = game_data.get("id")
 
-                print(f"Syncing game: {game_data.get('name')} (OC ID: {opencritic_game_id})")
+                    if not opencritic_game_id or opencritic_game_id in synced_ids:
+                        continue
 
-                # Upsert game
-                internal_game_id = await self._upsert_game(game_data)
-                if not internal_game_id:
-                    continue
+                    print(f"Syncing game: {game_data.get('name')} (OC ID: {opencritic_game_id})")
 
-                # Fetch and sync reviews (uses 1 API request)
-                reviews_synced = await self._sync_game_reviews(opencritic_game_id, internal_game_id)
+                    # Upsert game
+                    internal_game_id = await self._upsert_game(game_data)
+                    if not internal_game_id:
+                        continue
 
-                # Mark as synced
-                await self._add_synced_game_id(opencritic_game_id)
-                synced_ids.add(opencritic_game_id)
+                    # Fetch and sync reviews (uses 1 API request)
+                    reviews_synced = await self._sync_game_reviews(opencritic_game_id, internal_game_id)
 
-                stats["games_synced"] += 1
-                stats["reviews_synced"] += reviews_synced
+                    # Mark as synced
+                    await self._add_synced_game_id(opencritic_game_id)
+                    synced_ids.add(opencritic_game_id)
 
-                print(f"  Synced {reviews_synced} reviews")
+                    stats["games_synced"] += 1
+                    stats["reviews_synced"] += reviews_synced
 
-                # Update queue
-                await self._set_games_queue(games_queue)
+                    print(f"  Synced {reviews_synced} reviews")
+
+                    # Save progress periodically
+                    if stats["games_synced"] % 50 == 0:
+                        await self._set_games_queue(games_queue)
+                        print(f"Progress: {stats['games_synced']} games synced, {stats['reviews_synced']} reviews")
 
             # Count new entities
             journalists_after = await self.db.execute(select(func.count()).select_from(Journalist))
@@ -404,7 +384,6 @@ class SyncOrchestrator:
             stats["journalists_discovered"] = (journalists_after.scalar() or 0) - journalists_count_before
             stats["outlets_discovered"] = (outlets_after.scalar() or 0) - outlets_count_before
             stats["requests_used"] = self._request_count
-            stats["budget_remaining"] = self.remaining_budget
 
             # Update sync log
             sync_log.status = SyncStatus.COMPLETED
@@ -413,13 +392,12 @@ class SyncOrchestrator:
             sync_log.completed_at = datetime.utcnow()
             await self.db.commit()
 
-            print(f"\nDaily sync complete:")
+            print(f"\nSync complete:")
             print(f"  Games synced: {stats['games_synced']}")
             print(f"  Reviews synced: {stats['reviews_synced']}")
             print(f"  New journalists: {stats['journalists_discovered']}")
             print(f"  New outlets: {stats['outlets_discovered']}")
-            print(f"  Requests used: {stats['requests_used']}")
-            print(f"  Budget remaining: {stats['budget_remaining']}")
+            print(f"  API requests used: {stats['requests_used']}")
 
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
@@ -432,10 +410,9 @@ class SyncOrchestrator:
 
     async def get_sync_status(self) -> Dict[str, Any]:
         """Get current sync status and stats."""
-        await self._load_budget_state()
-
         synced_ids = await self._get_synced_game_ids()
         games_queue = await self._get_games_queue()
+        last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
 
         # Get database counts
         games_count = await self.db.execute(select(func.count()).select_from(Game))
@@ -444,10 +421,9 @@ class SyncOrchestrator:
         outlets_count = await self.db.execute(select(func.count()).select_from(Outlet))
 
         return {
-            "today_requests": self._request_count,
-            "budget_remaining": self.remaining_budget,
             "games_synced_total": len(synced_ids),
             "games_in_queue": len(games_queue),
+            "last_skip_position": last_skip,
             "database_stats": {
                 "games": games_count.scalar() or 0,
                 "reviews": reviews_count.scalar() or 0,
@@ -459,8 +435,6 @@ class SyncOrchestrator:
     async def reset_sync_state(self) -> None:
         """Reset all sync state (for testing or starting fresh)."""
         # Set proper default values (not empty strings, which break JSON parsing)
-        await self._set_state(self.STATE_DAILY_COUNT, "0")
-        await self._set_state(self.STATE_DAILY_DATE, "")
         await self._set_state(self.STATE_SYNCED_GAMES, "[]")  # Valid empty JSON array
         await self._set_state(self.STATE_GAMES_QUEUE, "[]")   # Valid empty JSON array
         await self._set_state(self.STATE_LAST_GAME_SKIP, "0")
@@ -526,11 +500,15 @@ class SyncOrchestrator:
         return stats
 
 
-async def run_daily_sync():
-    """Convenience function to run the daily sync."""
+async def run_daily_sync(continuous: bool = True):
+    """Convenience function to run the sync.
+    
+    Args:
+        continuous: If True, keep fetching until all games are synced.
+    """
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
-        return await orchestrator.run_daily_sync()
+        return await orchestrator.run_daily_sync(continuous=continuous)
 
 
 async def get_sync_status():
