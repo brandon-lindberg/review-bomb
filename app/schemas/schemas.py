@@ -336,6 +336,8 @@ class GameRanking(BaseModel):
     steam_user_score: Optional[Decimal] = None
     metacritic_user_score: Optional[Decimal] = None
     disparity: Decimal
+    disparity_steam: Optional[Decimal] = None
+    disparity_metacritic: Optional[Decimal] = None
     critic_review_count: int
 
 

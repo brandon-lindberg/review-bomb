@@ -239,8 +239,9 @@ async def outlet_leaderboard(
     )
 
 
-# Anti-gaming: minimum user reviews required for a game to appear in leaderboards
-MIN_USER_REVIEWS_FOR_GAME = 50
+# Anti-gaming: minimum requirements for a game to appear in leaderboards
+MIN_USER_REVIEWS_FOR_GAME = 50  # Minimum user reviews (Steam/Metacritic)
+MIN_CRITIC_REVIEWS_FOR_GAME = 10  # Minimum journalist reviews
 
 
 @router.get("/games", response_model=PaginatedResponse[GameRanking])
@@ -292,11 +293,12 @@ async def game_leaderboard(
         .subquery()
     )
 
-    # Calculate disparity as difference from steam score (or metacritic if no steam)
-    disparity_expr = func.coalesce(
-        critic_subq.c.avg_critic_score - steam_subq.c.steam_score,
-        critic_subq.c.avg_critic_score - metacritic_subq.c.metacritic_score,
-    )
+    # Calculate individual disparities (critic - user)
+    steam_disparity_expr = critic_subq.c.avg_critic_score - steam_subq.c.steam_score
+    metacritic_disparity_expr = critic_subq.c.avg_critic_score - metacritic_subq.c.metacritic_score
+    
+    # Combined disparity: prefer steam, fall back to metacritic
+    disparity_expr = func.coalesce(steam_disparity_expr, metacritic_disparity_expr)
 
     query = (
         select(
@@ -305,15 +307,24 @@ async def game_leaderboard(
             critic_subq.c.critic_review_count,
             steam_subq.c.steam_score,
             metacritic_subq.c.metacritic_score,
+            steam_disparity_expr.label("steam_disparity"),
+            metacritic_disparity_expr.label("metacritic_disparity"),
             disparity_expr.label("disparity"),
         )
         .join(critic_subq, Game.id == critic_subq.c.game_id)
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
         .where(
-            # At least one user score must exist with 50+ reviews (anti-gaming)
-            (steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS_FOR_GAME) |
-            (metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS_FOR_GAME)
+            # Minimum 10 critic reviews
+            critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
+            # At least one user score must exist (not null) with 50+ reviews (anti-gaming)
+            (
+                (steam_subq.c.steam_score.isnot(None)) & 
+                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+            ) | (
+                (metacritic_subq.c.metacritic_score.isnot(None)) & 
+                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+            )
         )
     )
 
@@ -323,15 +334,23 @@ async def game_leaderboard(
     else:
         query = query.order_by(asc(func.abs(disparity_expr)))
 
-    # Get total count (games with both critic reviews and 50+ user reviews)
+    # Get total count (games with 10+ critic reviews AND at least one user score with 50+ reviews)
     count_subq = (
         select(Game.id)
         .join(critic_subq, Game.id == critic_subq.c.game_id)
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
         .where(
-            (steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS_FOR_GAME) |
-            (metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS_FOR_GAME)
+            # Minimum 10 critic reviews
+            critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
+            # At least one user score with 50+ reviews
+            (
+                (steam_subq.c.steam_score.isnot(None)) & 
+                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+            ) | (
+                (metacritic_subq.c.metacritic_score.isnot(None)) & 
+                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+            )
         )
     )
     count_query = select(func.count()).select_from(count_subq.subquery())
@@ -352,7 +371,9 @@ async def game_leaderboard(
         critic_count = row[2]
         steam_score = row[3]
         metacritic_score = row[4]
-        disparity = row[5]
+        steam_disparity = row[5]
+        metacritic_disparity = row[6]
+        disparity = row[7]
 
         items.append(
             GameRanking(
@@ -365,6 +386,8 @@ async def game_leaderboard(
                 steam_user_score=steam_score,
                 metacritic_user_score=metacritic_score,
                 disparity=Decimal(str(round(disparity, 2))) if disparity else Decimal("0"),
+                disparity_steam=Decimal(str(round(steam_disparity, 2))) if steam_disparity else None,
+                disparity_metacritic=Decimal(str(round(metacritic_disparity, 2))) if metacritic_disparity else None,
                 critic_review_count=critic_count,
             )
         )

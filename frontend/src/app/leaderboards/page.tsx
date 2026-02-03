@@ -96,7 +96,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     Reviews
                   </th>
                   <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
-                    Disparity (Steam / MC / Combined)
+                    {tab === "games" ? "Disparity (Steam / MC / Combined)" : "Avg Disparity"}
                   </th>
                 </tr>
               </thead>
@@ -188,13 +188,29 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                         {reviewCount}
                       </td>
                       <td className="px-4 py-4 text-right">
-                        <DisparityScores
-                          steamDisparity={steamDisparity}
-                          metacriticDisparity={metacriticDisparity}
-                          combinedDisparity={combinedDisparity}
-                          layout="compact"
-                          showLabels={false}
-                        />
+                        {tab === "games" ? (
+                          <DisparityScores
+                            steamDisparity={steamDisparity}
+                            metacriticDisparity={metacriticDisparity}
+                            combinedDisparity={combinedDisparity}
+                            layout="compact"
+                            showLabels={false}
+                          />
+                        ) : (
+                          <span
+                            className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
+                              combinedDisparity !== null && Number(combinedDisparity) > 0
+                                ? "bg-red-100 text-red-800"
+                                : combinedDisparity !== null && Number(combinedDisparity) < 0
+                                ? "bg-blue-100 text-blue-800"
+                                : "bg-gray-100 text-gray-800"
+                            }`}
+                          >
+                            {combinedDisparity !== null
+                              ? `${Number(combinedDisparity) > 0 ? "+" : ""}${Number(combinedDisparity).toFixed(1)}`
+                              : "N/A"}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   );
