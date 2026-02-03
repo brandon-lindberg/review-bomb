@@ -53,11 +53,12 @@ def calculate_review_timing(review_date, game_release_date) -> str:
 async def list_outlets(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, min_length=2, max_length=100),
     sort_by: str = Query("disparity", regex="^(disparity|name|review_count)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all outlets with pagination and sorting."""
+    """List all outlets with pagination, sorting, and search."""
     # Subquery for review and journalist counts (only scored reviews)
     stats_subq = (
         select(
@@ -103,6 +104,10 @@ async def list_outlets(
         .outerjoin(disparity_subq, Outlet.id == disparity_subq.c.outlet_id)
     )
 
+    # Filter by search term if provided
+    if search:
+        query = query.where(Outlet.name.ilike(f"%{search}%"))
+
     # Apply sorting
     if sort_by == "disparity":
         order_col = disparity_subq.c.avg_disparity_combined
@@ -122,6 +127,8 @@ async def list_outlets(
         .select_from(Outlet)
         .join(stats_subq, Outlet.id == stats_subq.c.outlet_id)
     )
+    if search:
+        count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getOutlets } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
+import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ interface PageProps {
     page?: string;
     sort?: string;
     order?: string;
+    search?: string;
   }>;
 }
 
@@ -27,10 +29,11 @@ export default async function OutletsPage({ searchParams }: PageProps) {
   const page = parseInt(params.page || "1");
   const sortBy = params.sort || "disparity";
   const sortOrder = params.order || "desc";
+  const search = params.search || "";
 
   let outlets = null;
   try {
-    outlets = await getOutlets(page, 20, sortBy, sortOrder);
+    outlets = await getOutlets(page, 20, sortBy, sortOrder, search || undefined);
   } catch (error) {
     console.error("Error fetching outlets:", error);
   }
@@ -40,7 +43,8 @@ export default async function OutletsPage({ searchParams }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Outlets</h1>
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <SearchInput defaultValue={search} placeholder="Search outlets..." />
           <SortSelect
             options={sortOptions}
             defaultValue={`${sortBy}-${sortOrder}`}
@@ -98,7 +102,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
             <div className="flex justify-center gap-2">
               {page > 1 && (
                 <Link
-                  href={`/outlets?page=${page - 1}&sort=${sortBy}&order=${sortOrder}`}
+                  href={`/outlets?page=${page - 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -109,7 +113,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
               </span>
               {page < outlets.total_pages && (
                 <Link
-                  href={`/outlets?page=${page + 1}&sort=${sortBy}&order=${sortOrder}`}
+                  href={`/outlets?page=${page + 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

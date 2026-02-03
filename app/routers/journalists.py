@@ -55,11 +55,12 @@ def calculate_review_timing(review_date, game_release_date) -> str:
 async def list_journalists(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    search: Optional[str] = Query(None, min_length=2, max_length=100),
     sort_by: str = Query("disparity", regex="^(disparity|name|review_count)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all journalists with pagination and sorting."""
+    """List all journalists with pagination, sorting, and search."""
     # Build base query with review count - only count reviews WITH actual scores
     subq = (
         select(
@@ -96,6 +97,10 @@ async def list_journalists(
         .outerjoin(disparity_subq, Journalist.id == disparity_subq.c.journalist_id)
     )
 
+    # Filter by search term if provided
+    if search:
+        query = query.where(Journalist.name.ilike(f"%{search}%"))
+
     # Apply sorting
     if sort_by == "disparity":
         order_col = disparity_subq.c.avg_disparity_combined
@@ -115,6 +120,8 @@ async def list_journalists(
         .select_from(Journalist)
         .join(subq, Journalist.id == subq.c.journalist_id)
     )
+    if search:
+        count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 

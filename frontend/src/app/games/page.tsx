@@ -4,6 +4,7 @@ import { DisparityBadge } from "@/components/DisparityBadge";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { SortSelect } from "@/components/SortSelect";
 import { YearFilter } from "@/components/YearFilter";
+import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ interface PageProps {
     page?: string;
     sort?: string;
     year?: string;
+    search?: string;
   }>;
 }
 
@@ -26,10 +28,11 @@ export default async function GamesPage({ searchParams }: PageProps) {
   const page = parseInt(params.page || "1");
   const sortBy = params.sort || "release_date";
   const year = params.year ? parseInt(params.year) : undefined;
+  const search = params.search || "";
 
   let games = null;
   try {
-    games = await getGames(page, 20, sortBy, "desc", year);
+    games = await getGames(page, 20, sortBy, "desc", year, search || undefined);
   } catch (error) {
     console.error("Error fetching games:", error);
   }
@@ -45,7 +48,8 @@ export default async function GamesPage({ searchParams }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Games</h1>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
+          <SearchInput defaultValue={search} placeholder="Search games..." />
           <YearFilter years={years} defaultValue={year} />
           <SortSelect
             options={sortOptions}
@@ -103,7 +107,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
             <div className="flex justify-center gap-2">
               {page > 1 && (
                 <Link
-                  href={`/games?page=${page - 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}`}
+                  href={`/games?page=${page - 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -114,7 +118,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               </span>
               {page < games.total_pages && (
                 <Link
-                  href={`/games?page=${page + 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}`}
+                  href={`/games?page=${page + 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

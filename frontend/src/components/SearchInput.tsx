@@ -1,0 +1,147 @@
+"use client";
+
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
+
+interface SearchInputProps {
+  defaultValue?: string;
+  placeholder?: string;
+  paramName?: string;
+  debounceMs?: number;
+}
+
+export function SearchInput({
+  defaultValue = "",
+  placeholder = "Search...",
+  paramName = "search",
+  debounceMs = 400,
+}: SearchInputProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [value, setValue] = useState(defaultValue);
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const isFirstRender = useRef(true);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Perform the search by updating the URL without full page reload
+  const performSearch = useCallback(
+    (searchValue: string) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (searchValue.trim() && searchValue.trim().length >= 2) {
+        params.set(paramName, searchValue.trim());
+      } else {
+        params.delete(paramName);
+      }
+      params.delete("page");
+      
+      const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+      router.push(newUrl);
+    },
+    [paramName, pathname, router, searchParams]
+  );
+
+  // Debounced search effect
+  useEffect(() => {
+    // Skip the first render to avoid searching on page load
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    // Clear existing timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Only search if value is empty (clear) or has 2+ characters
+    if (value === "" || value.length >= 2) {
+      debounceTimerRef.current = setTimeout(() => {
+        performSearch(value);
+      }, debounceMs);
+    }
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [value, debounceMs, performSearch]);
+
+  const handleClear = useCallback(() => {
+    setValue("");
+    // Immediately clear without debounce
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete(paramName);
+    params.delete("page");
+    const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    router.push(newUrl);
+    // Keep focus on input
+    inputRef.current?.focus();
+  }, [paramName, pathname, router, searchParams]);
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      // Cancel any pending debounce and search immediately
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      performSearch(value);
+    },
+    [value, performSearch]
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="relative flex-1 max-w-sm">
+      <div className="relative">
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+        >
+          <circle cx="11" cy="11" r="8"></circle>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-rust)] focus:border-transparent"
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={handleClear}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            aria-label="Clear search"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}

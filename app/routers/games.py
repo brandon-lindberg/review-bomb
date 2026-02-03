@@ -29,11 +29,12 @@ async def list_games(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     year: Optional[int] = Query(None, ge=2015),
+    search: Optional[str] = Query(None, min_length=2, max_length=100),
     sort_by: str = Query("release_date", regex="^(release_date|title|disparity)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all games with pagination and filtering."""
+    """List all games with pagination, filtering, and search."""
     # Subquery for review count and avg critic score (only reviews with actual scores)
     review_stats_subq = (
         select(
@@ -102,6 +103,10 @@ async def list_games(
     if year:
         query = query.where(extract("year", Game.release_date) == year)
 
+    # Filter by search term if provided
+    if search:
+        query = query.where(Game.title.ilike(f"%{search}%"))
+
     # Apply sorting
     if sort_by == "release_date":
         order_col = Game.release_date
@@ -135,6 +140,8 @@ async def list_games(
     )
     if year:
         count_query = count_query.where(extract("year", Game.release_date) == year)
+    if search:
+        count_query = count_query.where(Game.title.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
