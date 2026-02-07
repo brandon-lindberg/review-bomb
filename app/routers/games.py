@@ -20,8 +20,9 @@ from app.schemas.schemas import (
 
 router = APIRouter()
 
-# Anti-gaming: minimum user reviews required for a game to appear in lists
-MIN_USER_REVIEWS = 50
+# Anti-gaming: minimum user reviews required for a game to appear in lists (per source)
+MIN_STEAM_USER_REVIEWS = 50
+MIN_METACRITIC_USER_REVIEWS = 20
 
 
 @router.get("", response_model=PaginatedResponse[GameWithScores])
@@ -89,12 +90,12 @@ async def list_games(
         .outerjoin(review_stats_subq, Game.id == review_stats_subq.c.game_id)
         .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
-        # Only include games with critic reviews AND at least one user score with 50+ reviews
+        # Only include games with critic reviews AND at least one user score meeting minimum threshold
         .where(review_stats_subq.c.avg_critic_score.isnot(None))
         .where(
             or_(
-                steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS,
-                metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS,
+                steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+                metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
             )
         )
     )
@@ -133,8 +134,8 @@ async def list_games(
         .where(review_stats_subq.c.avg_critic_score.isnot(None))
         .where(
             or_(
-                steam_subq.c.steam_sample_size >= MIN_USER_REVIEWS,
-                metacritic_subq.c.metacritic_sample_size >= MIN_USER_REVIEWS,
+                steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+                metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
             )
         )
     )
@@ -281,7 +282,6 @@ async def get_game(
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60
-MIN_USER_REVIEWS = 50  # Minimum user reviews required for disparity calculation
 
 
 def calculate_review_timing(review_date, game_release_date) -> str:
@@ -332,7 +332,7 @@ async def get_game_reviews(
     )
     steam_result = await db.execute(steam_query)
     steam_row = steam_result.first()
-    steam_score = steam_row[0] if steam_row and (steam_row[1] or 0) >= MIN_USER_REVIEWS else None
+    steam_score = steam_row[0] if steam_row and (steam_row[1] or 0) >= MIN_STEAM_USER_REVIEWS else None
 
     metacritic_query = (
         select(UserScore.score, UserScore.sample_size)
@@ -342,7 +342,7 @@ async def get_game_reviews(
     )
     metacritic_result = await db.execute(metacritic_query)
     metacritic_row = metacritic_result.first()
-    metacritic_score = metacritic_row[0] if metacritic_row and (metacritic_row[1] or 0) >= MIN_USER_REVIEWS else None
+    metacritic_score = metacritic_row[0] if metacritic_row and (metacritic_row[1] or 0) >= MIN_METACRITIC_USER_REVIEWS else None
 
     # Get total count (only reviews with actual scores)
     count_query = (

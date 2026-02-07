@@ -13,8 +13,9 @@ from app.schemas.schemas import SiteStats
 
 router = APIRouter()
 
-# Anti-gaming: minimum user reviews required for a game to count
-MIN_USER_REVIEWS = 50
+# Anti-gaming: minimum user reviews required for a game to count (per source)
+MIN_STEAM_USER_REVIEWS = 50
+MIN_METACRITIC_USER_REVIEWS = 20
 
 
 @router.get("", response_model=SiteStats)
@@ -99,8 +100,8 @@ async def get_stats(
         .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
         .where(
             or_(
-                steam_subq.c.sample_size >= MIN_USER_REVIEWS,
-                metacritic_subq.c.sample_size >= MIN_USER_REVIEWS,
+                steam_subq.c.sample_size >= MIN_STEAM_USER_REVIEWS,
+                metacritic_subq.c.sample_size >= MIN_METACRITIC_USER_REVIEWS,
             )
         )
     )

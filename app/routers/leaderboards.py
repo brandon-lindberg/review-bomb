@@ -288,7 +288,8 @@ async def outlet_leaderboard(
 
 
 # Anti-gaming: minimum requirements for a game to appear in leaderboards
-MIN_USER_REVIEWS_FOR_GAME = 50  # Minimum user reviews (Steam/Metacritic)
+MIN_STEAM_USER_REVIEWS = 50  # Minimum Steam user reviews
+MIN_METACRITIC_USER_REVIEWS = 20  # Minimum Metacritic user reviews
 MIN_CRITIC_REVIEWS_FOR_GAME = 10  # Minimum journalist reviews
 
 
@@ -365,13 +366,13 @@ async def game_leaderboard(
         .where(
             # Minimum 10 critic reviews
             critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
-            # At least one user score must exist (not null) with 50+ reviews (anti-gaming)
+            # At least one user score must exist with enough reviews (anti-gaming)
             (
-                (steam_subq.c.steam_score.isnot(None)) & 
-                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+                (steam_subq.c.steam_score.isnot(None)) &
+                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
             ) | (
-                (metacritic_subq.c.metacritic_score.isnot(None)) & 
-                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+                (metacritic_subq.c.metacritic_score.isnot(None)) &
+                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_METACRITIC_USER_REVIEWS)
             )
         )
     )
@@ -382,7 +383,7 @@ async def game_leaderboard(
     else:
         query = query.order_by(asc(func.abs(disparity_expr)))
 
-    # Get total count (games with 10+ critic reviews AND at least one user score with 50+ reviews)
+    # Get total count (games with 10+ critic reviews AND at least one user score meeting threshold)
     count_subq = (
         select(Game.id)
         .join(critic_subq, Game.id == critic_subq.c.game_id)
@@ -391,13 +392,13 @@ async def game_leaderboard(
         .where(
             # Minimum 10 critic reviews
             critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
-            # At least one user score with 50+ reviews
+            # At least one user score meeting threshold
             (
-                (steam_subq.c.steam_score.isnot(None)) & 
-                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+                (steam_subq.c.steam_score.isnot(None)) &
+                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
             ) | (
-                (metacritic_subq.c.metacritic_score.isnot(None)) & 
-                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_USER_REVIEWS_FOR_GAME)
+                (metacritic_subq.c.metacritic_score.isnot(None)) &
+                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_METACRITIC_USER_REVIEWS)
             )
         )
     )

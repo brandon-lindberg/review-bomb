@@ -23,7 +23,9 @@ router = APIRouter()
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60
-MIN_USER_REVIEWS = 50  # Minimum user reviews required for disparity calculation
+# Minimum user reviews required for disparity calculation (per source)
+MIN_STEAM_USER_REVIEWS = 50
+MIN_METACRITIC_USER_REVIEWS = 20
 
 
 def calculate_review_timing(review_date, game_release_date) -> str:
@@ -424,10 +426,10 @@ async def get_outlet_reviews(
 
         disparity_steam = None
         disparity_metacritic = None
-        # Only calculate disparity if sample size meets minimum threshold
-        if steam_data and steam_data["sample_size"] >= MIN_USER_REVIEWS:
+        # Only calculate disparity if sample size meets minimum threshold (per source)
+        if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
             disparity_steam = review.score_normalized - steam_data["score"]
-        if metacritic_data and metacritic_data["sample_size"] >= MIN_USER_REVIEWS:
+        if metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS:
             disparity_metacritic = review.score_normalized - metacritic_data["score"]
 
         # Calculate review timing (early/launch_window/late)

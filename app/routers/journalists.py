@@ -25,7 +25,9 @@ router = APIRouter()
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60  # Reviews within 60 days of game release count for launch window disparity
-MIN_USER_REVIEWS = 50    # Minimum user reviews required for a game to count in disparity
+# Minimum user reviews required for a game to count in disparity (per source)
+MIN_STEAM_USER_REVIEWS = 50
+MIN_METACRITIC_USER_REVIEWS = 20
 
 
 def calculate_review_timing(review_date, game_release_date) -> str:
@@ -251,15 +253,15 @@ async def get_journalist(
 
         is_launch_window = timing == "launch_window"
 
-        # Calculate Steam disparity (only if 50+ user reviews)
-        if steam_data and steam_data["sample_size"] >= MIN_USER_REVIEWS:
+        # Calculate Steam disparity (only if meets minimum threshold)
+        if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
             disparity = float(review.score_normalized - steam_data["score"])
             overall_steam_disparities.append(disparity)
             if is_launch_window:
                 launch_window_steam_disparities.append(disparity)
 
-        # Calculate Metacritic disparity (only if 50+ user reviews)
-        if metacritic_data and metacritic_data["sample_size"] >= MIN_USER_REVIEWS:
+        # Calculate Metacritic disparity (only if meets minimum threshold)
+        if metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS:
             disparity = float(review.score_normalized - metacritic_data["score"])
             overall_metacritic_disparities.append(disparity)
             if is_launch_window:
@@ -315,9 +317,9 @@ async def get_journalist(
                     steam_data = user_score_lookup.get((game.id, "steam"))
                     metacritic_data = user_score_lookup.get((game.id, "metacritic"))
 
-                    if steam_data and steam_data["sample_size"] >= MIN_USER_REVIEWS:
+                    if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
                         outlet_disparities.append(float(review.score_normalized - steam_data["score"]))
-                    elif metacritic_data and metacritic_data["sample_size"] >= MIN_USER_REVIEWS:
+                    elif metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS:
                         outlet_disparities.append(float(review.score_normalized - metacritic_data["score"]))
 
         outlet_avg_disparity = Decimal(str(round(sum(outlet_disparities) / len(outlet_disparities), 2))) if outlet_disparities else None
@@ -453,9 +455,9 @@ async def get_journalist_reviews(
         steam_score_obj = user_score_lookup.get((game.id, "steam"))
         metacritic_score_obj = user_score_lookup.get((game.id, "metacritic"))
 
-        # Only use scores if they meet the minimum sample size requirement
-        steam_user_score = steam_score_obj.score if steam_score_obj and (steam_score_obj.sample_size or 0) >= MIN_USER_REVIEWS else None
-        metacritic_user_score = metacritic_score_obj.score if metacritic_score_obj and (metacritic_score_obj.sample_size or 0) >= MIN_USER_REVIEWS else None
+        # Only use scores if they meet the minimum sample size requirement (per source)
+        steam_user_score = steam_score_obj.score if steam_score_obj and (steam_score_obj.sample_size or 0) >= MIN_STEAM_USER_REVIEWS else None
+        metacritic_user_score = metacritic_score_obj.score if metacritic_score_obj and (metacritic_score_obj.sample_size or 0) >= MIN_METACRITIC_USER_REVIEWS else None
 
         disparity_steam = None
         disparity_metacritic = None
@@ -589,11 +591,11 @@ async def get_journalist_history(
         steam_data = user_score_lookup.get((game.id, "steam"))
         metacritic_data = user_score_lookup.get((game.id, "metacritic"))
 
-        # Calculate this review's disparity (only if 50+ user reviews)
-        if steam_data and steam_data["sample_size"] >= MIN_USER_REVIEWS:
+        # Calculate this review's disparity (only if meets minimum threshold)
+        if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
             steam_sum += review.score_normalized - steam_data["score"]
             steam_count += 1
-        if metacritic_data and metacritic_data["sample_size"] >= MIN_USER_REVIEWS:
+        if metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS:
             metacritic_sum += review.score_normalized - metacritic_data["score"]
             metacritic_count += 1
 

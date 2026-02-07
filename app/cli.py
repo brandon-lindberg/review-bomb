@@ -8,6 +8,7 @@ Usage:
     python -m app sync --reset      Reset sync state (start fresh)
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app steam             Sync Steam user scores
+    python -m app metacritic        Sync Metacritic scores (user + metascore)
     python -m app disparity         Calculate disparity snapshots
     python -m app clear             Clear all data from database
 """
@@ -116,6 +117,143 @@ async def cmd_steam(args):
 
         await db.commit()
         print(f"\nSteam sync complete: {synced} synced, {failed} failed")
+
+
+async def cmd_metacritic(args):
+    """Handle Metacritic sync command."""
+    from app.services.metacritic import MetacriticService
+    from app.models.models import Game, UserScore, UserScoreSource
+    from sqlalchemy import select, func
+
+    async with async_session_maker() as db:
+        # Handle --status flag
+        if args.status:
+            # Count total games with metacritic_slug
+            total_result = await db.execute(
+                select(func.count()).select_from(Game).where(Game.metacritic_slug.isnot(None))
+            )
+            total_with_slug = total_result.scalar() or 0
+
+            # Count games with metascore synced
+            synced_result = await db.execute(
+                select(func.count()).select_from(Game).where(
+                    Game.metacritic_slug.isnot(None),
+                    Game.metacritic_score.isnot(None)
+                )
+            )
+            synced_metascore = synced_result.scalar() or 0
+
+            # Count user scores from Metacritic
+            user_scores_result = await db.execute(
+                select(func.count()).select_from(UserScore).where(
+                    UserScore.source == UserScoreSource.METACRITIC
+                )
+            )
+            user_scores_count = user_scores_result.scalar() or 0
+
+            remaining = total_with_slug - synced_metascore
+            pct = (synced_metascore / total_with_slug * 100) if total_with_slug > 0 else 0
+
+            print("\n=== Metacritic Sync Status ===")
+            print(f"Games with Metacritic slug: {total_with_slug:,}")
+            print(f"Games with Metascore synced: {synced_metascore:,} ({pct:.1f}%)")
+            print(f"Games remaining to sync: {remaining:,}")
+            print(f"User scores collected: {user_scores_count:,}")
+            return
+
+        # Get games with Metacritic slugs
+        if args.force:
+            # Re-sync all games
+            query = select(Game).where(Game.metacritic_slug.isnot(None))
+        else:
+            # Only sync games that haven't been synced yet
+            query = select(Game).where(
+                Game.metacritic_slug.isnot(None),
+                Game.metacritic_score.is_(None)
+            )
+        result = await db.execute(query)
+        games = result.scalars().all()
+
+        print(f"Found {len(games)} games {'total' if args.force else 'needing'} Metacritic sync")
+
+        if args.limit:
+            games = games[:args.limit]
+            print(f"Processing first {args.limit} games")
+
+        synced_user = 0
+        synced_meta = 0
+        skipped = 0
+        failed = 0
+
+        async with MetacriticService() as service:
+            for game in games:
+                try:
+                    print(f"Fetching Metacritic scores for: {game.title}...")
+                    score_data = await service.get_scores(game.metacritic_slug)
+
+                    if score_data:
+                        updated_anything = False
+
+                        # Check and update user score only if changed
+                        if score_data.get("user_score") is not None:
+                            # Get existing user score for this game
+                            existing_score_result = await db.execute(
+                                select(UserScore).where(
+                                    UserScore.game_id == game.id,
+                                    UserScore.source == UserScoreSource.METACRITIC
+                                ).order_by(UserScore.scraped_at.desc()).limit(1)
+                            )
+                            existing_score = existing_score_result.scalar_one_or_none()
+
+                            # Only add if no existing score or score changed
+                            if existing_score is None or existing_score.score != score_data["user_score"]:
+                                user_score = UserScore(
+                                    game_id=game.id,
+                                    source=UserScoreSource.METACRITIC,
+                                    score=score_data["user_score"],
+                                    score_raw=score_data["user_score_raw"],
+                                    sample_size=score_data["user_sample_size"],
+                                    positive_count=None,
+                                    negative_count=None,
+                                    review_score_desc=None,
+                                    scraped_at=score_data["scraped_at"],
+                                )
+                                db.add(user_score)
+                                synced_user += 1
+                                updated_anything = True
+                                old_val = existing_score.score if existing_score else "None"
+                                print(f"  User Score: {old_val} -> {score_data['user_score']}")
+                            else:
+                                print(f"  User Score: {score_data['user_score']} (unchanged)")
+
+                        # Check and update metascore only if changed
+                        if score_data.get("metascore") is not None:
+                            if game.metacritic_score != score_data["metascore"]:
+                                old_val = game.metacritic_score
+                                game.metacritic_score = score_data["metascore"]
+                                synced_meta += 1
+                                updated_anything = True
+                                print(f"  Metascore: {old_val} -> {score_data['metascore']}")
+                            else:
+                                print(f"  Metascore: {score_data['metascore']} (unchanged)")
+
+                        if not updated_anything:
+                            skipped += 1
+
+                    # Commit every 10 games
+                    if (synced_user + synced_meta) % 10 == 0:
+                        await db.commit()
+
+                    # Small delay to be respectful
+                    import asyncio
+                    await asyncio.sleep(1)
+
+                except Exception as e:
+                    print(f"  Error: {e}")
+                    failed += 1
+
+        await db.commit()
+        print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")
 
 
 async def cmd_disparity(args):
@@ -305,6 +443,12 @@ def main():
     steam_parser = subparsers.add_parser("steam", help="Sync Steam user scores")
     steam_parser.add_argument("--limit", type=int, help="Limit number of games to process")
 
+    # Metacritic command
+    metacritic_parser = subparsers.add_parser("metacritic", help="Sync Metacritic scores (user + metascore)")
+    metacritic_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    metacritic_parser.add_argument("--force", action="store_true", help="Re-sync all games, even already synced ones")
+    metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
+
     # Disparity command
     disparity_parser = subparsers.add_parser("disparity", help="Calculate disparity snapshots")
     disparity_parser.add_argument("--journalists", action="store_true", help="Only journalists")
@@ -330,6 +474,8 @@ def main():
         return asyncio.run(cmd_match(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
+    elif args.command == "metacritic":
+        return asyncio.run(cmd_metacritic(args))
     elif args.command == "disparity":
         return asyncio.run(cmd_disparity(args))
     elif args.command == "clear":

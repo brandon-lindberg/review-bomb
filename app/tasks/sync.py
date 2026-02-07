@@ -398,6 +398,7 @@ async def _sync_metacritic_scores():
         try:
             records_processed = 0
             records_created = 0
+            records_updated = 0
             records_failed = 0
 
             # Get all games with Metacritic slugs
@@ -410,21 +411,29 @@ async def _sync_metacritic_scores():
             async with MetacriticService() as service:
                 for game in games:
                     try:
-                        score_data = await service.get_user_score(game.metacritic_slug)
+                        # Use get_scores() to get both user score and metascore
+                        score_data = await service.get_scores(game.metacritic_slug)
                         if score_data:
-                            user_score = UserScore(
-                                game_id=game.id,
-                                source=UserScoreSource.METACRITIC,
-                                score=score_data["score"],
-                                score_raw=score_data["score_raw"],
-                                sample_size=score_data["sample_size"],
-                                positive_count=score_data["positive_count"],
-                                negative_count=score_data["negative_count"],
-                                review_score_desc=score_data["review_score_desc"],
-                                scraped_at=score_data["scraped_at"],
-                            )
-                            db.add(user_score)
-                            records_created += 1
+                            # Save user score to UserScore table
+                            if score_data.get("user_score") is not None:
+                                user_score = UserScore(
+                                    game_id=game.id,
+                                    source=UserScoreSource.METACRITIC,
+                                    score=score_data["user_score"],
+                                    score_raw=score_data["user_score_raw"],
+                                    sample_size=score_data["user_sample_size"],
+                                    positive_count=None,
+                                    negative_count=None,
+                                    review_score_desc=None,
+                                    scraped_at=score_data["scraped_at"],
+                                )
+                                db.add(user_score)
+                                records_created += 1
+
+                            # Save metascore to Game table
+                            if score_data.get("metascore") is not None:
+                                game.metacritic_score = score_data["metascore"]
+                                records_updated += 1
 
                         records_processed += 1
 
@@ -432,6 +441,9 @@ async def _sync_metacritic_scores():
                         if records_processed % 20 == 0:
                             await db.commit()
                             print(f"Processed {records_processed} games...")
+
+                        # Small delay between requests to be respectful
+                        await asyncio.sleep(1)
 
                     except Exception as e:
                         print(f"Error fetching Metacritic score for {game.title}: {e}")
@@ -443,11 +455,12 @@ async def _sync_metacritic_scores():
             sync_log.status = SyncStatus.COMPLETED
             sync_log.records_processed = records_processed
             sync_log.records_created = records_created
+            sync_log.records_updated = records_updated
             sync_log.records_failed = records_failed
             sync_log.completed_at = datetime.utcnow()
             await db.commit()
 
-            print(f"Metacritic sync completed: {records_created} scores created")
+            print(f"Metacritic sync completed: {records_created} user scores created, {records_updated} metascores updated")
 
         except Exception as e:
             sync_log.status = SyncStatus.FAILED

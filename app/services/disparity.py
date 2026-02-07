@@ -19,7 +19,9 @@ from app.models.models import (
 )
 
 # Anti-gaming: minimum user reviews required for a game to count in disparity
-MIN_USER_REVIEWS = 50
+# Steam typically has more reviews, Metacritic has fewer
+MIN_STEAM_USER_REVIEWS = 50
+MIN_METACRITIC_USER_REVIEWS = 20
 
 
 class DisparityCalculator:
@@ -104,7 +106,7 @@ class DisparityCalculator:
             game_id: Game ID
 
         Returns:
-            Dictionary with steam_score and metacritic_score (None if < MIN_USER_REVIEWS)
+            Dictionary with steam_score and metacritic_score (None if below minimum threshold)
         """
         result = {"steam_score": None, "metacritic_score": None}
 
@@ -120,7 +122,7 @@ class DisparityCalculator:
         )
         steam_result = await self.db.execute(steam_query)
         steam_row = steam_result.first()
-        if steam_row and (steam_row[1] or 0) >= MIN_USER_REVIEWS:
+        if steam_row and (steam_row[1] or 0) >= MIN_STEAM_USER_REVIEWS:
             result["steam_score"] = steam_row[0]
 
         # Get latest Metacritic score with sample size
@@ -135,7 +137,7 @@ class DisparityCalculator:
         )
         metacritic_result = await self.db.execute(metacritic_query)
         metacritic_row = metacritic_result.first()
-        if metacritic_row and (metacritic_row[1] or 0) >= MIN_USER_REVIEWS:
+        if metacritic_row and (metacritic_row[1] or 0) >= MIN_METACRITIC_USER_REVIEWS:
             result["metacritic_score"] = metacritic_row[0]
 
         return result

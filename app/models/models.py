@@ -134,6 +134,9 @@ class Game(Base):
     percent_recommended: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
     tier: Mapped[Optional[str]] = mapped_column(String(50))  # 'Mighty', 'Strong', etc.
 
+    # Metacritic critic aggregate score (0-100)
+    metacritic_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -230,12 +230,13 @@ export function ReviewDisparityChart({
     const minDisp = Math.min(...disparities);
     const maxDisp = Math.max(...disparities);
     
-    // Add 7 days padding to x-axis
-    const xPadding = 86400000 * 7;
+    // Use percentage-based padding for x-axis (5% of range, minimum 1 day)
+    const dateRange = maxDate - minDate || 86400000; // At least 1 day
+    const xPadding = Math.max(dateRange * 0.05, 86400000);
     // Add 10% padding to y-axis
     const yRange = maxDisp - minDisp || 20;
     const yPadding = yRange * 0.1;
-    
+
     return {
       xDomain: [minDate - xPadding, maxDate + xPadding],
       yDomain: [minDisp - yPadding, maxDisp + yPadding],
@@ -515,7 +516,13 @@ export function ReviewDisparityChart({
                 tickLine={{ stroke: colors.axis }}
                 axisLine={{ stroke: colors.axis }}
                 domain={yDomain as [number, number]}
-                tickFormatter={(value) => `${value > 0 ? "+" : ""}${value}`}
+                tickFormatter={(value) => `${value > 0 ? "+" : ""}${Math.round(value)}`}
+                label={{
+                  value: "Disparity",
+                  angle: -90,
+                  position: "insideLeft",
+                  style: { textAnchor: "middle", fill: colors.text, fontSize: 12 },
+                }}
               />
               <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
               
