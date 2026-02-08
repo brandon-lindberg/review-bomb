@@ -178,10 +178,13 @@ async def get_recent_reviews(
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get most recent reviews site-wide."""
+    """Get most recent reviews site-wide (excludes future dates)."""
     from decimal import Decimal
 
+    today = datetime.utcnow()
+
     # Get recent reviews with journalist, game, and outlet info
+    # Exclude reviews with future dates (bad data from OpenCritic)
     query = (
         select(Review, Journalist, Game, Outlet)
         .join(Journalist, Review.journalist_id == Journalist.id)
@@ -191,6 +194,7 @@ async def get_recent_reviews(
             Review.score_normalized.isnot(None),
             Review.score_normalized > 0,
             Review.published_at.isnot(None),
+            Review.published_at <= today,  # Exclude future dates
         )
         .order_by(desc(Review.published_at))
         .limit(limit)

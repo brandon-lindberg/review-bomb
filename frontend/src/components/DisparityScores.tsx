@@ -30,6 +30,13 @@ function getDisparityStyle(value: number | null | undefined): React.CSSPropertie
   return { backgroundColor: bgColor, color: color };
 }
 
+// Returns true if icon should be white (when on colored background)
+function shouldUseWhiteIcon(value: number | null | undefined): boolean {
+  if (value == null) return false;
+  const level = getDisparityLevel(value);
+  return level === "high" || level === "extreme";
+}
+
 export function DisparityScores({
   steamDisparity,
   metacriticDisparity,
@@ -78,18 +85,21 @@ export function DisparityScores({
 
   if (layout === "compact") {
     return (
-      <div className="flex items-center gap-2">
-        {scores.map((score) => (
-          <div
-            key={score.key}
-            className="flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium"
-            style={getDisparityStyle(score.value)}
-            title={`${score.label} Disparity`}
-          >
-            <span style={{ color: score.sourceColor }}>{score.icon}</span>
-            <span>{formatDisparity(score.value)}</span>
-          </div>
-        ))}
+      <div className="flex items-center justify-end gap-2">
+        {scores.map((score) => {
+          const useWhiteIcon = shouldUseWhiteIcon(score.value);
+          return (
+            <div
+              key={score.key}
+              className="flex items-center justify-center gap-1 px-2 py-1 rounded-full text-xs font-medium whitespace-nowrap min-w-[70px]"
+              style={getDisparityStyle(score.value)}
+              title={`${score.label} Disparity`}
+            >
+              <span style={{ color: useWhiteIcon ? "white" : score.sourceColor }}>{score.icon}</span>
+              <span>{formatDisparity(score.value)}</span>
+            </div>
+          );
+        })}
       </div>
     );
   }

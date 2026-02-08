@@ -43,18 +43,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
           <div className="flex-1">
             <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-              {game.release_date && (
-                <span>
-                  Released: {new Date(game.release_date).toLocaleDateString()}
-                </span>
-              )}
-              {game.tier && (
-                <span className="px-2 py-0.5 bg-gray-100 rounded">
-                  {game.tier}
-                </span>
-              )}
-            </div>
+            {game.release_date && (
+              <p className="mt-2 text-sm text-gray-500">
+                Released: {new Date(game.release_date).toLocaleDateString()}
+              </p>
+            )}
             {game.description && (
               <p className="mt-4 text-gray-600">{game.description}</p>
             )}

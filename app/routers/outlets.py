@@ -1,5 +1,6 @@
 """Outlets API endpoints."""
 
+from datetime import datetime
 from typing import Optional
 from decimal import Decimal
 
@@ -62,6 +63,7 @@ async def list_outlets(
 ):
     """List all outlets with pagination, sorting, and search."""
     # Subquery for review and journalist counts (only scored reviews)
+    today = datetime.utcnow()
     stats_subq = (
         select(
             Review.outlet_id,
@@ -74,6 +76,7 @@ async def list_outlets(
             Review.outlet_id.isnot(None),
             Review.score_normalized.isnot(None),  # Only scored reviews
             Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            Review.published_at <= today,  # Exclude future dates (bad data)
         )
         .group_by(Review.outlet_id)
         .subquery()
@@ -431,9 +434,13 @@ async def get_outlet_reviews(
         disparity_steam = None
         disparity_metacritic = None
         # Only calculate disparity if sample size meets minimum threshold (per source)
-        if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
+        # Steam always provides sample_size, so we require it
+        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
             disparity_steam = review.score_normalized - steam_data["score"]
-        if metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS:
+        # Metacritic doesn't always expose sample_size - if score exists, allow it through
+        if metacritic_data and metacritic_data["score"] and (
+            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
+        ):
             disparity_metacritic = review.score_normalized - metacritic_data["score"]
 
         # Calculate review timing (early/launch_window/late)

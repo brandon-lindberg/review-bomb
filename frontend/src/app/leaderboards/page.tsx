@@ -86,17 +86,23 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
             <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-16">
                     Rank
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                     {tab === "games" ? "Game" : "Name"}
                   </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500 w-24">
                     Reviews
                   </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
-                    {tab === "games" ? "Disparity (Steam / MC / Combined)" : "Avg Disparity"}
+                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500 whitespace-nowrap">
+                    {tab === "games" ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="min-w-[70px] text-center" style={{ color: "#708160" }}>Steam</span>
+                        <span className="min-w-[70px] text-center" style={{ color: "#DD7631" }}>MC</span>
+                        <span className="min-w-[70px] text-center" style={{ color: "#5C574F" }}>Combined</span>
+                      </div>
+                    ) : "Avg Disparity"}
                   </th>
                 </tr>
               </thead>
@@ -147,7 +153,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
 
                   return (
                     <tr key={id} className="hover:bg-gray-50">
-                      <td className="px-4 py-4 text-sm text-gray-500">
+                      <td className="px-4 py-4 text-sm text-gray-500 w-16">
                         {rank}
                       </td>
                       <td className="px-4 py-4">
@@ -184,10 +190,10 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                           <span>{name}</span>
                         </Link>
                       </td>
-                      <td className="px-4 py-4 text-sm text-gray-500 text-right">
+                      <td className="px-4 py-4 text-sm text-gray-500 text-right w-24">
                         {reviewCount}
                       </td>
-                      <td className="px-4 py-4 text-right">
+                      <td className="px-4 py-4 text-right whitespace-nowrap">
                         {tab === "games" ? (
                           <DisparityScores
                             steamDisparity={steamDisparity}

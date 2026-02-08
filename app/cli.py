@@ -123,7 +123,7 @@ async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select, func
+    from sqlalchemy import select, func, delete
 
     async with async_session_maker() as db:
         # Handle --status flag

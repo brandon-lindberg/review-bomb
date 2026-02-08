@@ -372,7 +372,11 @@ export default async function JournalistDetailPage({
                   steamDisparity={review.disparity_steam}
                   metacriticScore={review.metacritic_user_score}
                   metacriticDisparity={review.disparity_metacritic}
-                  combinedDisparity={review.disparity}
+                  combinedDisparity={
+                    review.disparity_steam != null && review.disparity_metacritic != null
+                      ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
+                      : review.disparity_steam ?? review.disparity_metacritic
+                  }
                 />
               </div>
             ))}

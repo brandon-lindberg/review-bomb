@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Optional
 
 import dramatiq
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import async_session_maker
@@ -399,6 +399,7 @@ async def _sync_metacritic_scores():
             records_processed = 0
             records_created = 0
             records_updated = 0
+            records_deleted = 0
             records_failed = 0
 
             # Get all games with Metacritic slugs
@@ -429,6 +430,17 @@ async def _sync_metacritic_scores():
                                 )
                                 db.add(user_score)
                                 records_created += 1
+                            else:
+                                # User score is N/A - delete any existing invalid scores for this game
+                                delete_result = await db.execute(
+                                    delete(UserScore).where(
+                                        UserScore.game_id == game.id,
+                                        UserScore.source == UserScoreSource.METACRITIC,
+                                    )
+                                )
+                                if delete_result.rowcount > 0:
+                                    records_deleted += delete_result.rowcount
+                                    print(f"Deleted {delete_result.rowcount} invalid Metacritic score(s) for {game.title}")
 
                             # Save metascore to Game table
                             if score_data.get("metascore") is not None:
@@ -460,7 +472,7 @@ async def _sync_metacritic_scores():
             sync_log.completed_at = datetime.utcnow()
             await db.commit()
 
-            print(f"Metacritic sync completed: {records_created} user scores created, {records_updated} metascores updated")
+            print(f"Metacritic sync completed: {records_created} user scores created, {records_deleted} invalid scores deleted, {records_updated} metascores updated")
 
         except Exception as e:
             sync_log.status = SyncStatus.FAILED

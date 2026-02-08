@@ -4,7 +4,7 @@ from typing import Optional
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, desc, asc
+from sqlalchemy import select, func, desc, asc, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -345,9 +345,15 @@ async def game_leaderboard(
     # Calculate individual disparities (critic - user)
     steam_disparity_expr = critic_subq.c.avg_critic_score - steam_subq.c.steam_score
     metacritic_disparity_expr = critic_subq.c.avg_critic_score - metacritic_subq.c.metacritic_score
-    
-    # Combined disparity: prefer steam, fall back to metacritic
-    disparity_expr = func.coalesce(steam_disparity_expr, metacritic_disparity_expr)
+
+    # Combined disparity: average when both exist, otherwise use whichever is available
+    disparity_expr = case(
+        (
+            (steam_disparity_expr.isnot(None)) & (metacritic_disparity_expr.isnot(None)),
+            (steam_disparity_expr + metacritic_disparity_expr) / 2
+        ),
+        else_=func.coalesce(steam_disparity_expr, metacritic_disparity_expr)
+    )
 
     query = (
         select(
@@ -371,8 +377,12 @@ async def game_leaderboard(
                 (steam_subq.c.steam_score.isnot(None)) &
                 (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
             ) | (
+                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
                 (metacritic_subq.c.metacritic_score.isnot(None)) &
-                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_METACRITIC_USER_REVIEWS)
+                (
+                    (metacritic_subq.c.metacritic_sample_size.is_(None)) |
+                    (metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
+                )
             )
         )
     )
@@ -397,8 +407,12 @@ async def game_leaderboard(
                 (steam_subq.c.steam_score.isnot(None)) &
                 (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
             ) | (
+                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
                 (metacritic_subq.c.metacritic_score.isnot(None)) &
-                (func.coalesce(metacritic_subq.c.metacritic_sample_size, 0) >= MIN_METACRITIC_USER_REVIEWS)
+                (
+                    (metacritic_subq.c.metacritic_sample_size.is_(None)) |
+                    (metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
+                )
             )
         )
     )

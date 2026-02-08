@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, desc, asc, extract, or_
+from sqlalchemy import select, func, desc, asc, extract, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -95,7 +95,14 @@ async def list_games(
         .where(
             or_(
                 steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
+                and_(
+                    metacritic_subq.c.metacritic_score.isnot(None),
+                    or_(
+                        metacritic_subq.c.metacritic_sample_size.is_(None),
+                        metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                    )
+                ),
             )
         )
     )
@@ -135,7 +142,14 @@ async def list_games(
         .where(
             or_(
                 steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
+                and_(
+                    metacritic_subq.c.metacritic_score.isnot(None),
+                    or_(
+                        metacritic_subq.c.metacritic_sample_size.is_(None),
+                        metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                    )
+                ),
             )
         )
     )
@@ -342,7 +356,10 @@ async def get_game_reviews(
     )
     metacritic_result = await db.execute(metacritic_query)
     metacritic_row = metacritic_result.first()
-    metacritic_score = metacritic_row[0] if metacritic_row and (metacritic_row[1] or 0) >= MIN_METACRITIC_USER_REVIEWS else None
+    # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
+    metacritic_score = metacritic_row[0] if metacritic_row and metacritic_row[0] and (
+        metacritic_row[1] is None or metacritic_row[1] >= MIN_METACRITIC_USER_REVIEWS
+    ) else None
 
     # Get total count (only reviews with actual scores)
     count_query = (
