@@ -226,7 +226,7 @@ async def get_journalist(
             if key not in user_score_lookup:
                 user_score_lookup[key] = {
                     "score": us.score,
-                    "sample_size": us.sample_size or 0,
+                    "sample_size": us.sample_size,
                 }
 
     # Calculate disparity with launch window and user review minimum filters
@@ -260,7 +260,7 @@ async def get_journalist(
         is_launch_window = timing == "launch_window"
 
         # Calculate Steam disparity (only if meets minimum threshold)
-        if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
+        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
             disparity = float(review.score_normalized - steam_data["score"])
             overall_steam_disparities.append(disparity)
             if is_launch_window:
@@ -578,7 +578,7 @@ async def get_journalist_history(
         if key not in user_score_lookup:
             user_score_lookup[key] = {
                 "score": us.score,
-                "sample_size": us.sample_size or 0,
+                "sample_size": us.sample_size,
             }
 
     # Calculate cumulative disparity at each review date

@@ -398,7 +398,7 @@ async def get_outlet_reviews(
         for gid, score, sample_size in steam_result.all():
             if gid not in user_scores:
                 user_scores[gid] = {}
-            user_scores[gid]["steam"] = {"score": score, "sample_size": sample_size or 0}
+            user_scores[gid]["steam"] = {"score": score, "sample_size": sample_size}
 
         # Get latest Metacritic scores with sample size
         mc_subq = (
@@ -423,7 +423,7 @@ async def get_outlet_reviews(
         for gid, score, sample_size in mc_result.all():
             if gid not in user_scores:
                 user_scores[gid] = {}
-            user_scores[gid]["metacritic"] = {"score": score, "sample_size": sample_size or 0}
+            user_scores[gid]["metacritic"] = {"score": score, "sample_size": sample_size}
 
     items = []
     for review, journalist, game in rows:

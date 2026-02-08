@@ -219,7 +219,7 @@ async def get_recent_reviews(
         for us in user_scores:
             key = (us.game_id, us.source.value.lower())
             if key not in user_score_lookup:
-                user_score_lookup[key] = {"score": us.score, "sample_size": us.sample_size or 0}
+                user_score_lookup[key] = {"score": us.score, "sample_size": us.sample_size}
 
     items = []
     for review, journalist, game, outlet in rows:
@@ -227,8 +227,11 @@ async def get_recent_reviews(
         metacritic_data = user_score_lookup.get((game.id, "metacritic"))
 
         # Only use scores if they meet minimum sample size
-        steam_user_score = steam_data["score"] if steam_data and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS else None
-        metacritic_user_score = metacritic_data["score"] if metacritic_data and metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS else None
+        # For Metacritic, if sample_size is None but we have a score, it means 20+ reviews (Metacritic only shows scores then)
+        steam_user_score = steam_data["score"] if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS else None
+        metacritic_user_score = metacritic_data["score"] if metacritic_data and metacritic_data["score"] and (
+            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
+        ) else None
 
         disparity_steam = None
         disparity_metacritic = None
