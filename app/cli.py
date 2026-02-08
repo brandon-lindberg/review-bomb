@@ -225,6 +225,17 @@ async def cmd_metacritic(args):
                                 print(f"  User Score: {old_val} -> {score_data['user_score']}")
                             else:
                                 print(f"  User Score: {score_data['user_score']} (unchanged)")
+                        else:
+                            # User score is N/A - delete any existing invalid scores for this game
+                            delete_result = await db.execute(
+                                delete(UserScore).where(
+                                    UserScore.game_id == game.id,
+                                    UserScore.source == UserScoreSource.METACRITIC,
+                                )
+                            )
+                            if delete_result.rowcount > 0:
+                                print(f"  User Score: Deleted {delete_result.rowcount} invalid score(s) (now N/A)")
+                                updated_anything = True
 
                         # Check and update metascore only if changed
                         if score_data.get("metascore") is not None:
