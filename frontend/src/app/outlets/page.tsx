@@ -16,10 +16,11 @@ interface PageProps {
 }
 
 const sortOptions = [
-  { value: "disparity-desc", label: "Highest Disparity" },
-  { value: "disparity-asc", label: "Lowest Disparity" },
+  { value: "latest_review-desc", label: "Most Recent" },
   { value: "review_count-desc", label: "Most Reviews" },
   { value: "review_count-asc", label: "Fewest Reviews" },
+  { value: "disparity-desc", label: "Highest Disparity" },
+  { value: "disparity-asc", label: "Lowest Disparity" },
   { value: "name-asc", label: "Name (A-Z)" },
   { value: "name-desc", label: "Name (Z-A)" },
 ];
@@ -27,7 +28,7 @@ const sortOptions = [
 export default async function OutletsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
-  const sortBy = params.sort || "disparity";
+  const sortBy = params.sort || "latest_review";
   const sortOrder = params.order || "desc";
   const search = params.search || "";
 

@@ -56,7 +56,7 @@ async def list_outlets(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
-    sort_by: str = Query("disparity", regex="^(disparity|name|review_count)$"),
+    sort_by: str = Query("latest_review", regex="^(disparity|name|review_count|latest_review)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -68,6 +68,7 @@ async def list_outlets(
             func.count(Review.id).label("review_count"),
             func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
             func.avg(Review.score_normalized).label("avg_score"),
+            func.max(Review.published_at).label("latest_review_date"),
         )
         .where(
             Review.outlet_id.isnot(None),
@@ -101,6 +102,7 @@ async def list_outlets(
             disparity_subq.c.avg_disparity_steam.label("avg_disparity_steam"),
             disparity_subq.c.avg_disparity_metacritic.label("avg_disparity_metacritic"),
             disparity_subq.c.avg_disparity_combined.label("avg_disparity"),
+            stats_subq.c.latest_review_date.label("latest_review_date"),
         )
         .join(stats_subq, Outlet.id == stats_subq.c.outlet_id)  # INNER JOIN - only outlets with scored reviews
         .outerjoin(disparity_subq, Outlet.id == disparity_subq.c.outlet_id)
@@ -115,6 +117,8 @@ async def list_outlets(
         order_col = disparity_subq.c.avg_disparity_combined
     elif sort_by == "name":
         order_col = Outlet.name
+    elif sort_by == "latest_review":
+        order_col = stats_subq.c.latest_review_date
     else:  # review_count
         order_col = stats_subq.c.review_count
 

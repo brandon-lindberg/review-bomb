@@ -58,16 +58,17 @@ async def list_journalists(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
-    sort_by: str = Query("disparity", regex="^(disparity|name|review_count)$"),
+    sort_by: str = Query("latest_review", regex="^(disparity|name|review_count|latest_review)$"),
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """List all journalists with pagination, sorting, and search."""
-    # Build base query with review count - only count reviews WITH actual scores
+    # Build base query with review count and latest review date - only count reviews WITH actual scores
     subq = (
         select(
             Review.journalist_id,
             func.count(Review.id).label("review_count"),
+            func.max(Review.published_at).label("latest_review_date"),
         )
         .where(
             Review.score_normalized.isnot(None),  # Only reviews with scores
@@ -94,6 +95,7 @@ async def list_journalists(
             Journalist,
             func.coalesce(subq.c.review_count, 0).label("review_count"),
             disparity_subq.c.avg_disparity_combined.label("avg_disparity"),
+            subq.c.latest_review_date.label("latest_review_date"),
         )
         .join(subq, Journalist.id == subq.c.journalist_id)  # INNER JOIN - only journalists with scored reviews
         .outerjoin(disparity_subq, Journalist.id == disparity_subq.c.journalist_id)
@@ -108,6 +110,8 @@ async def list_journalists(
         order_col = disparity_subq.c.avg_disparity_combined
     elif sort_by == "name":
         order_col = Journalist.name
+    elif sort_by == "latest_review":
+        order_col = subq.c.latest_review_date
     else:  # review_count
         order_col = subq.c.review_count
 

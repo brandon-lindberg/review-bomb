@@ -1,19 +1,19 @@
 import Link from "next/link";
-import { getStats, getJournalistLeaderboard, getGameLeaderboard } from "@/lib/api";
+import { getStats, getRecentReviews, getGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   let stats = null;
-  let topJournalists = null;
-  let topGames = null;
+  let recentReviews = null;
+  let recentGames = null;
 
   try {
-    [stats, topJournalists, topGames] = await Promise.all([
+    [stats, recentReviews, recentGames] = await Promise.all([
       getStats(),
-      getJournalistLeaderboard(1, 5, "highest"),
-      getGameLeaderboard(1, 5, "highest"),
+      getRecentReviews(5),
+      getGames(1, 5, "release_date", "desc"),
     ]);
   } catch (error) {
     console.error("Error fetching data:", error);
@@ -42,89 +42,127 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Leaderboards Preview */}
+      {/* Recent Content */}
       <div className="grid md:grid-cols-2 gap-8">
-        {/* Top Journalists by Disparity */}
-        {topJournalists && topJournalists.items.length > 0 && (
-          <section className="bg-white rounded-lg shadow p-6">
+        {/* Recent Reviews */}
+        {recentReviews && recentReviews.length > 0 && (
+          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">
-                Highest Disparity Critics
+              <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
+                Recent Reviews
               </h2>
               <Link
-                href="/leaderboards?tab=journalists"
+                href="/journalists"
                 className="text-sm hover:underline"
                 style={{ color: "var(--color-rust)" }}
               >
-                View All
+                Browse All
               </Link>
             </div>
             <div className="space-y-3">
-              {topJournalists.items.map((journalist, index) => (
-                <Link
-                  key={journalist.journalist_id}
-                  href={`/journalists/${journalist.journalist_id}`}
-                  className="flex items-center justify-between p-3 rounded hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-medium text-gray-400 w-6">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <p className="font-medium text-gray-900">
-                        {journalist.journalist_name}
-                      </p>
-                      <p className="text-sm text-gray-500">
-                        {journalist.review_count} reviews
-                      </p>
+              {recentReviews.map((review) => {
+                const disparity = review.disparity_steam ?? review.disparity_metacritic ?? null;
+                return (
+                  <div
+                    key={review.id}
+                    className="p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/games/${review.game_id}`}
+                          className="font-medium hover:underline block truncate"
+                          style={{ color: "var(--foreground)" }}
+                        >
+                          {review.game_title}
+                        </Link>
+                        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
+                          <Link
+                            href={`/journalists/${review.journalist_id}`}
+                            className="hover:underline"
+                          >
+                            {review.journalist_name}
+                          </Link>
+                          {review.outlet_name && (
+                            <>
+                              <span>•</span>
+                              <span>{review.outlet_name}</span>
+                            </>
+                          )}
+                        </div>
+                        <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                          {review.published_at
+                            ? new Date(review.published_at).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "Unknown date"}
+                          {" • "}
+                          Score: {review.score_normalized != null ? Number(review.score_normalized).toFixed(0) : "N/A"}
+                        </p>
+                      </div>
+                      {disparity !== null && (
+                        <DisparityBadge disparity={disparity} size="sm" />
+                      )}
                     </div>
                   </div>
-                  <DisparityBadge disparity={journalist.avg_disparity} />
-                </Link>
-              ))}
+                );
+              })}
             </div>
           </section>
         )}
 
-        {/* Most Divisive Games */}
-        {topGames && topGames.items.length > 0 && (
-          <section className="bg-white rounded-lg shadow p-6">
+        {/* Recent Games */}
+        {recentGames && recentGames.items.length > 0 && (
+          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">
-                Most Divisive Games
+              <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
+                Recent Games
               </h2>
               <Link
-                href="/leaderboards?tab=games"
+                href="/games"
                 className="text-sm hover:underline"
                 style={{ color: "var(--color-rust)" }}
               >
-                View All
+                Browse All
               </Link>
             </div>
             <div className="space-y-3">
-              {topGames.items.map((game, index) => (
+              {recentGames.items.map((game) => (
                 <Link
-                  key={game.game_id}
-                  href={`/games/${game.game_id}`}
-                  className="flex items-center justify-between p-3 rounded hover:bg-gray-50 transition-colors"
+                  key={game.id}
+                  href={`/games/${game.id}`}
+                  className="flex items-center justify-between p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg font-medium text-gray-400 w-6">
-                      {index + 1}
-                    </span>
-                    <div>
-                      <p className="font-medium text-gray-900">{game.game_title}</p>
-                      <p className="text-sm text-gray-500">
-                        Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
-                        {game.steam_user_score != null
-                          ? Number(game.steam_user_score).toFixed(0)
-                          : game.metacritic_user_score != null
-                            ? Number(game.metacritic_user_score).toFixed(0)
-                            : "N/A"}
-                      </p>
-                    </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
+                      {game.title}
+                    </p>
+                    <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                      {game.release_date
+                        ? new Date(game.release_date).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "Unknown release date"}
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                      Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
+                      {game.steam_user_score != null
+                        ? Number(game.steam_user_score).toFixed(0)
+                        : game.metacritic_user_score != null
+                          ? Number(game.metacritic_user_score).toFixed(0)
+                          : "N/A"}
+                    </p>
                   </div>
-                  <DisparityBadge disparity={game.disparity} />
+                  {(game.disparity_steam != null || game.disparity_metacritic != null) && (
+                    <DisparityBadge
+                      disparity={game.disparity_steam ?? game.disparity_metacritic ?? 0}
+                      size="sm"
+                    />
+                  )}
                 </Link>
               ))}
             </div>
@@ -161,8 +199,8 @@ export default async function Home() {
 
       {/* Empty state if no data */}
       {!stats && (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
-          <p className="text-gray-600">
+        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+          <p style={{ color: "var(--foreground-muted)" }}>
             Unable to load data. Make sure the backend API is running.
           </p>
         </div>
@@ -173,7 +211,7 @@ export default async function Home() {
 
 function StatCard({ label, value }: { label: string; value: number | undefined }) {
   return (
-    <div className="bg-white rounded-lg shadow p-6 text-center" style={{ borderTop: "3px solid var(--color-rust)" }}>
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 text-center" style={{ borderTop: "3px solid var(--color-rust)" }}>
       <p className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
         {value != null ? value.toLocaleString() : "—"}
       </p>
