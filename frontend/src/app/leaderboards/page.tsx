@@ -20,7 +20,7 @@ interface PageProps {
 export default async function LeaderboardsPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const tab = params.tab || "journalists";
-  const sort = (params.sort || "highest") as "highest" | "lowest";
+  const sort = (params.sort || "recent") as "recent" | "highest" | "lowest";
   const page = parseInt(params.page || "1");
 
   let data = null;
@@ -51,6 +51,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
         <div className="flex gap-2">
           <SortSelect
             options={[
+              { value: "recent", label: "Most Recent" },
               { value: "highest", label: "Highest Disparity" },
               { value: "lowest", label: "Lowest Disparity" },
             ]}
@@ -87,7 +88,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-16">
-                    Rank
+                    {sort === "recent" ? "#" : "Rank"}
                   </th>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                     {tab === "games" ? "Game" : "Name"}
@@ -114,6 +115,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   let id: number;
                   let linkHref: string;
                   let name: string;
+                  let subtitle: string | null = null;
                   let imageUrl: string | null = null;
                   let reviewCount: number;
                   let steamDisparity: number | null = null;
@@ -124,6 +126,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     id = item.journalist_id;
                     linkHref = `/journalists/${id}`;
                     name = item.journalist_name;
+                    subtitle = item.outlet_name || null;
                     imageUrl = item.journalist_image_url;
                     reviewCount = item.review_count;
                     steamDisparity = item.avg_disparity_steam ?? null;
@@ -142,6 +145,9 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     id = item.game_id;
                     linkHref = `/games/${id}`;
                     name = item.game_title;
+                    subtitle = item.release_date
+                      ? new Date(item.release_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                      : null;
                     imageUrl = item.game_image_url;
                     reviewCount = item.critic_review_count;
                     steamDisparity = item.disparity_steam ?? null;
@@ -187,7 +193,14 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                               </div>
                             )
                           )}
-                          <span>{name}</span>
+                          <div>
+                            <span>{name}</span>
+                            {subtitle && (
+                              <span className="block text-xs font-normal" style={{ color: "var(--foreground-muted)" }}>
+                                {subtitle}
+                              </span>
+                            )}
+                          </div>
                         </Link>
                       </td>
                       <td className="px-4 py-4 text-sm text-gray-500 text-right w-24">

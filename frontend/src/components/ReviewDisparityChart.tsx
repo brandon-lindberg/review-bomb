@@ -67,36 +67,47 @@ function isReviewWithJournalist(review: ReviewData): review is ReviewWithJournal
 interface ChartDataPoint {
   date: number; // timestamp for sorting
   dateLabel: string;
-  disparity: number | null;
-  rollingAvg?: number | null; // Rolling average for trend line
   index: number; // unique index for identification
+  // All disparity values
+  steamDisparity: number | null;
+  metacriticDisparity: number | null;
+  combinedDisparity: number | null;
+  // Rolling averages for each type
+  steamRollingAvg?: number | null;
+  metacriticRollingAvg?: number | null;
+  combinedRollingAvg?: number | null;
   // Context info for tooltip
   gameName?: string;
   journalistName?: string;
   outletName?: string | null;
   criticScore?: number | null;
-  steamDisparity?: number | null;
-  metacriticDisparity?: number | null;
 }
 
-// Calculate rolling average
-function calculateRollingAverage(data: ChartDataPoint[], windowSize: number): ChartDataPoint[] {
-  return data.map((point, index) => {
-    if (point.disparity === null) return point;
-    
+// Calculate rolling average for a specific field
+function calculateRollingAverageForField(
+  data: ChartDataPoint[],
+  windowSize: number,
+  getValue: (p: ChartDataPoint) => number | null,
+  setValue: (p: ChartDataPoint, val: number | null) => void
+): void {
+  data.forEach((point, index) => {
+    const value = getValue(point);
+    if (value === null) {
+      setValue(point, null);
+      return;
+    }
+
     // Get window of points (up to windowSize previous points including current)
     const start = Math.max(0, index - windowSize + 1);
-    const window = data.slice(start, index + 1).filter(p => p.disparity !== null);
-    
-    if (window.length === 0) return point;
-    
-    const sum = window.reduce((acc, p) => acc + (p.disparity || 0), 0);
-    const avg = sum / window.length;
-    
-    return {
-      ...point,
-      rollingAvg: avg,
-    };
+    const window = data.slice(start, index + 1).filter(p => getValue(p) !== null);
+
+    if (window.length === 0) {
+      setValue(point, null);
+      return;
+    }
+
+    const sum = window.reduce((acc, p) => acc + (getValue(p) || 0), 0);
+    setValue(point, sum / window.length);
   });
 }
 
@@ -126,34 +137,41 @@ export function ReviewDisparityChart({
 }: ReviewDisparityChartProps) {
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
-  const [activeType, setActiveType] = useState<DisparityType>("combined");
+
+  // Track which lines are visible (all enabled by default if they have data)
+  const [visibleLines, setVisibleLines] = useState<Record<DisparityType, boolean>>({
+    combined: true,
+    steam: true,
+    metacritic: true,
+  });
+
   const [chartMode, setChartMode] = useState<ChartMode>("trend");
   const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
-  
+
   // Calculate rolling window size based on data volume
   const rollingWindowSize = useMemo(() => {
     const count = reviews.length;
-    if (count > 500) return 30;  // Large dataset: 30-review rolling avg
-    if (count > 200) return 20;  // Medium dataset: 20-review rolling avg
-    if (count > 50) return 10;   // Small dataset: 10-review rolling avg
-    return 5;                     // Very small: 5-review rolling avg
+    if (count > 500) return 30;
+    if (count > 200) return 20;
+    if (count > 50) return 10;
+    return 5;
   }, [reviews.length]);
 
-  // Transform reviews into chart data points (calculate all disparity types)
-  const allChartData = useMemo(() => {
-    return reviews
+  // Transform reviews into chart data points with all disparity types
+  const chartData = useMemo(() => {
+    const data = reviews
       .filter((review) => review.published_at != null)
       .map((review, idx) => {
         const date = new Date(review.published_at!);
+        const steamDisp = review.disparity_steam != null ? Number(review.disparity_steam) : null;
+        const mcDisp = review.disparity_metacritic != null ? Number(review.disparity_metacritic) : null;
 
         // Calculate combined disparity
-        const steamDisp = review.disparity_steam;
-        const mcDisp = review.disparity_metacritic;
         let combinedDisp: number | null = null;
         if (steamDisp != null && mcDisp != null) {
-          combinedDisp = (Number(steamDisp) + Number(mcDisp)) / 2;
+          combinedDisp = (steamDisp + mcDisp) / 2;
         } else {
           combinedDisp = steamDisp ?? mcDisp ?? null;
         }
@@ -165,16 +183,13 @@ export function ReviewDisparityChart({
             day: "numeric",
             year: "numeric",
           }),
-          disparity: null, // Will be set based on activeType
           index: idx,
-          steamDisparity: steamDisp != null ? Number(steamDisp) : null,
-          metacriticDisparity: mcDisp != null ? Number(mcDisp) : null,
+          steamDisparity: steamDisp,
+          metacriticDisparity: mcDisp,
+          combinedDisparity: combinedDisp,
           criticScore: review.score_normalized != null ? Number(review.score_normalized) : null,
           outletName: review.outlet_name,
         };
-
-        // Store combined for later use
-        (point as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity = combinedDisp;
 
         // Add context-specific fields
         if (isReviewWithDisparity(review)) {
@@ -192,48 +207,57 @@ export function ReviewDisparityChart({
         return point;
       })
       .sort((a, b) => a.date - b.date);
-  }, [reviews, context, gameTitle]);
+
+    // Calculate rolling averages for each disparity type
+    calculateRollingAverageForField(
+      data, rollingWindowSize,
+      p => p.steamDisparity,
+      (p, val) => { p.steamRollingAvg = val; }
+    );
+    calculateRollingAverageForField(
+      data, rollingWindowSize,
+      p => p.metacriticDisparity,
+      (p, val) => { p.metacriticRollingAvg = val; }
+    );
+    calculateRollingAverageForField(
+      data, rollingWindowSize,
+      p => p.combinedDisparity,
+      (p, val) => { p.combinedRollingAvg = val; }
+    );
+
+    return data;
+  }, [reviews, context, gameTitle, rollingWindowSize]);
 
   // Check which disparity types have data
   const hasData = useMemo(() => ({
-    steam: allChartData.some((p) => p.steamDisparity != null),
-    metacritic: allChartData.some((p) => p.metacriticDisparity != null),
-    combined: allChartData.some((p) => (p as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity != null),
-  }), [allChartData]);
-
-  // Filter chart data for the active type and calculate rolling average
-  const chartData = useMemo(() => {
-    const filtered = allChartData
-      .map((point, idx) => ({
-        ...point,
-        index: idx, // Re-assign index after filtering
-        disparity:
-          activeType === "steam" ? point.steamDisparity :
-          activeType === "metacritic" ? point.metacriticDisparity :
-          (point as ChartDataPoint & { combinedDisparity: number | null }).combinedDisparity,
-      }))
-      .filter((point) => point.disparity != null);
-    
-    // Calculate rolling average for trend line
-    return calculateRollingAverage(filtered, rollingWindowSize);
-  }, [allChartData, activeType, rollingWindowSize]);
+    steam: chartData.some((p) => p.steamDisparity != null),
+    metacritic: chartData.some((p) => p.metacriticDisparity != null),
+    combined: chartData.some((p) => p.combinedDisparity != null),
+  }), [chartData]);
 
   // Calculate domain bounds for scaling
   const { xDomain, yDomain } = useMemo(() => {
     if (chartData.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
-    
+
     const dates = chartData.map(d => d.date);
-    const disparities = chartData.map(d => d.disparity!);
-    
+
+    // Collect all visible disparities for y-domain calculation
+    const disparities: number[] = [];
+    chartData.forEach(d => {
+      if (visibleLines.steam && d.steamDisparity != null) disparities.push(d.steamDisparity);
+      if (visibleLines.metacritic && d.metacriticDisparity != null) disparities.push(d.metacriticDisparity);
+      if (visibleLines.combined && d.combinedDisparity != null) disparities.push(d.combinedDisparity);
+    });
+
+    if (disparities.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
+
     const minDate = Math.min(...dates);
     const maxDate = Math.max(...dates);
     const minDisp = Math.min(...disparities);
     const maxDisp = Math.max(...disparities);
-    
-    // Use percentage-based padding for x-axis (5% of range, minimum 1 day)
-    const dateRange = maxDate - minDate || 86400000; // At least 1 day
+
+    const dateRange = maxDate - minDate || 86400000;
     const xPadding = Math.max(dateRange * 0.05, 86400000);
-    // Add 10% padding to y-axis
     const yRange = maxDisp - minDisp || 20;
     const yPadding = yRange * 0.1;
 
@@ -241,41 +265,44 @@ export function ReviewDisparityChart({
       xDomain: [minDate - xPadding, maxDate + xPadding],
       yDomain: [minDisp - yPadding, maxDisp + yPadding],
     };
-  }, [chartData]);
+  }, [chartData, visibleLines]);
 
   // Store point positions after rendering
   const pointPositionsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
 
-  // Handle mouse move to find closest point using stored positions
+  // Handle mouse move to find closest point
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     if (!chartContainerRef.current || chartData.length === 0) return;
-    
+
     const rect = chartContainerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
-    
-    // Find closest point by pixel distance using stored positions
+
     let closestPoint: ChartDataPoint | null = null;
     let closestDistance = Infinity;
-    
+
     for (const point of chartData) {
-      if (point.disparity === null) continue;
-      
+      // Only consider points that have at least one visible disparity
+      const hasVisibleData =
+        (visibleLines.steam && point.steamDisparity !== null) ||
+        (visibleLines.metacritic && point.metacriticDisparity !== null) ||
+        (visibleLines.combined && point.combinedDisparity !== null);
+
+      if (!hasVisibleData) continue;
+
       const pos = pointPositionsRef.current.get(point.index);
       if (!pos) continue;
-      
-      // Calculate distance from mouse to point
+
       const dx = mouseX - pos.x;
       const dy = mouseY - pos.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      
+
       if (distance < closestDistance) {
         closestDistance = distance;
         closestPoint = point;
       }
     }
-    
-    // Only show tooltip if within reasonable distance (50px)
+
     if (closestPoint && closestDistance < 50) {
       setHoveredPoint(closestPoint);
       setTooltipPosition({ x: mouseX, y: mouseY });
@@ -283,12 +310,18 @@ export function ReviewDisparityChart({
       setHoveredPoint(null);
       setTooltipPosition(null);
     }
-  }, [chartData]);
+  }, [chartData, visibleLines]);
 
   const handleMouseLeave = useCallback(() => {
     setHoveredPoint(null);
     setTooltipPosition(null);
   }, []);
+
+  // Toggle line visibility
+  const toggleLine = (type: DisparityType) => {
+    if (!hasData[type]) return;
+    setVisibleLines(prev => ({ ...prev, [type]: !prev[type] }));
+  };
 
   if (!reviews || reviews.length === 0) {
     return (
@@ -298,7 +331,6 @@ export function ReviewDisparityChart({
     );
   }
 
-  // Check if any disparity data exists at all
   const hasAnyData = hasData.steam || hasData.metacritic || hasData.combined;
   if (!hasAnyData) {
     return (
@@ -308,30 +340,25 @@ export function ReviewDisparityChart({
     );
   }
 
-  // Get color for current active type
-  const getActiveColor = () => {
-    switch (activeType) {
-      case "steam": return colors.sage;
-      case "metacritic": return colors.orange;
-      case "combined": return colors.rust;
-    }
-  };
+  // Check if at least one line is visible
+  const hasVisibleLine =
+    (visibleLines.steam && hasData.steam) ||
+    (visibleLines.metacritic && hasData.metacritic) ||
+    (visibleLines.combined && hasData.combined);
 
   // Render custom tooltip
   const renderTooltip = () => {
     if (!hoveredPoint || !tooltipPosition) return null;
-    
+
     const data = hoveredPoint;
-    
-    // Calculate tooltip position (avoid going off-screen)
+
     let tooltipX = tooltipPosition.x + 15;
     let tooltipY = tooltipPosition.y - 10;
-    
-    // Adjust if too far right
-    if (chartContainerRef.current && tooltipX > chartContainerRef.current.offsetWidth - 200) {
-      tooltipX = tooltipPosition.x - 215;
+
+    if (chartContainerRef.current && tooltipX > chartContainerRef.current.offsetWidth - 220) {
+      tooltipX = tooltipPosition.x - 235;
     }
-    
+
     return (
       <div
         className="absolute z-50 p-3 rounded-lg shadow-lg text-sm pointer-events-none"
@@ -340,7 +367,7 @@ export function ReviewDisparityChart({
           top: tooltipY,
           backgroundColor: colors.background,
           border: `1px solid ${colors.border}`,
-          maxWidth: 200,
+          maxWidth: 220,
         }}
       >
         {/* Primary info based on context */}
@@ -387,71 +414,122 @@ export function ReviewDisparityChart({
             </p>
           )}
 
-          {/* Disparity values */}
-          <div className="mt-1 space-y-0.5">
-            {data.steamDisparity != null && (
-              <p style={{ color: colors.sage }}>
-                Steam: <span className="font-medium">
+          {/* All disparity values (only show visible ones) */}
+          <div className="mt-2 space-y-1">
+            {visibleLines.steam && data.steamDisparity != null && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors.sage }}></span>
+                  <span style={{ color: colors.sage }}>Steam</span>
+                </span>
+                <span className="font-medium" style={{ color: colors.sage }}>
                   {data.steamDisparity > 0 ? "+" : ""}{data.steamDisparity.toFixed(1)}
                 </span>
-              </p>
+              </div>
             )}
-            {data.metacriticDisparity != null && (
-              <p style={{ color: colors.orange }}>
-                Metacritic: <span className="font-medium">
+            {visibleLines.metacritic && data.metacriticDisparity != null && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors.orange }}></span>
+                  <span style={{ color: colors.orange }}>Metacritic</span>
+                </span>
+                <span className="font-medium" style={{ color: colors.orange }}>
                   {data.metacriticDisparity > 0 ? "+" : ""}{data.metacriticDisparity.toFixed(1)}
                 </span>
-              </p>
+              </div>
             )}
-            {chartMode === "trend" && data.rollingAvg != null && (
-              <p className="mt-1 pt-1 border-t" style={{ borderColor: colors.border, color: colors.text }}>
-                Trend ({rollingWindowSize}-review avg): <span className="font-medium">
-                  {data.rollingAvg > 0 ? "+" : ""}{data.rollingAvg.toFixed(1)}
+            {visibleLines.combined && data.combinedDisparity != null && (
+              <div className="flex items-center justify-between gap-3">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: colors.rust }}></span>
+                  <span style={{ color: colors.rust }}>Combined</span>
                 </span>
-              </p>
+                <span className="font-medium" style={{ color: colors.rust }}>
+                  {data.combinedDisparity > 0 ? "+" : ""}{data.combinedDisparity.toFixed(1)}
+                </span>
+              </div>
             )}
           </div>
+
+          {/* Rolling averages in trend mode */}
+          {chartMode === "trend" && (
+            <div className="mt-2 pt-2 border-t text-xs" style={{ borderColor: colors.border }}>
+              <p className="mb-1" style={{ color: colors.axis }}>{rollingWindowSize}-review trend:</p>
+              <div className="space-y-0.5">
+                {visibleLines.steam && data.steamRollingAvg != null && (
+                  <p style={{ color: colors.sage }}>
+                    Steam: {data.steamRollingAvg > 0 ? "+" : ""}{data.steamRollingAvg.toFixed(1)}
+                  </p>
+                )}
+                {visibleLines.metacritic && data.metacriticRollingAvg != null && (
+                  <p style={{ color: colors.orange }}>
+                    MC: {data.metacriticRollingAvg > 0 ? "+" : ""}{data.metacriticRollingAvg.toFixed(1)}
+                  </p>
+                )}
+                {visibleLines.combined && data.combinedRollingAvg != null && (
+                  <p style={{ color: colors.rust }}>
+                    Combined: {data.combinedRollingAvg > 0 ? "+" : ""}{data.combinedRollingAvg.toFixed(1)}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
+  };
+
+  // Get the primary disparity for scatter point positioning (prefer combined > steam > metacritic)
+  const getPrimaryDisparity = (point: ChartDataPoint): number | null => {
+    if (visibleLines.combined && point.combinedDisparity != null) return point.combinedDisparity;
+    if (visibleLines.steam && point.steamDisparity != null) return point.steamDisparity;
+    if (visibleLines.metacritic && point.metacriticDisparity != null) return point.metacriticDisparity;
+    return null;
   };
 
   return (
     <div>
       {/* Toggle buttons */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        {/* Disparity type toggles */}
+        {/* Disparity type toggles - now checkboxes */}
         <div className="flex gap-2">
-          {(["combined", "steam", "metacritic"] as DisparityType[]).map((type) => {
+          {(["steam", "metacritic", "combined"] as DisparityType[]).map((type) => {
             const typeHasData = hasData[type];
+            const isVisible = visibleLines[type] && typeHasData;
+            const typeColor = type === "steam" ? colors.sage : type === "metacritic" ? colors.orange : colors.rust;
+
             return (
               <button
                 key={type}
-                onClick={() => setActiveType(type)}
+                onClick={() => toggleLine(type)}
                 disabled={!typeHasData}
-                className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
-                  activeType === type
-                    ? "text-white"
-                    : !typeHasData
-                    ? "bg-gray-100 dark:bg-gray-800 opacity-50 cursor-not-allowed"
-                    : "bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700"
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-all ${
+                  !typeHasData
+                    ? "bg-gray-100 dark:bg-gray-800 opacity-40 cursor-not-allowed"
+                    : "hover:opacity-80"
                 }`}
-                style={activeType === type ? {
-                  backgroundColor:
-                    type === "steam" ? colors.sage :
-                    type === "metacritic" ? colors.orange :
-                    colors.rust,
-                } : {
-                  color: colors.text,
+                style={{
+                  backgroundColor: isVisible ? typeColor : isDark ? "#3D3A35" : "#f3f4f6",
+                  color: isVisible ? "white" : colors.text,
+                  border: `2px solid ${typeHasData ? typeColor : "transparent"}`,
                 }}
               >
+                {/* Checkbox indicator */}
+                <span
+                  className="w-3.5 h-3.5 rounded-sm flex items-center justify-center text-xs"
+                  style={{
+                    backgroundColor: isVisible ? "rgba(255,255,255,0.3)" : "transparent",
+                    border: isVisible ? "none" : `1.5px solid ${typeHasData ? typeColor : colors.axis}`,
+                  }}
+                >
+                  {isVisible && "✓"}
+                </span>
                 {type.charAt(0).toUpperCase() + type.slice(1)}
-                {!typeHasData && " (N/A)"}
               </button>
             );
           })}
         </div>
-        
+
         {/* Chart mode toggle */}
         <div className="flex gap-1 text-xs">
           <button
@@ -479,23 +557,23 @@ export function ReviewDisparityChart({
         </div>
       </div>
 
-      {chartData.length === 0 ? (
+      {!hasVisibleLine ? (
         <div
           className="flex items-center justify-center text-gray-500"
           style={{ height }}
         >
-          No {activeType} disparity data available
+          Select at least one disparity type to display
         </div>
       ) : (
-        <div 
+        <div
           ref={chartContainerRef}
           className="relative"
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
         >
           <ResponsiveContainer width="100%" height={height}>
-            <ComposedChart 
-              data={chartData} 
+            <ComposedChart
+              data={chartData}
               margin={{ top: 10, right: 30, left: 60, bottom: 30 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
@@ -524,93 +602,219 @@ export function ReviewDisparityChart({
                   style: { textAnchor: "middle", fill: colors.text, fontSize: 12 },
                 }}
               />
-              <ReferenceLine y={0} stroke={colors.tan} strokeDasharray="5 5" />
-              
+              <ReferenceLine y={0} stroke={colors.tan} strokeWidth={2} strokeDasharray="5 5" />
+
               {chartMode === "trend" ? (
                 <>
-                  {/* Rolling average trend line */}
-                  <Line
-                    type="monotone"
-                    dataKey="rollingAvg"
-                    stroke={getActiveColor()}
-                    strokeWidth={3}
-                    dot={false}
-                    connectNulls
-                    name="Rolling Average"
-                    isAnimationActive={false}
-                  />
-                  {/* Individual points */}
+                  {/* Steam trend line */}
+                  {visibleLines.steam && hasData.steam && (
+                    <Line
+                      type="monotone"
+                      dataKey="steamRollingAvg"
+                      stroke={colors.sage}
+                      strokeWidth={3}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {/* Metacritic trend line */}
+                  {visibleLines.metacritic && hasData.metacritic && (
+                    <Line
+                      type="monotone"
+                      dataKey="metacriticRollingAvg"
+                      stroke={colors.orange}
+                      strokeWidth={3}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {/* Combined trend line */}
+                  {visibleLines.combined && hasData.combined && (
+                    <Line
+                      type="monotone"
+                      dataKey="combinedRollingAvg"
+                      stroke={colors.rust}
+                      strokeWidth={3}
+                      dot={false}
+                      connectNulls
+                      isAnimationActive={false}
+                    />
+                  )}
+                  {/* Scatter points for hover detection - use combined position */}
                   <Scatter
-                    dataKey="disparity"
-                    fill={getActiveColor()}
-                    fillOpacity={0.4}
+                    dataKey="combinedDisparity"
+                    fill="transparent"
                     isAnimationActive={false}
-                    shape={(props: { cx: number; cy: number; payload: ChartDataPoint }) => {
-                      // Store position for hover detection
-                      if (props.cx && props.cy) {
+                    shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                      if (!props.payload) return <circle r={0} />;
+                      if (props.cx != null && props.cy != null) {
                         pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
                       }
                       const isHovered = hoveredPoint?.index === props.payload.index;
+                      if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={4} fill="transparent" />;
+
+                      // Show multiple dots when hovered - one for each visible type
                       return (
-                        <circle 
-                          cx={props.cx} 
-                          cy={props.cy} 
-                          r={isHovered ? 10 : 5} 
-                          fill={getActiveColor()} 
-                          fillOpacity={isHovered ? 1 : 0.4}
-                          stroke={isHovered ? colors.background : "none"}
-                          strokeWidth={isHovered ? 2 : 0}
-                        />
+                        <g>
+                          {visibleLines.steam && props.payload.steamDisparity != null && (
+                            <circle
+                              cx={props.cx}
+                              cy={props.cy}
+                              r={8}
+                              fill={colors.sage}
+                              stroke={colors.background}
+                              strokeWidth={2}
+                            />
+                          )}
+                        </g>
                       );
                     }}
                   />
                 </>
               ) : (
                 <>
-                  {/* Connecting line */}
-                  <Line
-                    type="monotone"
-                    dataKey="disparity"
-                    stroke={getActiveColor()}
-                    strokeWidth={1.5}
-                    strokeOpacity={0.5}
-                    dot={false}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                  {/* Individual points */}
-                  <Scatter
-                    dataKey="disparity"
-                    fill={getActiveColor()}
-                    isAnimationActive={false}
-                    shape={(props: { cx: number; cy: number; payload: ChartDataPoint }) => {
-                      // Store position for hover detection
-                      if (props.cx && props.cy) {
-                        pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
-                      }
-                      const isHovered = hoveredPoint?.index === props.payload.index;
-                      return (
-                        <circle 
-                          cx={props.cx} 
-                          cy={props.cy} 
-                          r={isHovered ? 10 : 5} 
-                          fill={getActiveColor()} 
-                          fillOpacity={isHovered ? 1 : 0.7}
-                          stroke={isHovered ? colors.background : "none"}
-                          strokeWidth={isHovered ? 2 : 0}
-                        />
-                      );
-                    }}
-                  />
+                  {/* Steam line and points */}
+                  {visibleLines.steam && hasData.steam && (
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="steamDisparity"
+                        stroke={colors.sage}
+                        strokeWidth={1.5}
+                        strokeOpacity={0.4}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                      <Scatter
+                        dataKey="steamDisparity"
+                        fill={colors.sage}
+                        fillOpacity={0.7}
+                        isAnimationActive={false}
+                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                          if (!props.payload) return <circle r={0} />;
+                          if (props.cx && props.cy && props.payload.steamDisparity != null) {
+                            // Only set position if this is the primary type for this point
+                            if (getPrimaryDisparity(props.payload) === props.payload.steamDisparity) {
+                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
+                            }
+                          }
+                          const isHovered = hoveredPoint?.index === props.payload.index;
+                          return (
+                            <circle
+                              cx={props.cx}
+                              cy={props.cy}
+                              r={isHovered ? 8 : 4}
+                              fill={colors.sage}
+                              fillOpacity={isHovered ? 1 : 0.7}
+                              stroke={isHovered ? colors.background : "none"}
+                              strokeWidth={isHovered ? 2 : 0}
+                            />
+                          );
+                        }}
+                      />
+                    </>
+                  )}
+                  {/* Metacritic line and points */}
+                  {visibleLines.metacritic && hasData.metacritic && (
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="metacriticDisparity"
+                        stroke={colors.orange}
+                        strokeWidth={1.5}
+                        strokeOpacity={0.4}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                      <Scatter
+                        dataKey="metacriticDisparity"
+                        fill={colors.orange}
+                        fillOpacity={0.7}
+                        isAnimationActive={false}
+                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                          if (!props.payload) return <circle r={0} />;
+                          if (props.cx && props.cy && props.payload.metacriticDisparity != null) {
+                            if (getPrimaryDisparity(props.payload) === props.payload.metacriticDisparity) {
+                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
+                            }
+                          }
+                          const isHovered = hoveredPoint?.index === props.payload.index;
+                          return (
+                            <circle
+                              cx={props.cx}
+                              cy={props.cy}
+                              r={isHovered ? 8 : 4}
+                              fill={colors.orange}
+                              fillOpacity={isHovered ? 1 : 0.7}
+                              stroke={isHovered ? colors.background : "none"}
+                              strokeWidth={isHovered ? 2 : 0}
+                            />
+                          );
+                        }}
+                      />
+                    </>
+                  )}
+                  {/* Combined line and points */}
+                  {visibleLines.combined && hasData.combined && (
+                    <>
+                      <Line
+                        type="monotone"
+                        dataKey="combinedDisparity"
+                        stroke={colors.rust}
+                        strokeWidth={1.5}
+                        strokeOpacity={0.4}
+                        dot={false}
+                        connectNulls
+                        isAnimationActive={false}
+                      />
+                      <Scatter
+                        dataKey="combinedDisparity"
+                        fill={colors.rust}
+                        fillOpacity={0.7}
+                        isAnimationActive={false}
+                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                          if (!props.payload) return <circle r={0} />;
+                          if (props.cx && props.cy && props.payload.combinedDisparity != null) {
+                            if (getPrimaryDisparity(props.payload) === props.payload.combinedDisparity) {
+                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
+                            }
+                          }
+                          const isHovered = hoveredPoint?.index === props.payload.index;
+                          return (
+                            <circle
+                              cx={props.cx}
+                              cy={props.cy}
+                              r={isHovered ? 8 : 4}
+                              fill={colors.rust}
+                              fillOpacity={isHovered ? 1 : 0.7}
+                              stroke={isHovered ? colors.background : "none"}
+                              strokeWidth={isHovered ? 2 : 0}
+                            />
+                          );
+                        }}
+                      />
+                    </>
+                  )}
                 </>
               )}
             </ComposedChart>
           </ResponsiveContainer>
-          
+
           {/* Custom tooltip */}
           {renderTooltip()}
         </div>
       )}
+
+      {/* Legend */}
+      <div className="mt-3 flex items-center justify-center gap-4 text-xs" style={{ color: colors.axis }}>
+        <span>Positive = critic higher than users</span>
+        <span className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.axis }}></span>
+        <span>Negative = critic lower than users</span>
+      </div>
     </div>
   );
 }

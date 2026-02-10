@@ -233,7 +233,7 @@ export function MiniDisparityChart({
               }
               return label;
             }}
-            formatter={(value: number) => {
+            formatter={(value: number | undefined) => {
               if (value === null || value === undefined) return ["N/A", "Disparity"];
               return [`${value > 0 ? "+" : ""}${value.toFixed(1)}`, "Disparity"];
             }}

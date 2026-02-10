@@ -4,6 +4,8 @@ import { getGame, getGameReviews, getGameAllReviews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
+import { GameDetailTabs } from "@/components/GameDetailTabs";
+import type { ReviewWithJournalist } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -129,125 +131,251 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         </section>
       )}
 
-      {/* Reviews */}
+      {/* Tabbed Section: Critic Reviews + Journalist Alignment */}
       {reviews && reviews.items.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Critic Reviews
-          </h2>
-          <div className="space-y-4">
-            {reviews.items.map((review) => (
-              <div
-                key={review.id}
-                className="p-4 border border-gray-200 rounded-lg"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <Link
-                        href={`/journalists/${review.journalist_id}`}
-                        className="font-medium text-gray-900 hover:text-blue-600"
-                      >
-                        {review.journalist_name}
-                      </Link>
-                      {review.outlet_name && (
-                        <>
-                          <span className="text-gray-400">at</span>
+        <GameDetailTabs
+          criticReviews={
+            <>
+              <div className="space-y-4">
+                {reviews.items.map((review) => (
+                  <div
+                    key={review.id}
+                    className="p-4 border border-gray-200 rounded-lg"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
                           <Link
-                            href={`/outlets/${review.outlet_id}`}
-                            className="text-gray-600 hover:text-blue-600"
+                            href={`/journalists/${review.journalist_id}`}
+                            className="font-medium text-gray-900 hover:text-blue-600"
                           >
-                            {review.outlet_name}
+                            {review.journalist_name}
                           </Link>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1">
-                      {review.published_at && (
-                        <p className="text-sm text-gray-500">
-                          {new Date(review.published_at).toLocaleDateString()}
-                        </p>
-                      )}
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
-                          review.review_timing === "early"
-                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
-                            : review.review_timing === "launch_window"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                        }`}
-                        title={review.game_release_date
-                          ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
-                              review.review_timing === "early" ? " (before release)" :
-                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
-                            }`
-                          : "Release date unknown"}
-                      >
-                        {review.review_timing === "early" ? "Early Review" :
-                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
-                      </span>
-                    </div>
-                    {review.snippet && (
-                      <p className="mt-2 text-gray-600 text-sm italic">
-                        &ldquo;{review.snippet}&rdquo;
-                      </p>
-                    )}
-                  </div>
+                          {review.outlet_name && (
+                            <>
+                              <span className="text-gray-400">at</span>
+                              <Link
+                                href={`/outlets/${review.outlet_id}`}
+                                className="text-gray-600 hover:text-blue-600"
+                              >
+                                {review.outlet_name}
+                              </Link>
+                            </>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          {review.published_at && (
+                            <p className="text-sm text-gray-500">
+                              {new Date(review.published_at).toLocaleDateString()}
+                            </p>
+                          )}
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
+                              review.review_timing === "early"
+                                ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+                                : review.review_timing === "launch_window"
+                                ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                            }`}
+                            title={review.game_release_date
+                              ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
+                                  review.review_timing === "early" ? " (before release)" :
+                                  review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
+                                }`
+                              : "Release date unknown"}
+                          >
+                            {review.review_timing === "early" ? "Early Review" :
+                             review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
+                          </span>
+                        </div>
+                        {review.snippet && (
+                          <p className="mt-2 text-gray-600 text-sm italic">
+                            &ldquo;{review.snippet}&rdquo;
+                          </p>
+                        )}
+                      </div>
 
-                  <div className="flex items-center gap-4 ml-4">
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-gray-900">
-                        {review.score_normalized != null
-                          ? Number(review.score_normalized).toFixed(0)
-                          : "—"}
-                      </p>
-                      {review.score_raw && review.score_scale && (
-                        <p className="text-xs text-gray-500">
-                          {review.score_raw}/{review.score_scale}
-                        </p>
-                      )}
+                      <div className="flex items-center gap-4 ml-4">
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-gray-900">
+                            {review.score_normalized != null
+                              ? Number(review.score_normalized).toFixed(0)
+                              : "—"}
+                          </p>
+                          {review.score_raw && review.score_scale && (
+                            <p className="text-xs text-gray-500">
+                              {review.score_raw}/{review.score_scale}
+                            </p>
+                          )}
+                        </div>
+                        {review.review_url && (
+                          <a
+                            href={review.review_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800"
+                          >
+                            Read
+                          </a>
+                        )}
+                      </div>
                     </div>
-                    {review.review_url && (
-                      <a
-                        href={review.review_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
-                      >
-                        Read
-                      </a>
+                  </div>
+                ))}
+              </div>
+
+              {/* Pagination */}
+              {reviews.total_pages > 1 && (
+                <div className="mt-6 flex justify-center gap-2">
+                  {page > 1 && (
+                    <Link
+                      href={`/games/${id}?page=${page - 1}`}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                      Previous
+                    </Link>
+                  )}
+                  <span className="px-4 py-2 text-gray-600">
+                    Page {page} of {reviews.total_pages}
+                  </span>
+                  {page < reviews.total_pages && (
+                    <Link
+                      href={`/games/${id}?page=${page + 1}`}
+                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    >
+                      Next
+                    </Link>
+                  )}
+                </div>
+              )}
+            </>
+          }
+          journalistAlignment={(() => {
+            if (!allReviews || allReviews.length === 0) return null;
+
+            // Build journalist alignment data from all reviews
+            const journalistMap = new Map<number, {
+              id: number;
+              name: string;
+              imageUrl: string | null;
+              outletName: string | null;
+              score: number;
+              combinedDisparity: number | null;
+            }>();
+
+            for (const review of allReviews as ReviewWithJournalist[]) {
+              if (review.score_normalized == null) continue;
+              if (journalistMap.has(review.journalist_id)) continue;
+
+              const steam = review.disparity_steam != null ? Number(review.disparity_steam) : null;
+              const mc = review.disparity_metacritic != null ? Number(review.disparity_metacritic) : null;
+              let combined: number | null = null;
+              if (steam != null && mc != null) {
+                combined = (steam + mc) / 2;
+              } else {
+                combined = steam ?? mc ?? null;
+              }
+
+              journalistMap.set(review.journalist_id, {
+                id: review.journalist_id,
+                name: review.journalist_name,
+                imageUrl: review.journalist_image_url,
+                outletName: review.outlet_name,
+                score: Number(review.score_normalized),
+                combinedDisparity: combined,
+              });
+            }
+
+            const journalists = Array.from(journalistMap.values())
+              .filter(j => j.combinedDisparity !== null);
+
+            if (journalists.length < 2) return null;
+
+            // FIX: Only show journalists with actual positive/negative disparity in each column
+            const topGenerous = journalists
+              .filter(j => (j.combinedDisparity ?? 0) > 0)
+              .sort((a, b) => (b.combinedDisparity ?? 0) - (a.combinedDisparity ?? 0))
+              .slice(0, 5);
+
+            const topCritical = journalists
+              .filter(j => (j.combinedDisparity ?? 0) < 0)
+              .sort((a, b) => (a.combinedDisparity ?? 0) - (b.combinedDisparity ?? 0))
+              .slice(0, 5);
+
+            if (topGenerous.length === 0 && topCritical.length === 0) return null;
+
+            const renderJournalist = (j: typeof journalists[0], i: number) => (
+              <Link
+                key={j.id}
+                href={`/journalists/${j.id}`}
+                className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-sm text-gray-400 w-5 text-right flex-shrink-0">{i + 1}</span>
+                  {j.imageUrl ? (
+                    <img src={j.imageUrl} alt={j.name} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
+                      <span className="text-gray-500 text-xs">{j.name.charAt(0)}</span>
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{j.name}</p>
+                    {j.outletName && (
+                      <p className="text-xs text-gray-500 truncate">{j.outletName}</p>
                     )}
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+                <div className="flex items-center gap-3 flex-shrink-0 ml-2">
+                  <span className="text-sm text-gray-500">
+                    Score: {j.score.toFixed(0)}
+                  </span>
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
+                    (j.combinedDisparity ?? 0) > 0 ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"
+                  }`}>
+                    {(j.combinedDisparity ?? 0) > 0 ? "+" : ""}{(j.combinedDisparity ?? 0).toFixed(1)}
+                  </span>
+                </div>
+              </Link>
+            );
 
-          {/* Pagination */}
-          {reviews.total_pages > 1 && (
-            <div className="mt-6 flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/games/${id}?page=${page - 1}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {reviews.total_pages}
-              </span>
-              {page < reviews.total_pages && (
-                <Link
-                  href={`/games/${id}?page=${page + 1}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
-        </section>
+            return (
+              <div>
+                <p className="text-sm text-gray-500 mb-4">
+                  How individual critics scored this game compared to user consensus
+                </p>
+
+                <div className="grid md:grid-cols-2 gap-6">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                      Scored Higher Than Users
+                    </h3>
+                    <div className="space-y-2">
+                      {topGenerous.length > 0 ? (
+                        topGenerous.map(renderJournalist)
+                      ) : (
+                        <p className="text-sm text-gray-400 py-3">No critics scored higher than users</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                      Scored Lower Than Users
+                    </h3>
+                    <div className="space-y-2">
+                      {topCritical.length > 0 ? (
+                        topCritical.map(renderJournalist)
+                      ) : (
+                        <p className="text-sm text-gray-400 py-3">No critics scored lower than users</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        />
       )}
     </div>
   );

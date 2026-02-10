@@ -29,7 +29,7 @@ MIN_SCORE_STD_DEV = 10  # Minimum score standard deviation (filters out binary/e
 async def journalist_leaderboard(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    sort: str = Query("highest", regex="^(highest|lowest)$"),
+    sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalists ranked by disparity."""
@@ -49,7 +49,7 @@ async def journalist_leaderboard(
         .subquery()
     )
 
-    # Get most recent outlet for each journalist (from scored reviews)
+    # Get most recent outlet and review date for each journalist (from scored reviews)
     recent_outlet_subq = (
         select(
             Review.journalist_id,
@@ -62,6 +62,20 @@ async def journalist_leaderboard(
         )
         .distinct(Review.journalist_id)
         .order_by(Review.journalist_id, desc(Review.published_at))
+        .subquery()
+    )
+
+    # Get latest review date for each journalist
+    latest_review_subq = (
+        select(
+            Review.journalist_id,
+            func.max(Review.published_at).label("latest_review_date"),
+        )
+        .where(
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+        .group_by(Review.journalist_id)
         .subquery()
     )
 
@@ -85,9 +99,11 @@ async def journalist_leaderboard(
             latest_snapshot_subq.c.avg_disparity_combined,
             latest_snapshot_subq.c.review_count,
             recent_outlet_subq.c.outlet_name,
+            latest_review_subq.c.latest_review_date,
         )
         .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
         .outerjoin(recent_outlet_subq, Journalist.id == recent_outlet_subq.c.journalist_id)
+        .outerjoin(latest_review_subq, Journalist.id == latest_review_subq.c.journalist_id)
         .join(score_variance_subq, Journalist.id == score_variance_subq.c.journalist_id)
         .where(
             latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
@@ -97,8 +113,10 @@ async def journalist_leaderboard(
         )
     )
 
-    # Sort by disparity
-    if sort == "highest":
+    # Sort
+    if sort == "recent":
+        query = query.order_by(desc(latest_review_subq.c.latest_review_date).nulls_last())
+    elif sort == "highest":
         query = query.order_by(desc(latest_snapshot_subq.c.avg_disparity_combined))
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
@@ -160,7 +178,7 @@ async def journalist_leaderboard(
 async def outlet_leaderboard(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    sort: str = Query("highest", regex="^(highest|lowest)$"),
+    sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get outlets ranked by disparity."""
@@ -195,6 +213,21 @@ async def outlet_leaderboard(
         .subquery()
     )
 
+    # Get latest review date for each outlet
+    latest_review_subq = (
+        select(
+            Review.outlet_id,
+            func.max(Review.published_at).label("latest_review_date"),
+        )
+        .where(
+            Review.outlet_id.isnot(None),
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+        .group_by(Review.outlet_id)
+        .subquery()
+    )
+
     # Get score std deviation for each outlet (to filter binary scorers)
     score_variance_subq = (
         select(
@@ -216,9 +249,11 @@ async def outlet_leaderboard(
             latest_snapshot_subq.c.avg_disparity_combined,
             latest_snapshot_subq.c.review_count,
             func.coalesce(journalist_count_subq.c.journalist_count, 0).label("journalist_count"),
+            latest_review_subq.c.latest_review_date,
         )
         .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
         .outerjoin(journalist_count_subq, Outlet.id == journalist_count_subq.c.outlet_id)
+        .outerjoin(latest_review_subq, Outlet.id == latest_review_subq.c.outlet_id)
         .join(score_variance_subq, Outlet.id == score_variance_subq.c.outlet_id)
         .where(
             latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
@@ -228,8 +263,10 @@ async def outlet_leaderboard(
         )
     )
 
-    # Sort by disparity
-    if sort == "highest":
+    # Sort
+    if sort == "recent":
+        query = query.order_by(desc(latest_review_subq.c.latest_review_date).nulls_last())
+    elif sort == "highest":
         query = query.order_by(desc(latest_snapshot_subq.c.avg_disparity_combined))
     else:
         query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
@@ -297,7 +334,7 @@ MIN_CRITIC_REVIEWS_FOR_GAME = 10  # Minimum journalist reviews
 async def game_leaderboard(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    sort: str = Query("highest", regex="^(highest|lowest)$"),
+    sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get games ranked by disparity (most divisive)."""
@@ -387,8 +424,10 @@ async def game_leaderboard(
         )
     )
 
-    # Sort by absolute disparity
-    if sort == "highest":
+    # Sort
+    if sort == "recent":
+        query = query.order_by(desc(Game.release_date).nulls_last())
+    elif sort == "highest":
         query = query.order_by(desc(func.abs(disparity_expr)))
     else:
         query = query.order_by(asc(func.abs(disparity_expr)))
