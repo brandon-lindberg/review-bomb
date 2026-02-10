@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # Sentry (optional)
     sentry_dsn: Optional[str] = None
 
+    # Security
+    allowed_hosts: list[str] = []  # Empty = allow all (dev), set in production
+
 
 @lru_cache
 def get_settings() -> Settings:

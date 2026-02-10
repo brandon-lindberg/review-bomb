@@ -1,9 +1,12 @@
 """Search API endpoints."""
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import select, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
+from app.config import get_settings
 from app.database import get_db
 from app.models.models import Journalist, Outlet, Game, Review
 from app.schemas.schemas import (
@@ -13,11 +16,16 @@ from app.schemas.schemas import (
     SearchResult,
 )
 
+settings = get_settings()
+limiter = Limiter(key_func=get_remote_address)
+
 router = APIRouter()
 
 
 @router.get("", response_model=SearchResult)
+@limiter.limit(f"{settings.search_rate_limit_per_minute}/minute")
 async def search(
+    request: Request,
     q: str = Query(..., min_length=2, max_length=100),
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),

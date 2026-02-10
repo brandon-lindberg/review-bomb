@@ -10,14 +10,23 @@ from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import get_settings
+from app.middleware import (
+    SecurityHeadersMiddleware,
+    TrustedProxyMiddleware,
+    HTTPSRedirectMiddleware,
+)
 from app.routers import journalists, outlets, games, leaderboards, search, stats
 
 settings = get_settings()
 
-# Rate limiter
-limiter = Limiter(key_func=get_remote_address)
+# Rate limiter - applies globally to all routes
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[f"{settings.rate_limit_per_minute}/minute"],
+)
 
 
 @asynccontextmanager
@@ -58,14 +67,34 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS middleware
+# --- Middleware stack (order matters: last added = first executed) ---
+
+# CORS middleware - restrict to GET only (API is read-only)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET"],
+    allow_headers=["Content-Type", "Accept"],
 )
+
+# Security headers on all responses
+app.add_middleware(SecurityHeadersMiddleware)
+
+# Trusted proxy support (extract real IP from Cloudflare/Render headers)
+app.add_middleware(TrustedProxyMiddleware)
+
+# Production-only middleware
+if settings.environment == "production":
+    # HTTPS redirect (skip /health for Render health checks)
+    app.add_middleware(HTTPSRedirectMiddleware)
+
+    # Restrict to allowed hostnames (prevents host header attacks)
+    if settings.allowed_hosts:
+        app.add_middleware(
+            TrustedHostMiddleware,
+            allowed_hosts=settings.allowed_hosts,
+        )
 
 
 # Health check endpoint
@@ -79,6 +108,8 @@ async def health_check():
 @app.get("/")
 async def root():
     """Root endpoint with API information."""
+    if settings.environment == "production":
+        return {"status": "ok"}
     return {
         "name": settings.app_name,
         "version": "1.0.0",
