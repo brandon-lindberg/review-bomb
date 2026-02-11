@@ -61,80 +61,37 @@ async def list_outlets(
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all outlets with pagination, sorting, and search."""
-    # Subquery for review and journalist counts (only scored reviews)
-    today = datetime.utcnow()
-    stats_subq = (
-        select(
-            Review.outlet_id,
-            func.count(Review.id).label("review_count"),
-            func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
-            func.avg(Review.score_normalized).label("avg_score"),
-            func.max(Review.published_at).label("latest_review_date"),
-        )
-        .where(
-            Review.outlet_id.isnot(None),
-            Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-            Review.published_at <= today,  # Exclude future dates (bad data)
-        )
-        .group_by(Review.outlet_id)
-        .subquery()
-    )
-
-    # Get latest disparity snapshot for each outlet
-    disparity_subq = (
-        select(
-            DisparitySnapshot.outlet_id,
-            DisparitySnapshot.avg_disparity_steam,
-            DisparitySnapshot.avg_disparity_metacritic,
-            DisparitySnapshot.avg_disparity_combined,
-        )
-        .where(DisparitySnapshot.outlet_id.isnot(None))
-        .distinct(DisparitySnapshot.outlet_id)
-        .order_by(DisparitySnapshot.outlet_id, desc(DisparitySnapshot.snapshot_date))
-        .subquery()
-    )
-
+    """List all outlets with pagination, sorting, and search (uses denormalized columns)."""
+    # Use denormalized columns for fast queries
     query = (
-        select(
-            Outlet,
-            func.coalesce(stats_subq.c.review_count, 0).label("review_count"),
-            func.coalesce(stats_subq.c.journalist_count, 0).label("journalist_count"),
-            stats_subq.c.avg_score.label("avg_score"),
-            disparity_subq.c.avg_disparity_steam.label("avg_disparity_steam"),
-            disparity_subq.c.avg_disparity_metacritic.label("avg_disparity_metacritic"),
-            disparity_subq.c.avg_disparity_combined.label("avg_disparity"),
-            stats_subq.c.latest_review_date.label("latest_review_date"),
-        )
-        .join(stats_subq, Outlet.id == stats_subq.c.outlet_id)  # INNER JOIN - only outlets with scored reviews
-        .outerjoin(disparity_subq, Outlet.id == disparity_subq.c.outlet_id)
+        select(Outlet)
+        .where(Outlet.review_count_scored.isnot(None), Outlet.review_count_scored > 0)
     )
 
     # Filter by search term if provided
     if search:
         query = query.where(Outlet.name.ilike(f"%{search}%"))
 
-    # Apply sorting
+    # Apply sorting using denormalized columns
     if sort_by == "disparity":
-        order_col = disparity_subq.c.avg_disparity_combined
+        order_col = Outlet.avg_disparity
     elif sort_by == "name":
         order_col = Outlet.name
     elif sort_by == "latest_review":
-        order_col = stats_subq.c.latest_review_date
+        order_col = Outlet.last_review_at
     else:  # review_count
-        order_col = stats_subq.c.review_count
+        order_col = Outlet.review_count_scored
 
     if sort_order == "desc":
         query = query.order_by(desc(order_col).nulls_last())
     else:
         query = query.order_by(asc(order_col).nulls_last())
 
-    # Get total count (only outlets with scored reviews)
+    # Get total count
     count_query = (
-        select(func.count(Outlet.id.distinct()))
+        select(func.count())
         .select_from(Outlet)
-        .join(stats_subq, Outlet.id == stats_subq.c.outlet_id)
+        .where(Outlet.review_count_scored.isnot(None), Outlet.review_count_scored > 0)
     )
     if search:
         count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
@@ -145,24 +102,24 @@ async def list_outlets(
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    rows = result.all()
+    outlets = result.scalars().all()
 
     items = [
         OutletWithStats(
-            id=row[0].id,
-            name=row[0].name,
-            website_url=row[0].website_url,
-            logo_url=row[0].logo_url,
-            opencritic_id=row[0].opencritic_id,
-            journalist_count=row[2],
-            review_count=row[1],
-            avg_score=row[3],
-            avg_disparity_steam=row[4],
-            avg_disparity_metacritic=row[5],
-            avg_disparity=row[6],
-            avg_disparity_combined=row[6],
+            id=outlet.id,
+            name=outlet.name,
+            website_url=outlet.website_url,
+            logo_url=outlet.logo_url,
+            opencritic_id=outlet.opencritic_id,
+            journalist_count=outlet.journalist_count or 0,
+            review_count=outlet.review_count_scored or 0,
+            avg_score=None,  # Not stored denormalized, not critical for list view
+            avg_disparity_steam=None,  # Only combined is stored
+            avg_disparity_metacritic=None,  # Only combined is stored
+            avg_disparity=outlet.avg_disparity,
+            avg_disparity_combined=outlet.avg_disparity,
         )
-        for row in rows
+        for outlet in outlets
     ]
 
     return PaginatedResponse(

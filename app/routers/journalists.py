@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
-from app.models.models import Journalist, Review, Outlet, Game, UserScore, DisparitySnapshot
+from app.models.models import Journalist, Review, Outlet, Game, UserScore
 from app.schemas.schemas import (
     JournalistSummary,
     JournalistDetail,
@@ -62,71 +62,37 @@ async def list_journalists(
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all journalists with pagination, sorting, and search."""
-    # Build base query with review count and latest review date - only count reviews WITH actual scores
-    today = datetime.utcnow()
-    subq = (
-        select(
-            Review.journalist_id,
-            func.count(Review.id).label("review_count"),
-            func.max(Review.published_at).label("latest_review_date"),
-        )
-        .where(
-            Review.score_normalized.isnot(None),  # Only reviews with scores
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-            Review.published_at <= today,  # Exclude future dates (bad data)
-        )
-        .group_by(Review.journalist_id)
-        .subquery()
-    )
-
-    # Get latest disparity snapshot for each journalist
-    disparity_subq = (
-        select(
-            DisparitySnapshot.journalist_id,
-            DisparitySnapshot.avg_disparity_combined,
-        )
-        .where(DisparitySnapshot.journalist_id.isnot(None))
-        .distinct(DisparitySnapshot.journalist_id)
-        .order_by(DisparitySnapshot.journalist_id, desc(DisparitySnapshot.snapshot_date))
-        .subquery()
-    )
-
+    """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
+    # Use denormalized columns for fast queries
     query = (
-        select(
-            Journalist,
-            func.coalesce(subq.c.review_count, 0).label("review_count"),
-            disparity_subq.c.avg_disparity_combined.label("avg_disparity"),
-            subq.c.latest_review_date.label("latest_review_date"),
-        )
-        .join(subq, Journalist.id == subq.c.journalist_id)  # INNER JOIN - only journalists with scored reviews
-        .outerjoin(disparity_subq, Journalist.id == disparity_subq.c.journalist_id)
+        select(Journalist)
+        .where(Journalist.review_count_scored.isnot(None), Journalist.review_count_scored > 0)
     )
 
     # Filter by search term if provided
     if search:
         query = query.where(Journalist.name.ilike(f"%{search}%"))
 
-    # Apply sorting
+    # Apply sorting using denormalized columns
     if sort_by == "disparity":
-        order_col = disparity_subq.c.avg_disparity_combined
+        order_col = Journalist.avg_disparity
     elif sort_by == "name":
         order_col = Journalist.name
     elif sort_by == "latest_review":
-        order_col = subq.c.latest_review_date
+        order_col = Journalist.last_review_at
     else:  # review_count
-        order_col = subq.c.review_count
+        order_col = Journalist.review_count_scored
 
     if sort_order == "desc":
         query = query.order_by(desc(order_col).nulls_last())
     else:
         query = query.order_by(asc(order_col).nulls_last())
 
-    # Get total count (only journalists with scored reviews)
+    # Get total count
     count_query = (
-        select(func.count(Journalist.id.distinct()))
+        select(func.count())
         .select_from(Journalist)
-        .join(subq, Journalist.id == subq.c.journalist_id)
+        .where(Journalist.review_count_scored.isnot(None), Journalist.review_count_scored > 0)
     )
     if search:
         count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
@@ -137,14 +103,10 @@ async def list_journalists(
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    rows = result.all()
+    journalists = result.scalars().all()
 
     items = []
-    for row in rows:
-        journalist = row[0]
-        review_count = row[1]
-        avg_disparity = row[2]
-
+    for journalist in journalists:
         items.append(
             JournalistSummary(
                 id=journalist.id,
@@ -152,8 +114,8 @@ async def list_journalists(
                 image_url=journalist.image_url,
                 bio=journalist.bio,
                 opencritic_id=journalist.opencritic_id,
-                review_count=review_count,
-                avg_disparity=avg_disparity,
+                review_count=journalist.review_count_scored or 0,
+                avg_disparity=journalist.avg_disparity,
             )
         )
 
