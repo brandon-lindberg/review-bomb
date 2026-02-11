@@ -12,6 +12,7 @@ Usage:
     python -m app disparity         Calculate disparity snapshots
     python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
     python -m app clear             Clear all data from database
+    python -m app backfill          Backfill denormalized Game columns from UserScore/Review data
 """
 
 import argparse
@@ -108,6 +109,10 @@ async def cmd_steam(args):
                     synced += 1
                     print(f"  Score: {score_data['score']} ({score_data['review_score_desc']})")
 
+                    # Update denormalized columns on Game
+                    game.steam_user_score = score_data["score"]
+                    game.steam_sample_size = score_data["sample_size"]
+
                 # Commit every 10 games
                 if synced % 10 == 0:
                     await db.commit()
@@ -163,7 +168,14 @@ async def cmd_metacritic(args):
             return
 
         # Get games with Metacritic slugs
-        if args.force:
+        if args.backfill_counts:
+            # Only re-scrape games missing metacritic_sample_size
+            query = select(Game).where(
+                Game.metacritic_slug.isnot(None),
+                Game.metacritic_user_score.isnot(None),
+                Game.metacritic_sample_size.is_(None),
+            )
+        elif args.force:
             # Re-sync all games
             query = select(Game).where(Game.metacritic_slug.isnot(None))
         else:
@@ -175,7 +187,8 @@ async def cmd_metacritic(args):
         result = await db.execute(query)
         games = result.scalars().all()
 
-        print(f"Found {len(games)} games {'total' if args.force else 'needing'} Metacritic sync")
+        mode = 'total' if args.force else ('missing sample size' if args.backfill_counts else 'needing')
+        print(f"Found {len(games)} games {mode} Metacritic sync")
 
         if args.limit:
             games = games[:args.limit]
@@ -226,6 +239,10 @@ async def cmd_metacritic(args):
                                 print(f"  User Score: {old_val} -> {score_data['user_score']}")
                             else:
                                 print(f"  User Score: {score_data['user_score']} (unchanged)")
+
+                            # Update denormalized columns on Game
+                            game.metacritic_user_score = score_data["user_score"]
+                            game.metacritic_sample_size = score_data["user_sample_size"]
                         else:
                             # User score is N/A - delete any existing invalid scores for this game
                             delete_result = await db.execute(
@@ -237,6 +254,10 @@ async def cmd_metacritic(args):
                             if delete_result.rowcount > 0:
                                 print(f"  User Score: Deleted {delete_result.rowcount} invalid score(s) (now N/A)")
                                 updated_anything = True
+
+                            # Clear denormalized columns
+                            game.metacritic_user_score = None
+                            game.metacritic_sample_size = None
 
                         # Check and update metascore only if changed
                         if score_data.get("metascore") is not None:
@@ -464,6 +485,87 @@ async def cmd_clear(args):
         print("All data cleared successfully.")
 
 
+async def cmd_backfill_game_columns(args):
+    """Backfill denormalized columns on Game from UserScore and Review tables."""
+    from app.models.models import Game, UserScore, UserScoreSource, Review
+    from sqlalchemy import select, func
+
+    async with async_session_maker() as db:
+        result = await db.execute(select(Game))
+        games = result.scalars().all()
+
+        print(f"Backfilling denormalized columns for {len(games)} games...")
+
+        updated = 0
+        for game in games:
+            changed = False
+
+            # Backfill steam_user_score and steam_sample_size
+            steam_result = await db.execute(
+                select(UserScore.score, UserScore.sample_size)
+                .where(
+                    UserScore.game_id == game.id,
+                    UserScore.source == UserScoreSource.STEAM,
+                )
+                .order_by(UserScore.scraped_at.desc())
+                .limit(1)
+            )
+            steam_row = steam_result.first()
+            if steam_row:
+                if game.steam_user_score != steam_row[0] or game.steam_sample_size != steam_row[1]:
+                    game.steam_user_score = steam_row[0]
+                    game.steam_sample_size = steam_row[1]
+                    changed = True
+
+            # Backfill metacritic_user_score and metacritic_sample_size
+            mc_result = await db.execute(
+                select(UserScore.score, UserScore.sample_size)
+                .where(
+                    UserScore.game_id == game.id,
+                    UserScore.source == UserScoreSource.METACRITIC,
+                )
+                .order_by(UserScore.scraped_at.desc())
+                .limit(1)
+            )
+            mc_row = mc_result.first()
+            if mc_row:
+                if game.metacritic_user_score != mc_row[0] or game.metacritic_sample_size != mc_row[1]:
+                    game.metacritic_user_score = mc_row[0]
+                    game.metacritic_sample_size = mc_row[1]
+                    changed = True
+
+            # Backfill avg_critic_score and critic_review_count
+            review_result = await db.execute(
+                select(
+                    func.avg(Review.score_normalized),
+                    func.count(Review.id),
+                ).where(
+                    Review.game_id == game.id,
+                    Review.score_normalized.isnot(None),
+                    Review.score_normalized > 0,
+                )
+            )
+            review_row = review_result.first()
+            if review_row and review_row[1] > 0:
+                from decimal import Decimal
+                avg_score = Decimal(str(round(float(review_row[0]), 2)))
+                count = review_row[1]
+                if game.avg_critic_score != avg_score or game.critic_review_count != count:
+                    game.avg_critic_score = avg_score
+                    game.critic_review_count = count
+                    changed = True
+
+            if changed:
+                updated += 1
+
+            if updated % 100 == 0 and updated > 0:
+                await db.commit()
+                print(f"  Updated {updated} games...")
+
+        await db.commit()
+        print(f"\nBackfill complete: {updated} games updated")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Game Journalist Review Disparity Tracker CLI",
@@ -490,6 +592,7 @@ def main():
     metacritic_parser = subparsers.add_parser("metacritic", help="Sync Metacritic scores (user + metascore)")
     metacritic_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     metacritic_parser.add_argument("--force", action="store_true", help="Re-sync all games, even already synced ones")
+    metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts")
     metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
 
     # Disparity command
@@ -509,6 +612,9 @@ def main():
 
     # Refresh images command
     subparsers.add_parser("refresh-images", help="Refresh image URLs from OpenCritic")
+
+    # Backfill command
+    subparsers.add_parser("backfill", help="Backfill denormalized Game columns from UserScore/Review data")
 
     args = parser.parse_args()
 
@@ -533,6 +639,8 @@ def main():
         return asyncio.run(cmd_clear(args))
     elif args.command == "refresh-images":
         return asyncio.run(cmd_refresh_images(args))
+    elif args.command == "backfill":
+        return asyncio.run(cmd_backfill_game_columns(args))
     else:
         parser.print_help()
         return 1

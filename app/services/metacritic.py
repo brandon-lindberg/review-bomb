@@ -165,8 +165,8 @@ class MetacriticService:
                     # Navigate to game page
                     await page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
-                    # Wait for page to load
-                    await asyncio.sleep(2)  # Give time for dynamic content
+                    # Wait for page to fully render dynamic content
+                    await asyncio.sleep(3)
 
                     result = {
                         "user_score": None,
@@ -369,28 +369,22 @@ class MetacriticService:
                             if (match) return match[1].replace(/,/g, '');
                         }
 
-                        // Method 2: Find "Based on X User Ratings" text
-                        const allElements = document.querySelectorAll('span, div, p');
+                        // Method 2: Search full page text for "Based on X User Ratings"
+                        // This is the most reliable - works regardless of element nesting
+                        const bodyText = document.body.innerText || document.body.textContent || '';
+                        const bodyMatch = bodyText.match(/Based on ([\\d,]+) User/i);
+                        if (bodyMatch) {
+                            return bodyMatch[1].replace(/,/g, '');
+                        }
+
+                        // Method 3: Find individual elements with the pattern
+                        const allElements = document.querySelectorAll('span, div, p, a');
                         for (const elem of allElements) {
                             const text = elem.textContent.trim();
-                            // Match "Based on X User Ratings" or "X User Ratings"
                             const match = text.match(/Based on ([\\d,]+) User/i) ||
                                           text.match(/^([\\d,]+) User Rating/i);
                             if (match) {
                                 return match[1].replace(/,/g, '');
-                            }
-                        }
-
-                        // Method 3: Look for number near "User" text in the user score section
-                        const sections = document.querySelectorAll('section, div');
-                        for (const section of sections) {
-                            const text = section.textContent;
-                            if (text.includes('User') && text.includes('Rating')) {
-                                // Find "Based on X" pattern
-                                const match = text.match(/Based on ([\\d,]+)/i);
-                                if (match) {
-                                    return match[1].replace(/,/g, '');
-                                }
                             }
                         }
 

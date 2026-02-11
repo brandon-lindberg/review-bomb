@@ -336,6 +336,10 @@ async def _sync_steam_scores():
                         db.add(user_score)
                         records_created += 1
 
+                        # Update denormalized columns on Game
+                        game.steam_user_score = score_data["score"]
+                        game.steam_sample_size = score_data["sample_size"]
+
                     records_processed += 1
 
                     # Commit every 50 games
@@ -430,6 +434,10 @@ async def _sync_metacritic_scores():
                                 )
                                 db.add(user_score)
                                 records_created += 1
+
+                                # Update denormalized columns on Game
+                                game.metacritic_user_score = score_data["user_score"]
+                                game.metacritic_sample_size = score_data["user_sample_size"]
                             else:
                                 # User score is N/A - delete any existing invalid scores for this game
                                 delete_result = await db.execute(
@@ -441,6 +449,10 @@ async def _sync_metacritic_scores():
                                 if delete_result.rowcount > 0:
                                     records_deleted += delete_result.rowcount
                                     print(f"Deleted {delete_result.rowcount} invalid Metacritic score(s) for {game.title}")
+
+                                # Clear denormalized columns
+                                game.metacritic_user_score = None
+                                game.metacritic_sample_size = None
 
                             # Save metascore to Game table
                             if score_data.get("metascore") is not None:
