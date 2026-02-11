@@ -198,6 +198,7 @@ async def cmd_metacritic(args):
         synced_meta = 0
         skipped = 0
         failed = 0
+        processed = 0
 
         async with MetacriticService() as service:
             for game in games:
@@ -275,8 +276,9 @@ async def cmd_metacritic(args):
                         if not updated_anything:
                             skipped += 1
 
-                    # Commit every 10 games
-                    if (synced_user + synced_meta) % 10 == 0:
+                    # Commit every 10 games processed
+                    processed += 1
+                    if processed % 10 == 0:
                         await db.commit()
 
                     # Small delay to be respectful
