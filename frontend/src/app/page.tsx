@@ -204,7 +204,7 @@ export default async function Home() {
           <Link
             href="/games"
             className="px-6 py-3 rounded-lg font-medium hover:opacity-80 transition-opacity"
-            style={{ backgroundColor: "var(--color-tan)", color: "var(--foreground)" }}
+            style={{ backgroundColor: "var(--color-tan)", color: "#1a1a1a" }}
           >
             Browse Games
           </Link>
