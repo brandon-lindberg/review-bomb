@@ -24,9 +24,7 @@ MIN_METACRITIC_USER_REVIEWS = 20
 async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get site-wide statistics (instant using denormalized columns)."""
-    # All queries are simple COUNTs - very fast!
-    
+    """Get site-wide statistics (fast using denormalized columns)."""
     # Count journalists with disparity data (uses index)
     journalist_count = await db.execute(
         select(func.count()).select_from(Journalist).where(Journalist.avg_disparity.isnot(None))
@@ -39,9 +37,15 @@ async def get_stats(
     )
     total_outlets = outlet_count.scalar() or 0
 
-    # Count games with reviews (simple count)
+    # Count games with scored reviews
+    games_with_reviews = (
+        select(Review.game_id)
+        .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+        .distinct()
+        .subquery()
+    )
     game_count = await db.execute(
-        select(func.count()).select_from(Game).where(Game.avg_critic_score.isnot(None))
+        select(func.count()).select_from(games_with_reviews)
     )
     total_games = game_count.scalar() or 0
 
@@ -88,8 +92,7 @@ async def get_recent_reviews(
 
     today = datetime.utcnow()
 
-    # Get recent reviews with journalist, game, outlet, and user scores in ONE query
-    # Use Game's pre-computed scores
+    # Get recent reviews with journalist, game, and outlet
     query = (
         select(Review, Journalist, Game, Outlet)
         .join(Journalist, Review.journalist_id == Journalist.id)
@@ -110,11 +113,32 @@ async def get_recent_reviews(
     if not rows:
         return []
 
+    # Get user scores for these games
+    game_ids = list(set(row[2].id for row in rows))
+    user_score_lookup: dict = {}
+    if game_ids:
+        user_scores_query = (
+            select(UserScore)
+            .where(UserScore.game_id.in_(game_ids))
+            .order_by(desc(UserScore.scraped_at))
+        )
+        user_scores_result = await db.execute(user_scores_query)
+        user_scores = user_scores_result.scalars().all()
+        for us in user_scores:
+            key = (us.game_id, us.source.value.lower())
+            if key not in user_score_lookup:
+                user_score_lookup[key] = {"score": us.score, "sample_size": us.sample_size}
+
     items = []
     for review, journalist, game, outlet in rows:
-        # Use Game's pre-computed user scores
-        steam_user_score = game.steam_user_score
-        metacritic_user_score = game.metacritic_user_score
+        steam_data = user_score_lookup.get((game.id, "steam"))
+        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
+
+        # Only use scores if they meet minimum sample size
+        steam_user_score = steam_data["score"] if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS else None
+        metacritic_user_score = metacritic_data["score"] if metacritic_data and metacritic_data["score"] and (
+            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
+        ) else None
 
         disparity_steam = None
         disparity_metacritic = None
