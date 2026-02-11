@@ -363,6 +363,11 @@ class SyncOrchestrator:
                     # Fetch and sync reviews (uses 1 API request)
                     reviews_synced = await self._sync_game_reviews(opencritic_game_id, internal_game_id)
 
+                    # Set last_review_sync_at on the game
+                    game_obj = await self.db.get(Game, internal_game_id)
+                    if game_obj:
+                        game_obj.last_review_sync_at = datetime.utcnow()
+
                     # Mark as synced
                     await self._add_synced_game_id(opencritic_game_id)
                     synced_ids.add(opencritic_game_id)
@@ -440,6 +445,111 @@ class SyncOrchestrator:
         await self._set_state(self.STATE_LAST_GAME_SKIP, "0")
         print("Sync state reset")
 
+    async def refresh_recent_reviews(
+        self, days: int = 90, limit: Optional[int] = None, all_games: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Re-fetch reviews for recently released games to pick up new reviews.
+
+        Args:
+            days: Refresh games released within this many days (default 90).
+            limit: Optional limit on number of games to process.
+            all_games: If True, refresh ALL games regardless of release date.
+
+        Returns stats about what was refreshed.
+        """
+        from datetime import timedelta
+
+        print(f"Starting review refresh (days={days}, all={all_games})")
+
+        sync_log = SyncLog(
+            source=SyncSource.OPENCRITIC,
+            sync_type=SyncType.INCREMENTAL,
+            status=SyncStatus.RUNNING,
+        )
+        self.db.add(sync_log)
+        await self.db.commit()
+        await self.db.refresh(sync_log)
+
+        stats = {
+            "games_refreshed": 0,
+            "reviews_synced": 0,
+            "games_skipped": 0,
+            "games_failed": 0,
+        }
+
+        try:
+            # Build query for games to refresh
+            if all_games:
+                query = select(Game).where(Game.opencritic_id.isnot(None))
+            else:
+                cutoff_date = (datetime.utcnow() - timedelta(days=days)).date()
+                query = select(Game).where(
+                    Game.opencritic_id.isnot(None),
+                    Game.release_date.isnot(None),
+                    Game.release_date >= cutoff_date,
+                )
+
+            query = query.order_by(Game.release_date.desc())
+
+            if limit:
+                query = query.limit(limit)
+
+            result = await self.db.execute(query)
+            games = result.scalars().all()
+
+            print(f"Found {len(games)} games to refresh")
+
+            for game in games:
+                try:
+                    print(f"Refreshing: {game.title} (OC ID: {game.opencritic_id})")
+
+                    # Re-fetch game details to update top_critic_score, etc.
+                    game_data = await self.service.get_game(game.opencritic_id)
+                    self._request_count += 1
+                    if game_data:
+                        transformed = OpenCriticService.transform_game(game_data)
+                        game.top_critic_score = transformed.get("top_critic_score")
+                        game.percent_recommended = transformed.get("percent_recommended")
+                        game.tier = transformed.get("tier")
+
+                    # Re-fetch all reviews (upsert handles deduplication)
+                    reviews_synced = await self._sync_game_reviews(
+                        game.opencritic_id, game.id
+                    )
+
+                    game.last_review_sync_at = datetime.utcnow()
+                    await self.db.commit()
+
+                    stats["games_refreshed"] += 1
+                    stats["reviews_synced"] += reviews_synced
+                    print(f"  Synced {reviews_synced} reviews")
+
+                except Exception as e:
+                    print(f"  Error refreshing {game.title}: {e}")
+                    stats["games_failed"] += 1
+
+            # Update sync log
+            sync_log.status = SyncStatus.COMPLETED
+            sync_log.records_processed = stats["games_refreshed"]
+            sync_log.records_created = stats["reviews_synced"]
+            sync_log.completed_at = datetime.utcnow()
+            await self.db.commit()
+
+            print(f"\nRefresh complete:")
+            print(f"  Games refreshed: {stats['games_refreshed']}")
+            print(f"  Reviews synced: {stats['reviews_synced']}")
+            print(f"  Failed: {stats['games_failed']}")
+
+        except Exception as e:
+            sync_log.status = SyncStatus.FAILED
+            sync_log.error_message = str(e)
+            sync_log.completed_at = datetime.utcnow()
+            await self.db.commit()
+            raise
+
+        return stats
+
     async def match_games_to_steam(self, limit: Optional[int] = None) -> Dict[str, Any]:
         """
         Match games in database to Steam app IDs.
@@ -516,3 +626,10 @@ async def get_sync_status():
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
         return await orchestrator.get_sync_status()
+
+
+async def refresh_recent_reviews(days: int = 90, limit: Optional[int] = None, all_games: bool = False):
+    """Convenience function to refresh recent reviews."""
+    async with async_session_maker() as db:
+        orchestrator = SyncOrchestrator(db)
+        return await orchestrator.refresh_recent_reviews(days=days, limit=limit, all_games=all_games)

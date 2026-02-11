@@ -176,12 +176,19 @@ async def list_games(
         metacritic_score = row[5]
         metacritic_sample = row[6]
 
+        # Apply minimum sample size filters per-score
+        steam_valid = steam_sample is not None and steam_sample >= MIN_STEAM_USER_REVIEWS
+        metacritic_valid = (
+            metacritic_score is not None
+            and (metacritic_sample is None or metacritic_sample >= MIN_METACRITIC_USER_REVIEWS)
+        )
+
         disparity_steam = None
         disparity_metacritic = None
 
-        if avg_critic and steam_score:
+        if avg_critic and steam_valid:
             disparity_steam = Decimal(str(round(float(avg_critic) - float(steam_score), 2)))
-        if avg_critic and metacritic_score:
+        if avg_critic and metacritic_valid:
             disparity_metacritic = Decimal(str(round(float(avg_critic) - float(metacritic_score), 2)))
 
         items.append(
@@ -195,10 +202,10 @@ async def list_games(
                 steam_app_id=game.steam_app_id,
                 critic_review_count=critic_count,
                 opencritic_score=game.top_critic_score,
-                steam_user_score=steam_score,
-                steam_sample_size=steam_sample,
-                metacritic_user_score=metacritic_score,
-                metacritic_sample_size=metacritic_sample,
+                steam_user_score=steam_score if steam_valid else None,
+                steam_sample_size=steam_sample if steam_valid else None,
+                metacritic_user_score=metacritic_score if metacritic_valid else None,
+                metacritic_sample_size=metacritic_sample if metacritic_valid else None,
                 avg_critic_score=Decimal(str(round(avg_critic, 2))) if avg_critic else None,
                 disparity_steam=disparity_steam,
                 disparity_metacritic=disparity_metacritic,
@@ -262,12 +269,25 @@ async def get_game(
     metacritic_score = metacritic_result.scalar_one_or_none()
 
     avg_critic = critic_row.avg_critic_score
+
+    # Apply minimum sample size filters
+    steam_valid = (
+        steam_score
+        and steam_score.sample_size
+        and steam_score.sample_size >= MIN_STEAM_USER_REVIEWS
+    )
+    metacritic_valid = (
+        metacritic_score
+        and metacritic_score.score
+        and (metacritic_score.sample_size is None or metacritic_score.sample_size >= MIN_METACRITIC_USER_REVIEWS)
+    )
+
     disparity_steam = None
     disparity_metacritic = None
 
-    if avg_critic and steam_score:
+    if avg_critic and steam_valid:
         disparity_steam = Decimal(str(round(float(avg_critic) - float(steam_score.score), 2)))
-    if avg_critic and metacritic_score:
+    if avg_critic and metacritic_valid:
         disparity_metacritic = Decimal(str(round(float(avg_critic) - float(metacritic_score.score), 2)))
 
     return GameDetail(
@@ -280,10 +300,10 @@ async def get_game(
         steam_app_id=game.steam_app_id,
         critic_review_count=critic_row.critic_review_count or 0,
         opencritic_score=game.top_critic_score,
-        steam_user_score=steam_score.score if steam_score else None,
-        steam_sample_size=steam_score.sample_size if steam_score else None,
-        metacritic_user_score=metacritic_score.score if metacritic_score else None,
-        metacritic_sample_size=metacritic_score.sample_size if metacritic_score else None,
+        steam_user_score=steam_score.score if steam_valid else None,
+        steam_sample_size=steam_score.sample_size if steam_valid else None,
+        metacritic_user_score=metacritic_score.score if metacritic_valid else None,
+        metacritic_sample_size=metacritic_score.sample_size if metacritic_valid else None,
         avg_critic_score=Decimal(str(round(avg_critic, 2))) if avg_critic else None,
         disparity_steam=disparity_steam,
         disparity_metacritic=disparity_metacritic,

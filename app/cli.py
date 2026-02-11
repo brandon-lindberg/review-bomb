@@ -10,6 +10,7 @@ Usage:
     python -m app steam             Sync Steam user scores
     python -m app metacritic        Sync Metacritic scores (user + metascore)
     python -m app disparity         Calculate disparity snapshots
+    python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
     python -m app clear             Clear all data from database
 """
 
@@ -365,6 +366,37 @@ async def cmd_refresh_images(args):
         print(f"\nImage URL fix complete: {updated_journalists} journalists, {updated_outlets} outlets, {updated_games} games")
 
 
+async def cmd_refresh_reviews(args):
+    """Handle refresh-reviews command - re-fetch reviews for recent games."""
+    async with async_session_maker() as db:
+        orchestrator = SyncOrchestrator(db)
+
+        days = args.days
+        print(f"\n{'='*50}")
+        if args.all:
+            print("Refreshing reviews for ALL games")
+        else:
+            print(f"Refreshing reviews for games released in last {days} days")
+        if args.limit:
+            print(f"Limiting to {args.limit} games")
+        print(f"Started at {datetime.now().isoformat()}")
+        print(f"{'='*50}\n")
+
+        try:
+            stats = await orchestrator.refresh_recent_reviews(
+                days=days,
+                limit=args.limit,
+                all_games=args.all,
+            )
+            print(f"\n{'='*50}")
+            print("Review refresh completed successfully!")
+            print(f"{'='*50}")
+            return 0
+        except Exception as e:
+            print(f"\nRefresh failed: {e}")
+            return 1
+
+
 async def cmd_match(args):
     """Handle game matching command."""
     async with async_session_maker() as db:
@@ -466,6 +498,12 @@ def main():
     disparity_parser.add_argument("--outlets", action="store_true", help="Only outlets")
     disparity_parser.add_argument("--games", action="store_true", help="Only games")
 
+    # Refresh reviews command
+    refresh_parser = subparsers.add_parser("refresh-reviews", help="Re-fetch reviews for recent games")
+    refresh_parser.add_argument("--days", type=int, default=90, help="Refresh games released within N days (default: 90)")
+    refresh_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    refresh_parser.add_argument("--all", action="store_true", help="Refresh ALL games (full re-sync of reviews)")
+
     # Clear command
     subparsers.add_parser("clear", help="Clear all data from database")
 
@@ -489,6 +527,8 @@ def main():
         return asyncio.run(cmd_metacritic(args))
     elif args.command == "disparity":
         return asyncio.run(cmd_disparity(args))
+    elif args.command == "refresh-reviews":
+        return asyncio.run(cmd_refresh_reviews(args))
     elif args.command == "clear":
         return asyncio.run(cmd_clear(args))
     elif args.command == "refresh-images":

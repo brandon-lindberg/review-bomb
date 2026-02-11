@@ -138,6 +138,7 @@ class Game(Base):
     metacritic_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
 
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
+    last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
