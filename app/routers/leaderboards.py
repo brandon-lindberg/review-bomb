@@ -32,24 +32,78 @@ async def journalist_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get journalists ranked by disparity."""
-    # Get latest disparity snapshot for each journalist
-    latest_snapshot_subq = (
+    """Get journalists ranked by disparity (calculated on-the-fly)."""
+    from app.models.models import UserScoreSource
+    
+    # Get latest Steam scores per game
+    latest_steam = (
         select(
-            DisparitySnapshot.journalist_id,
-            DisparitySnapshot.avg_disparity_combined,
-            DisparitySnapshot.review_count,
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
         )
-        .where(DisparitySnapshot.journalist_id.isnot(None))
-        .distinct(DisparitySnapshot.journalist_id)
-        .order_by(
-            DisparitySnapshot.journalist_id,
-            desc(DisparitySnapshot.snapshot_date)
+        .where(UserScore.source == UserScoreSource.STEAM)
+        .subquery()
+    )
+    steam_scores = (
+        select(latest_steam.c.game_id, latest_steam.c.score.label('steam_score'))
+        .where(latest_steam.c.rn == 1)
+        .subquery()
+    )
+    
+    # Get latest Metacritic scores per game
+    latest_metacritic = (
+        select(
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
+        )
+        .where(UserScore.source == UserScoreSource.METACRITIC)
+        .subquery()
+    )
+    metacritic_scores = (
+        select(latest_metacritic.c.game_id, latest_metacritic.c.score.label('metacritic_score'))
+        .where(latest_metacritic.c.rn == 1)
+        .subquery()
+    )
+    
+    # Calculate disparity per journalist
+    journalist_stats_subq = (
+        select(
+            Review.journalist_id,
+            func.count(Review.id).label("review_count"),
+            func.avg(
+                case(
+                    (steam_scores.c.steam_score.isnot(None), Review.score_normalized - steam_scores.c.steam_score),
+                    (metacritic_scores.c.metacritic_score.isnot(None), Review.score_normalized - metacritic_scores.c.metacritic_score),
+                )
+            ).label("avg_disparity"),
+            func.stddev(Review.score_normalized).label("score_std_dev"),
+            func.max(Review.published_at).label("latest_review_date"),
+        )
+        .outerjoin(steam_scores, Review.game_id == steam_scores.c.game_id)
+        .outerjoin(metacritic_scores, Review.game_id == metacritic_scores.c.game_id)
+        .where(
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+            # Must have at least one user score
+            (steam_scores.c.steam_score.isnot(None)) | (metacritic_scores.c.metacritic_score.isnot(None))
+        )
+        .group_by(Review.journalist_id)
+        .having(
+            func.count(Review.id) >= MIN_REVIEWS_FOR_LEADERBOARD,
+            func.coalesce(func.stddev(Review.score_normalized), 0) >= MIN_SCORE_STD_DEV,
         )
         .subquery()
     )
 
-    # Get most recent outlet and review date for each journalist (from scored reviews)
+    # Get most recent outlet for each journalist
     recent_outlet_subq = (
         select(
             Review.journalist_id,
@@ -57,85 +111,37 @@ async def journalist_leaderboard(
         )
         .join(Outlet, Review.outlet_id == Outlet.id)
         .where(
-            Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
         )
         .distinct(Review.journalist_id)
         .order_by(Review.journalist_id, desc(Review.published_at))
         .subquery()
     )
 
-    # Get latest review date for each journalist
-    latest_review_subq = (
-        select(
-            Review.journalist_id,
-            func.max(Review.published_at).label("latest_review_date"),
-        )
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
-        )
-        .group_by(Review.journalist_id)
-        .subquery()
-    )
-
-    # Get score std deviation for each journalist (to filter binary scorers)
-    score_variance_subq = (
-        select(
-            Review.journalist_id,
-            func.stddev(Review.score_normalized).label("score_std_dev"),
-        )
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
-        )
-        .group_by(Review.journalist_id)
-        .subquery()
-    )
-
     query = (
         select(
             Journalist,
-            latest_snapshot_subq.c.avg_disparity_combined,
-            latest_snapshot_subq.c.review_count,
+            journalist_stats_subq.c.avg_disparity,
+            journalist_stats_subq.c.review_count,
             recent_outlet_subq.c.outlet_name,
-            latest_review_subq.c.latest_review_date,
+            journalist_stats_subq.c.latest_review_date,
         )
-        .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
+        .join(journalist_stats_subq, Journalist.id == journalist_stats_subq.c.journalist_id)
         .outerjoin(recent_outlet_subq, Journalist.id == recent_outlet_subq.c.journalist_id)
-        .outerjoin(latest_review_subq, Journalist.id == latest_review_subq.c.journalist_id)
-        .join(score_variance_subq, Journalist.id == score_variance_subq.c.journalist_id)
-        .where(
-            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
-            # Anti-gaming: filter out binary/extreme scorers (std dev < 10)
-            func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
-        )
+        .where(journalist_stats_subq.c.avg_disparity.isnot(None))
     )
 
     # Sort
     if sort == "recent":
-        query = query.order_by(desc(latest_review_subq.c.latest_review_date).nulls_last())
+        query = query.order_by(desc(journalist_stats_subq.c.latest_review_date).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(latest_snapshot_subq.c.avg_disparity_combined))
+        query = query.order_by(desc(journalist_stats_subq.c.avg_disparity))
     else:
-        query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
+        query = query.order_by(asc(journalist_stats_subq.c.avg_disparity))
 
-    # Get total count (with minimum review and variance filters)
-    count_query = (
-        select(func.count())
-        .select_from(
-            select(Journalist.id)
-            .join(latest_snapshot_subq, Journalist.id == latest_snapshot_subq.c.journalist_id)
-            .join(score_variance_subq, Journalist.id == score_variance_subq.c.journalist_id)
-            .where(
-                latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-                latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,
-                func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
-            )
-            .subquery()
-        )
-    )
+    # Get total count
+    count_query = select(func.count()).select_from(journalist_stats_subq)
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
@@ -160,7 +166,7 @@ async def journalist_leaderboard(
                 journalist_name=journalist.name,
                 journalist_image_url=journalist.image_url,
                 outlet_name=outlet_name,
-                avg_disparity=avg_disparity,
+                avg_disparity=Decimal(str(round(float(avg_disparity), 2))) if avg_disparity else None,
                 review_count=review_count,
             )
         )
@@ -181,111 +187,101 @@ async def outlet_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get outlets ranked by disparity."""
-    # Get latest disparity snapshot for each outlet
-    latest_snapshot_subq = (
+    """Get outlets ranked by disparity (calculated on-the-fly)."""
+    from app.models.models import UserScoreSource
+    
+    # Get latest Steam scores per game
+    latest_steam = (
         select(
-            DisparitySnapshot.outlet_id,
-            DisparitySnapshot.avg_disparity_combined,
-            DisparitySnapshot.review_count,
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
         )
-        .where(DisparitySnapshot.outlet_id.isnot(None))
-        .distinct(DisparitySnapshot.outlet_id)
-        .order_by(
-            DisparitySnapshot.outlet_id,
-            desc(DisparitySnapshot.snapshot_date)
-        )
+        .where(UserScore.source == UserScoreSource.STEAM)
         .subquery()
     )
-
-    # Get journalist count per outlet (from scored reviews)
-    journalist_count_subq = (
+    steam_scores = (
+        select(latest_steam.c.game_id, latest_steam.c.score.label('steam_score'))
+        .where(latest_steam.c.rn == 1)
+        .subquery()
+    )
+    
+    # Get latest Metacritic scores per game
+    latest_metacritic = (
+        select(
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
+        )
+        .where(UserScore.source == UserScoreSource.METACRITIC)
+        .subquery()
+    )
+    metacritic_scores = (
+        select(latest_metacritic.c.game_id, latest_metacritic.c.score.label('metacritic_score'))
+        .where(latest_metacritic.c.rn == 1)
+        .subquery()
+    )
+    
+    # Calculate disparity per outlet
+    outlet_stats_subq = (
         select(
             Review.outlet_id,
+            func.count(Review.id).label("review_count"),
             func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
-        )
-        .where(
-            Review.outlet_id.isnot(None),
-            Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .group_by(Review.outlet_id)
-        .subquery()
-    )
-
-    # Get latest review date for each outlet
-    latest_review_subq = (
-        select(
-            Review.outlet_id,
+            func.avg(
+                case(
+                    (steam_scores.c.steam_score.isnot(None), Review.score_normalized - steam_scores.c.steam_score),
+                    (metacritic_scores.c.metacritic_score.isnot(None), Review.score_normalized - metacritic_scores.c.metacritic_score),
+                )
+            ).label("avg_disparity"),
+            func.stddev(Review.score_normalized).label("score_std_dev"),
             func.max(Review.published_at).label("latest_review_date"),
         )
+        .outerjoin(steam_scores, Review.game_id == steam_scores.c.game_id)
+        .outerjoin(metacritic_scores, Review.game_id == metacritic_scores.c.game_id)
         .where(
             Review.outlet_id.isnot(None),
             Review.score_normalized.isnot(None),
             Review.score_normalized > 0,
+            # Must have at least one user score
+            (steam_scores.c.steam_score.isnot(None)) | (metacritic_scores.c.metacritic_score.isnot(None))
         )
         .group_by(Review.outlet_id)
-        .subquery()
-    )
-
-    # Get score std deviation for each outlet (to filter binary scorers)
-    score_variance_subq = (
-        select(
-            Review.outlet_id,
-            func.stddev(Review.score_normalized).label("score_std_dev"),
+        .having(
+            func.count(Review.id) >= MIN_REVIEWS_FOR_LEADERBOARD,
+            func.coalesce(func.stddev(Review.score_normalized), 0) >= MIN_SCORE_STD_DEV,
         )
-        .where(
-            Review.outlet_id.isnot(None),
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
-        )
-        .group_by(Review.outlet_id)
         .subquery()
     )
 
     query = (
         select(
             Outlet,
-            latest_snapshot_subq.c.avg_disparity_combined,
-            latest_snapshot_subq.c.review_count,
-            func.coalesce(journalist_count_subq.c.journalist_count, 0).label("journalist_count"),
-            latest_review_subq.c.latest_review_date,
+            outlet_stats_subq.c.avg_disparity,
+            outlet_stats_subq.c.review_count,
+            outlet_stats_subq.c.journalist_count,
+            outlet_stats_subq.c.latest_review_date,
         )
-        .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
-        .outerjoin(journalist_count_subq, Outlet.id == journalist_count_subq.c.outlet_id)
-        .outerjoin(latest_review_subq, Outlet.id == latest_review_subq.c.outlet_id)
-        .join(score_variance_subq, Outlet.id == score_variance_subq.c.outlet_id)
-        .where(
-            latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-            latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,  # Anti-gaming: minimum 10 reviews
-            # Anti-gaming: filter out binary/extreme scorers (std dev < 10)
-            func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
-        )
+        .join(outlet_stats_subq, Outlet.id == outlet_stats_subq.c.outlet_id)
+        .where(outlet_stats_subq.c.avg_disparity.isnot(None))
     )
 
     # Sort
     if sort == "recent":
-        query = query.order_by(desc(latest_review_subq.c.latest_review_date).nulls_last())
+        query = query.order_by(desc(outlet_stats_subq.c.latest_review_date).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(latest_snapshot_subq.c.avg_disparity_combined))
+        query = query.order_by(desc(outlet_stats_subq.c.avg_disparity))
     else:
-        query = query.order_by(asc(latest_snapshot_subq.c.avg_disparity_combined))
+        query = query.order_by(asc(outlet_stats_subq.c.avg_disparity))
 
-    # Get total count (with minimum review and variance filters)
-    count_query = (
-        select(func.count())
-        .select_from(
-            select(Outlet.id)
-            .join(latest_snapshot_subq, Outlet.id == latest_snapshot_subq.c.outlet_id)
-            .join(score_variance_subq, Outlet.id == score_variance_subq.c.outlet_id)
-            .where(
-                latest_snapshot_subq.c.avg_disparity_combined.isnot(None),
-                latest_snapshot_subq.c.review_count >= MIN_REVIEWS_FOR_LEADERBOARD,
-                func.coalesce(score_variance_subq.c.score_std_dev, 0) >= MIN_SCORE_STD_DEV,
-            )
-            .subquery()
-        )
-    )
+    # Get total count
+    count_query = select(func.count()).select_from(outlet_stats_subq)
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
@@ -309,7 +305,7 @@ async def outlet_leaderboard(
                 outlet_id=outlet.id,
                 outlet_name=outlet.name,
                 outlet_logo_url=outlet.logo_url,
-                avg_disparity=avg_disparity,
+                avg_disparity=Decimal(str(round(float(avg_disparity), 2))) if avg_disparity else None,
                 journalist_count=journalist_count,
                 review_count=review_count,
             )
