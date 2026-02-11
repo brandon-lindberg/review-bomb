@@ -1,5 +1,6 @@
 """Stats API endpoints."""
 
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -10,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.models import Journalist, Outlet, Game, Review, UserScore, UserScoreSource
 from app.schemas.schemas import SiteStats, ReviewWithJournalist
+from app.cache import get_cached, set_cached, CACHE_TTL_MEDIUM
 
 router = APIRouter()
 
@@ -22,7 +24,13 @@ MIN_METACRITIC_USER_REVIEWS = 20
 async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get site-wide statistics."""
+    """Get site-wide statistics (cached for 5 minutes)."""
+    # Check cache first
+    cache_key = "stats:site"
+    cached = await get_cached(cache_key)
+    if cached:
+        data = json.loads(cached)
+        return SiteStats(**data)
     # Subquery for journalists with scored reviews
     journalist_with_reviews_subq = (
         select(Review.journalist_id)
@@ -196,7 +204,7 @@ async def get_stats(
     elif metacritic_avg is not None:
         avg_disparity = Decimal(str(round(float(metacritic_avg), 2)))
 
-    return SiteStats(
+    result = SiteStats(
         total_journalists=total_journalists,
         total_outlets=total_outlets,
         total_games=total_games,
@@ -204,6 +212,11 @@ async def get_stats(
         avg_disparity_site=avg_disparity,
         last_updated=datetime.utcnow(),
     )
+    
+    # Cache the result
+    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
+    
+    return result
 
 
 @router.get("/recent-reviews", response_model=list[ReviewWithJournalist])

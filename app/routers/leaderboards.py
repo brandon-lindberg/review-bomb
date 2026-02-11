@@ -1,5 +1,6 @@
 """Leaderboards API endpoints."""
 
+import json
 from typing import Optional
 from decimal import Decimal
 
@@ -17,6 +18,7 @@ from app.schemas.schemas import (
     GameRanking,
     PaginatedResponse,
 )
+from app.cache import get_cached, set_cached, CACHE_TTL_MEDIUM
 
 router = APIRouter()
 
@@ -32,7 +34,14 @@ async def journalist_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get journalists ranked by disparity (calculated on-the-fly)."""
+    """Get journalists ranked by disparity (cached for 5 minutes)."""
+    # Check cache first
+    cache_key = f"leaderboard:journalists:{page}:{per_page}:{sort}"
+    cached = await get_cached(cache_key)
+    if cached:
+        data = json.loads(cached)
+        return PaginatedResponse[JournalistRanking](**data)
+    
     from app.models.models import UserScoreSource
     
     # Get latest Steam scores per game
@@ -171,13 +180,18 @@ async def journalist_leaderboard(
             )
         )
 
-    return PaginatedResponse(
+    result = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+    
+    # Cache the result
+    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
+    
+    return result
 
 
 @router.get("/outlets", response_model=PaginatedResponse[OutletRanking])
@@ -187,7 +201,14 @@ async def outlet_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get outlets ranked by disparity (calculated on-the-fly)."""
+    """Get outlets ranked by disparity (cached for 5 minutes)."""
+    # Check cache first
+    cache_key = f"leaderboard:outlets:{page}:{per_page}:{sort}"
+    cached = await get_cached(cache_key)
+    if cached:
+        data = json.loads(cached)
+        return PaginatedResponse[OutletRanking](**data)
+    
     from app.models.models import UserScoreSource
     
     # Get latest Steam scores per game
@@ -311,13 +332,18 @@ async def outlet_leaderboard(
             )
         )
 
-    return PaginatedResponse(
+    result = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+    
+    # Cache the result
+    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
+    
+    return result
 
 
 # Anti-gaming: minimum requirements for a game to appear in leaderboards
@@ -333,7 +359,14 @@ async def game_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get games ranked by disparity (most divisive)."""
+    """Get games ranked by disparity (cached for 5 minutes)."""
+    # Check cache first
+    cache_key = f"leaderboard:games:{page}:{per_page}:{sort}"
+    cached = await get_cached(cache_key)
+    if cached:
+        data = json.loads(cached)
+        return PaginatedResponse[GameRanking](**data)
+    
     # Subquery for avg critic score (only reviews with actual scores)
     critic_subq = (
         select(
@@ -490,10 +523,15 @@ async def game_leaderboard(
             )
         )
 
-    return PaginatedResponse(
+    result = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+    
+    # Cache the result
+    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
+    
+    return result
