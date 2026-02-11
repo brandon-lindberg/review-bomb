@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -6,6 +7,19 @@ import { CompareSelector } from "@/components/CompareSelector";
 import type { JournalistDetail, OutletWithStats, DisparitySnapshot } from "@/types";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Compare Critics",
+  description:
+    "Compare game journalists and outlets side by side. See how their review scores and disparity trends differ over time.",
+  alternates: { canonical: "/compare" },
+  openGraph: {
+    title: "Compare Critics - ReviewDisparity",
+    description:
+      "Compare game journalists and outlets side by side. See how their review scores and disparity trends differ.",
+    url: "/compare",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

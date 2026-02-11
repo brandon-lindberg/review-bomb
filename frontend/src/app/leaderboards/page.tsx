@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import {
   getJournalistLeaderboard,
@@ -8,6 +9,19 @@ import { DisparityScores } from "@/components/DisparityScores";
 import { SortSelect } from "@/components/SortSelect";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Leaderboards",
+  description:
+    "See which game journalists, outlets, and games have the highest and lowest review disparity. Rankings based on critic vs user score differences.",
+  alternates: { canonical: "/leaderboards" },
+  openGraph: {
+    title: "Leaderboards - ReviewDisparity",
+    description:
+      "See which game journalists, outlets, and games have the highest and lowest review disparity.",
+    url: "/leaderboards",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

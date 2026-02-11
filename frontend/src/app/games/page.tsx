@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -7,6 +8,19 @@ import { YearFilter } from "@/components/YearFilter";
 import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Browse Games",
+  description:
+    "Browse video games and compare critic review scores vs player scores from Steam and Metacritic. Find the biggest review disparities.",
+  alternates: { canonical: "/games" },
+  openGraph: {
+    title: "Browse Games - ReviewDisparity",
+    description:
+      "Browse video games and compare critic review scores vs player scores from Steam and Metacritic.",
+    url: "/games",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

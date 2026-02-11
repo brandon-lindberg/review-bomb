@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getJournalists } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -5,6 +6,19 @@ import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Game Journalists",
+  description:
+    "Browse game journalists and see how their review scores compare to player opinions. Track critic-to-user score disparity.",
+  alternates: { canonical: "/journalists" },
+  openGraph: {
+    title: "Game Journalists - ReviewDisparity",
+    description:
+      "Browse game journalists and see how their review scores compare to player opinions.",
+    url: "/journalists",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

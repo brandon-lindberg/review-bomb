@@ -1,13 +1,33 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { JsonLd } from "@/components/JsonLd";
 
-export const metadata = {
-  title: "About - ReviewDisparity",
-  description: "Learn how ReviewDisparity calculates score disparities between critics and players",
+export const metadata: Metadata = {
+  title: "How It Works",
+  description:
+    "Learn how ReviewDisparity calculates score disparities between critics and players. Understand our methodology, data sources, and scoring system.",
+  alternates: { canonical: "/about" },
+  openGraph: {
+    title: "How It Works - ReviewDisparity",
+    description:
+      "Learn how ReviewDisparity calculates score disparities between critics and players.",
+    url: "/about",
+  },
 };
 
 export default function AboutPage() {
+  const jsonLdData = {
+    "@context": "https://schema.org",
+    "@type": "AboutPage",
+    name: "How ReviewDisparity Works",
+    description:
+      "Learn how ReviewDisparity calculates score disparities between critics and players.",
+    url: "/about",
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-12">
+      <JsonLd data={jsonLdData} />
       {/* Hero */}
       <section className="text-center py-8">
         <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>

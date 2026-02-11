@@ -280,3 +280,58 @@ async def get_recent_reviews(
         )
 
     return items
+
+
+@router.get("/sitemap-data")
+async def get_sitemap_data(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all entity IDs for sitemap generation."""
+    journalist_query = (
+        select(Journalist.id)
+        .where(
+            Journalist.id.in_(
+                select(Review.journalist_id)
+                .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+                .distinct()
+            )
+        )
+    )
+    journalist_result = await db.execute(journalist_query)
+    journalist_ids = [row[0] for row in journalist_result.all()]
+
+    outlet_query = (
+        select(Outlet.id)
+        .where(
+            Outlet.id.in_(
+                select(Review.outlet_id)
+                .where(
+                    Review.outlet_id.isnot(None),
+                    Review.score_normalized.isnot(None),
+                    Review.score_normalized > 0,
+                )
+                .distinct()
+            )
+        )
+    )
+    outlet_result = await db.execute(outlet_query)
+    outlet_ids = [row[0] for row in outlet_result.all()]
+
+    game_query = (
+        select(Game.id)
+        .where(
+            Game.id.in_(
+                select(Review.game_id)
+                .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+                .distinct()
+            )
+        )
+    )
+    game_result = await db.execute(game_query)
+    game_ids = [row[0] for row in game_result.all()]
+
+    return {
+        "journalist_ids": journalist_ids,
+        "outlet_ids": outlet_ids,
+        "game_ids": game_ids,
+    }

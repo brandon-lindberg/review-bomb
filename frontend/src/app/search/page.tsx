@@ -1,8 +1,22 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Search",
+  description:
+    "Search for game journalists, outlets, and games to see their review scores and disparity data.",
+  alternates: { canonical: "/search" },
+  openGraph: {
+    title: "Search - ReviewDisparity",
+    description:
+      "Search for game journalists, outlets, and games to see their review scores and disparity data.",
+    url: "/search",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

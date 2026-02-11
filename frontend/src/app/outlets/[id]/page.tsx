@@ -1,15 +1,47 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOutlet, getOutletReviews, getOutletAllReviews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
+import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ page?: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const outlet = await getOutlet(parseInt(id));
+    const disparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
+    const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
+
+    let description = `${outlet.name} game review scores and critic-to-user disparity data.`;
+    if (disparityStr) {
+      description = `${outlet.name} has a ${disparityStr} average review disparity across ${outlet.review_count || 0} reviews from ${outlet.journalist_count || 0} journalists.`;
+    }
+
+    return {
+      title: `${outlet.name} - Review Scores & Disparity`,
+      description,
+      alternates: { canonical: `/outlets/${id}` },
+      openGraph: {
+        title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
+        description,
+        url: `/outlets/${id}`,
+        type: "website",
+        ...(outlet.logo_url && { images: [{ url: outlet.logo_url }] }),
+      },
+      twitter: { card: "summary", title: outlet.name, description },
+    };
+  } catch {
+    return { title: "Outlet Details" };
+  }
 }
 
 export default async function OutletDetailPage({ params, searchParams }: PageProps) {
@@ -36,8 +68,18 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     notFound();
   }
 
+  const jsonLdData: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: outlet.name,
+    url: `/outlets/${id}`,
+    ...(outlet.logo_url && { logo: outlet.logo_url }),
+    ...(outlet.website_url && { sameAs: [outlet.website_url] }),
+  };
+
   return (
     <div className="space-y-8">
+      <JsonLd data={jsonLdData} />
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start gap-6">

@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { getStats, getRecentReviews, getGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
+
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://reviewdisparity.com";
 
 export default async function Home() {
   let stats = null;
@@ -19,8 +22,26 @@ export default async function Home() {
     console.error("Error fetching data:", error);
   }
 
+  const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "ReviewDisparity",
+    url: siteUrl,
+    description:
+      "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
+    potentialAction: {
+      "@type": "SearchAction",
+      target: {
+        "@type": "EntryPoint",
+        urlTemplate: `${siteUrl}/search?q={search_term_string}`,
+      },
+      "query-input": "required name=search_term_string",
+    },
+  };
+
   return (
     <div className="space-y-12">
+      <JsonLd data={websiteJsonLd} />
       {/* Hero Section */}
       <section className="text-center py-12">
         <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>

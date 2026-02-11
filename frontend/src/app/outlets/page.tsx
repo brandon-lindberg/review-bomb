@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { getOutlets } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -5,6 +6,19 @@ import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Gaming Outlets",
+  description:
+    "Browse gaming publications and see how their review scores compare to player opinions. Track outlet-level critic-to-user disparity.",
+  alternates: { canonical: "/outlets" },
+  openGraph: {
+    title: "Gaming Outlets - ReviewDisparity",
+    description:
+      "Browse gaming publications and see how their review scores compare to player opinions.",
+    url: "/outlets",
+  },
+};
 
 interface PageProps {
   searchParams: Promise<{

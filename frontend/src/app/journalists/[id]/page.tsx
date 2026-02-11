@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getJournalist, getJournalistReviews, getJournalistAllReviews } from "@/lib/api";
@@ -5,12 +6,43 @@ import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, format
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { ReviewScoreCards } from "@/components/ReviewScoreTable";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
+import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ page?: string }>;
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+  try {
+    const journalist = await getJournalist(parseInt(id));
+    const disparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
+    const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
+
+    let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
+    if (disparityStr) {
+      description = `${journalist.name} has a ${disparityStr} average review disparity across ${journalist.review_count} reviews. See full scoring patterns and trends.`;
+    }
+
+    return {
+      title: `${journalist.name} - Review Scores & Disparity`,
+      description,
+      alternates: { canonical: `/journalists/${id}` },
+      openGraph: {
+        title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
+        description,
+        url: `/journalists/${id}`,
+        type: "profile",
+        ...(journalist.image_url && { images: [{ url: journalist.image_url }] }),
+      },
+      twitter: { card: "summary", title: journalist.name, description },
+    };
+  } catch {
+    return { title: "Journalist Details" };
+  }
 }
 
 export default async function JournalistDetailPage({
@@ -40,8 +72,19 @@ export default async function JournalistDetailPage({
     notFound();
   }
 
+  const jsonLdData: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    name: journalist.name,
+    url: `/journalists/${id}`,
+    ...(journalist.image_url && { image: journalist.image_url }),
+    ...(journalist.bio && { description: journalist.bio }),
+    jobTitle: "Game Journalist",
+  };
+
   return (
     <div className="space-y-8">
+      <JsonLd data={jsonLdData} />
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start gap-6">
