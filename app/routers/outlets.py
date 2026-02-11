@@ -136,7 +136,7 @@ async def get_outlet(
     outlet_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get outlet detail with stats."""
+    """Get outlet detail using denormalized columns - fast!"""
     result = await db.execute(
         select(Outlet).where(Outlet.id == outlet_id)
     )
@@ -145,62 +145,37 @@ async def get_outlet(
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    # Get stats (only scored reviews) including average score
+    # Get additional stats (avg/min/max score) with single query
     stats_query = select(
-        func.count(Review.id).label("review_count"),
-        func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
         func.avg(Review.score_normalized).label("avg_score"),
         func.min(Review.score_normalized).label("min_score"),
         func.max(Review.score_normalized).label("max_score"),
-        func.stddev(Review.score_normalized).label("score_std_dev"),
     ).where(
         Review.outlet_id == outlet_id,
-        Review.score_normalized.isnot(None),  # Only scored reviews
-        Review.score_normalized > 0,  # Exclude unscored (0) reviews
+        Review.score_normalized.isnot(None),
+        Review.score_normalized > 0,
     )
 
     stats_result = await db.execute(stats_query)
     stats_row = stats_result.one()
 
-    # Get latest disparity snapshot with all disparity fields
-    disparity_query = (
-        select(
-            DisparitySnapshot.avg_disparity_steam,
-            DisparitySnapshot.avg_disparity_metacritic,
-            DisparitySnapshot.avg_disparity_combined,
-        )
-        .where(DisparitySnapshot.outlet_id == outlet_id)
-        .order_by(desc(DisparitySnapshot.snapshot_date))
-        .limit(1)
-    )
-    disparity_result = await db.execute(disparity_query)
-    disparity_row = disparity_result.one_or_none()
-
-    avg_disparity_steam = None
-    avg_disparity_metacritic = None
-    avg_disparity_combined = None
-    if disparity_row:
-        avg_disparity_steam = disparity_row.avg_disparity_steam
-        avg_disparity_metacritic = disparity_row.avg_disparity_metacritic
-        avg_disparity_combined = disparity_row.avg_disparity_combined
-
+    # Use denormalized columns from outlet
     return OutletWithStats(
         id=outlet.id,
         name=outlet.name,
         website_url=outlet.website_url,
         logo_url=outlet.logo_url,
         opencritic_id=outlet.opencritic_id,
-        journalist_count=stats_row.journalist_count or 0,
-        review_count=stats_row.review_count or 0,
-        avg_disparity=avg_disparity_combined,
-        avg_disparity_steam=avg_disparity_steam,
-        avg_disparity_metacritic=avg_disparity_metacritic,
-        avg_disparity_combined=avg_disparity_combined,
+        journalist_count=outlet.journalist_count or 0,
+        review_count=outlet.review_count_scored or 0,
+        avg_disparity=outlet.avg_disparity,
+        avg_disparity_steam=None,  # Not stored separately on outlet
+        avg_disparity_metacritic=None,
+        avg_disparity_combined=outlet.avg_disparity,
         avg_score=stats_row.avg_score,
-        # Transparency metrics - scoring patterns
         min_score_given=Decimal(str(round(stats_row.min_score, 2))) if stats_row.min_score else None,
         max_score_given=Decimal(str(round(stats_row.max_score, 2))) if stats_row.max_score else None,
-        score_std_deviation=Decimal(str(round(stats_row.score_std_dev, 2))) if stats_row.score_std_dev else None,
+        score_std_deviation=outlet.score_std_dev,
     )
 
 

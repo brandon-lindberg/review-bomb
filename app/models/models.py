@@ -153,6 +153,16 @@ class Game(Base):
     # Metacritic critic aggregate score (0-100)
     metacritic_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
 
+    # Denormalized stats for fast queries
+    avg_critic_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    critic_review_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    steam_user_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    steam_sample_size: Mapped[Optional[int]] = mapped_column(Integer)
+    metacritic_user_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    metacritic_sample_size: Mapped[Optional[int]] = mapped_column(Integer)
+    disparity_steam: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    disparity_metacritic: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(

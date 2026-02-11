@@ -1,14 +1,14 @@
-"""Search API endpoints."""
+"""Search API endpoints - uses denormalized columns for speed."""
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.config import get_settings
 from app.database import get_db
-from app.models.models import Journalist, Outlet, Game, Review
+from app.models.models import Journalist, Outlet, Game
 from app.schemas.schemas import (
     JournalistSummary,
     OutletSummary,
@@ -30,10 +30,10 @@ async def search(
     limit: int = Query(10, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
-    """Search across journalists, outlets, and games."""
+    """Search across journalists, outlets, and games using denormalized data."""
     search_term = f"%{q.lower()}%"
 
-    # Search journalists
+    # Search journalists - use denormalized review_count_scored and avg_disparity
     journalist_query = (
         select(Journalist)
         .where(func.lower(Journalist.name).like(search_term))
@@ -42,26 +42,6 @@ async def search(
     journalist_result = await db.execute(journalist_query)
     journalists = journalist_result.scalars().all()
 
-    # Get review counts for journalists (only scored reviews)
-    journalist_ids = [j.id for j in journalists]
-    if journalist_ids:
-        review_counts_query = (
-            select(
-                Review.journalist_id,
-                func.count(Review.id).label("review_count"),
-            )
-            .where(
-                Review.journalist_id.in_(journalist_ids),
-                Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,  # Exclude unscored (0) reviews
-            )
-            .group_by(Review.journalist_id)
-        )
-        review_counts_result = await db.execute(review_counts_query)
-        review_counts = {row[0]: row[1] for row in review_counts_result.all()}
-    else:
-        review_counts = {}
-
     journalist_items = [
         JournalistSummary(
             id=j.id,
@@ -69,8 +49,8 @@ async def search(
             image_url=j.image_url,
             bio=j.bio,
             opencritic_id=j.opencritic_id,
-            review_count=review_counts.get(j.id, 0),
-            avg_disparity=None,
+            review_count=j.review_count_scored or 0,
+            avg_disparity=j.avg_disparity,
         )
         for j in journalists
     ]
@@ -95,7 +75,7 @@ async def search(
         for o in outlets
     ]
 
-    # Search games
+    # Search games - use denormalized critic_review_count
     game_query = (
         select(Game)
         .where(func.lower(Game.title).like(search_term))
@@ -104,26 +84,6 @@ async def search(
     )
     game_result = await db.execute(game_query)
     games = game_result.scalars().all()
-
-    # Get review counts for games (only scored reviews)
-    game_ids = [g.id for g in games]
-    if game_ids:
-        game_review_counts_query = (
-            select(
-                Review.game_id,
-                func.count(Review.id).label("review_count"),
-            )
-            .where(
-                Review.game_id.in_(game_ids),
-                Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,  # Exclude unscored (0) reviews
-            )
-            .group_by(Review.game_id)
-        )
-        game_review_counts_result = await db.execute(game_review_counts_query)
-        game_review_counts = {row[0]: row[1] for row in game_review_counts_result.all()}
-    else:
-        game_review_counts = {}
 
     game_items = [
         GameSummary(
@@ -134,7 +94,7 @@ async def search(
             image_url=g.image_url,
             opencritic_id=g.opencritic_id,
             steam_app_id=g.steam_app_id,
-            critic_review_count=game_review_counts.get(g.id, 0),
+            critic_review_count=g.critic_review_count or 0,
         )
         for g in games
     ]

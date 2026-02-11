@@ -1,23 +1,19 @@
-"""Leaderboards API endpoints."""
+"""Leaderboards API endpoints - uses denormalized columns for speed."""
 
-import json
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, desc, asc, case
+from sqlalchemy import select, func, desc, asc, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import (
-    Journalist, Outlet, Game, Review, UserScore
-)
+from app.models.models import Journalist, Outlet, Game
 from app.schemas.schemas import (
     JournalistRanking,
     OutletRanking,
     GameRanking,
     PaginatedResponse,
 )
-from app.cache import get_cached, set_cached, CACHE_TTL_MEDIUM
 
 router = APIRouter()
 
@@ -177,132 +173,40 @@ async def game_leaderboard(
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get games ranked by disparity (cached for 5 minutes)."""
-    # Check cache first
-    cache_key = f"leaderboard:games:{page}:{per_page}:{sort}"
-    cached = await get_cached(cache_key)
-    if cached:
-        data = json.loads(cached)
-        return PaginatedResponse[GameRanking](**data)
-    
-    # Subquery for avg critic score (only reviews with actual scores)
-    critic_subq = (
-        select(
-            Review.game_id,
-            func.avg(Review.score_normalized).label("avg_critic_score"),
-            func.count(Review.id).label("critic_review_count"),
-        )
-        .where(
-            Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .group_by(Review.game_id)
-        .subquery()
-    )
-
-    # Subquery for latest Steam score (with sample_size for filtering)
-    steam_subq = (
-        select(
-            UserScore.game_id,
-            UserScore.score.label("steam_score"),
-            UserScore.sample_size.label("steam_sample_size"),
-        )
-        .where(UserScore.source == "STEAM")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
-    # Subquery for latest Metacritic score (with sample_size for filtering)
-    metacritic_subq = (
-        select(
-            UserScore.game_id,
-            UserScore.score.label("metacritic_score"),
-            UserScore.sample_size.label("metacritic_sample_size"),
-        )
-        .where(UserScore.source == "METACRITIC")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
-    # Calculate individual disparities (critic - user)
-    steam_disparity_expr = critic_subq.c.avg_critic_score - steam_subq.c.steam_score
-    metacritic_disparity_expr = critic_subq.c.avg_critic_score - metacritic_subq.c.metacritic_score
-
-    # Combined disparity: average when both exist, otherwise use whichever is available
-    disparity_expr = case(
-        (
-            (steam_disparity_expr.isnot(None)) & (metacritic_disparity_expr.isnot(None)),
-            (steam_disparity_expr + metacritic_disparity_expr) / 2
-        ),
-        else_=func.coalesce(steam_disparity_expr, metacritic_disparity_expr)
-    )
-
+    """Get games ranked by disparity (uses denormalized columns - instant!)."""
+    # Simple query using pre-calculated columns
     query = (
-        select(
-            Game,
-            critic_subq.c.avg_critic_score,
-            critic_subq.c.critic_review_count,
-            steam_subq.c.steam_score,
-            metacritic_subq.c.metacritic_score,
-            steam_disparity_expr.label("steam_disparity"),
-            metacritic_disparity_expr.label("metacritic_disparity"),
-            disparity_expr.label("disparity"),
-        )
-        .join(critic_subq, Game.id == critic_subq.c.game_id)
-        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
-        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
+        select(Game)
         .where(
-            # Minimum 10 critic reviews
-            critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
-            # At least one user score must exist with enough reviews (anti-gaming)
-            (
-                (steam_subq.c.steam_score.isnot(None)) &
-                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
-            ) | (
-                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
-                (metacritic_subq.c.metacritic_score.isnot(None)) &
-                (
-                    (metacritic_subq.c.metacritic_sample_size.is_(None)) |
-                    (metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
-                )
+            Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
+            # At least one disparity must exist
+            or_(
+                Game.disparity_steam.isnot(None),
+                Game.disparity_metacritic.isnot(None),
             )
         )
     )
 
-    # Sort
+    # Sort using pre-computed disparities
     if sort == "recent":
         query = query.order_by(desc(Game.release_date).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(func.abs(disparity_expr)))
+        query = query.order_by(desc(func.abs(func.coalesce(Game.disparity_steam, Game.disparity_metacritic))))
     else:
-        query = query.order_by(asc(func.abs(disparity_expr)))
+        query = query.order_by(asc(func.abs(func.coalesce(Game.disparity_steam, Game.disparity_metacritic))))
 
-    # Get total count (games with 10+ critic reviews AND at least one user score meeting threshold)
-    count_subq = (
-        select(Game.id)
-        .join(critic_subq, Game.id == critic_subq.c.game_id)
-        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
-        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
+    # Get total count
+    count_query = (
+        select(func.count())
+        .select_from(Game)
         .where(
-            # Minimum 10 critic reviews
-            critic_subq.c.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
-            # At least one user score meeting threshold
-            (
-                (steam_subq.c.steam_score.isnot(None)) &
-                (func.coalesce(steam_subq.c.steam_sample_size, 0) >= MIN_STEAM_USER_REVIEWS)
-            ) | (
-                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
-                (metacritic_subq.c.metacritic_score.isnot(None)) &
-                (
-                    (metacritic_subq.c.metacritic_sample_size.is_(None)) |
-                    (metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
-                )
+            Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAME,
+            or_(
+                Game.disparity_steam.isnot(None),
+                Game.disparity_metacritic.isnot(None),
             )
         )
     )
-    count_query = select(func.count()).select_from(count_subq.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
@@ -310,19 +214,17 @@ async def game_leaderboard(
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    rows = result.all()
+    games = result.scalars().all()
 
     items = []
     start_rank = (page - 1) * per_page + 1
-    for i, row in enumerate(rows):
-        game = row[0]
-        avg_critic = row[1]
-        critic_count = row[2]
-        steam_score = row[3]
-        metacritic_score = row[4]
-        steam_disparity = row[5]
-        metacritic_disparity = row[6]
-        disparity = row[7]
+    for i, game in enumerate(games):
+        # Calculate combined disparity (average if both exist)
+        if game.disparity_steam and game.disparity_metacritic:
+            combined = (float(game.disparity_steam) + float(game.disparity_metacritic)) / 2
+            disparity = Decimal(str(round(combined, 2)))
+        else:
+            disparity = game.disparity_steam or game.disparity_metacritic or Decimal("0")
 
         items.append(
             GameRanking(
@@ -331,25 +233,20 @@ async def game_leaderboard(
                 game_title=game.title,
                 game_image_url=game.image_url,
                 release_date=game.release_date,
-                avg_critic_score=Decimal(str(round(avg_critic, 2))) if avg_critic else Decimal("0"),
-                steam_user_score=steam_score,
-                metacritic_user_score=metacritic_score,
-                disparity=Decimal(str(round(disparity, 2))) if disparity else Decimal("0"),
-                disparity_steam=Decimal(str(round(steam_disparity, 2))) if steam_disparity else None,
-                disparity_metacritic=Decimal(str(round(metacritic_disparity, 2))) if metacritic_disparity else None,
-                critic_review_count=critic_count,
+                avg_critic_score=game.avg_critic_score or Decimal("0"),
+                steam_user_score=game.steam_user_score,
+                metacritic_user_score=game.metacritic_user_score,
+                disparity=disparity,
+                disparity_steam=game.disparity_steam,
+                disparity_metacritic=game.disparity_metacritic,
+                critic_review_count=game.critic_review_count or 0,
             )
         )
 
-    result = PaginatedResponse(
+    return PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
-    
-    # Cache the result
-    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
-    
-    return result

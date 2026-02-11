@@ -1,9 +1,7 @@
 """Games API endpoints."""
 
-import json
 from typing import Optional
 from decimal import Decimal
-from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, desc, asc, extract, or_, and_
@@ -12,13 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.models import Game, Review, Journalist, Outlet, UserScore
 from app.schemas.schemas import (
-    GameSummary,
     GameDetail,
     GameWithScores,
     ReviewWithJournalist,
     PaginatedResponse,
 )
-from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 
 router = APIRouter()
 
@@ -37,79 +33,20 @@ async def list_games(
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all games with pagination, filtering, and search (cached for 60s)."""
-    # Check cache for common queries (no search/year filter)
-    if not search and not year:
-        cache_key = f"games:{page}:{per_page}:{sort_by}:{sort_order}"
-        cached = await get_cached(cache_key)
-        if cached:
-            data = json.loads(cached)
-            return PaginatedResponse[GameWithScores](**data)
-    # Subquery for review count and avg critic score (only reviews with actual scores)
-    review_stats_subq = (
-        select(
-            Review.game_id,
-            func.count(Review.id).label("critic_review_count"),
-            func.avg(Review.score_normalized).label("avg_critic_score"),
-        )
-        .where(
-            Review.score_normalized.isnot(None),  # Only reviews with scores
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .group_by(Review.game_id)
-        .subquery()
-    )
-
-    # Subquery for latest Steam user score
-    steam_subq = (
-        select(
-            UserScore.game_id,
-            UserScore.score.label("steam_score"),
-            UserScore.sample_size.label("steam_sample_size"),
-        )
-        .where(UserScore.source == "STEAM")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
-    # Subquery for latest Metacritic user score
-    metacritic_subq = (
-        select(
-            UserScore.game_id,
-            UserScore.score.label("metacritic_score"),
-            UserScore.sample_size.label("metacritic_sample_size"),
-        )
-        .where(UserScore.source == "METACRITIC")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
+    """List all games with pagination (uses denormalized columns - instant!)."""
+    # Simple query using pre-calculated columns - no JOINs needed!
     query = (
-        select(
-            Game,
-            func.coalesce(review_stats_subq.c.critic_review_count, 0).label("critic_review_count"),
-            review_stats_subq.c.avg_critic_score,
-            steam_subq.c.steam_score,
-            steam_subq.c.steam_sample_size,
-            metacritic_subq.c.metacritic_score,
-            metacritic_subq.c.metacritic_sample_size,
-        )
-        .outerjoin(review_stats_subq, Game.id == review_stats_subq.c.game_id)
-        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
-        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
-        # Only include games with critic reviews AND at least one user score meeting minimum threshold
-        .where(review_stats_subq.c.avg_critic_score.isnot(None))
+        select(Game)
         .where(
+            Game.avg_critic_score.isnot(None),
+            # Must have at least one valid user score
             or_(
-                steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
+                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
                 and_(
-                    metacritic_subq.c.metacritic_score.isnot(None),
+                    Game.metacritic_user_score.isnot(None),
                     or_(
-                        metacritic_subq.c.metacritic_sample_size.is_(None),
-                        metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                        Game.metacritic_sample_size.is_(None),
+                        Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
                     )
                 ),
             )
@@ -124,39 +61,32 @@ async def list_games(
     if search:
         query = query.where(Game.title.ilike(f"%{search}%"))
 
-    # Apply sorting
+    # Apply sorting using denormalized columns
     if sort_by == "release_date":
         order_col = Game.release_date
     elif sort_by == "title":
         order_col = Game.title
-    else:  # disparity - sort by difference between critic and user scores
-        # Use steam score for disparity sorting
-        order_col = func.abs(
-            review_stats_subq.c.avg_critic_score - steam_subq.c.steam_score
-        )
+    else:  # disparity
+        order_col = func.abs(Game.disparity_steam)
 
     if sort_order == "desc":
         query = query.order_by(desc(order_col).nulls_last())
     else:
         query = query.order_by(asc(order_col).nulls_last())
 
-    # Get total count (must match the same filters as the main query)
+    # Get total count (simple count query)
     count_query = (
-        select(func.count(Game.id.distinct()))
+        select(func.count())
         .select_from(Game)
-        .outerjoin(review_stats_subq, Game.id == review_stats_subq.c.game_id)
-        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
-        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
-        .where(review_stats_subq.c.avg_critic_score.isnot(None))
         .where(
+            Game.avg_critic_score.isnot(None),
             or_(
-                steam_subq.c.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
+                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
                 and_(
-                    metacritic_subq.c.metacritic_score.isnot(None),
+                    Game.metacritic_user_score.isnot(None),
                     or_(
-                        metacritic_subq.c.metacritic_sample_size.is_(None),
-                        metacritic_subq.c.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                        Game.metacritic_sample_size.is_(None),
+                        Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
                     )
                 ),
             )
@@ -173,32 +103,16 @@ async def list_games(
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    rows = result.all()
+    games = result.scalars().all()
 
     items = []
-    for row in rows:
-        game = row[0]
-        critic_count = row[1]
-        avg_critic = row[2]
-        steam_score = row[3]
-        steam_sample = row[4]
-        metacritic_score = row[5]
-        metacritic_sample = row[6]
-
-        # Apply minimum sample size filters per-score
-        steam_valid = steam_sample is not None and steam_sample >= MIN_STEAM_USER_REVIEWS
+    for game in games:
+        # Check which scores are valid based on sample size
+        steam_valid = game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
         metacritic_valid = (
-            metacritic_score is not None
-            and (metacritic_sample is None or metacritic_sample >= MIN_METACRITIC_USER_REVIEWS)
+            game.metacritic_user_score is not None
+            and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
         )
-
-        disparity_steam = None
-        disparity_metacritic = None
-
-        if avg_critic and steam_valid:
-            disparity_steam = Decimal(str(round(float(avg_critic) - float(steam_score), 2)))
-        if avg_critic and metacritic_valid:
-            disparity_metacritic = Decimal(str(round(float(avg_critic) - float(metacritic_score), 2)))
 
         items.append(
             GameWithScores(
@@ -209,32 +123,25 @@ async def list_games(
                 image_url=game.image_url,
                 opencritic_id=game.opencritic_id,
                 steam_app_id=game.steam_app_id,
-                critic_review_count=critic_count,
+                critic_review_count=game.critic_review_count or 0,
                 opencritic_score=game.top_critic_score,
-                steam_user_score=steam_score if steam_valid else None,
-                steam_sample_size=steam_sample if steam_valid else None,
-                metacritic_user_score=metacritic_score if metacritic_valid else None,
-                metacritic_sample_size=metacritic_sample if metacritic_valid else None,
-                avg_critic_score=Decimal(str(round(avg_critic, 2))) if avg_critic else None,
-                disparity_steam=disparity_steam,
-                disparity_metacritic=disparity_metacritic,
+                steam_user_score=game.steam_user_score if steam_valid else None,
+                steam_sample_size=game.steam_sample_size if steam_valid else None,
+                metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
+                metacritic_sample_size=game.metacritic_sample_size if metacritic_valid else None,
+                avg_critic_score=game.avg_critic_score,
+                disparity_steam=game.disparity_steam if steam_valid else None,
+                disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
             )
         )
 
-    result = PaginatedResponse(
+    return PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
-    
-    # Cache the result (only for non-filtered queries)
-    if not search and not year:
-        cache_key = f"games:{page}:{per_page}:{sort_by}:{sort_order}"
-        await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_SHORT)
-    
-    return result
 
 
 @router.get("/{game_id}", response_model=GameDetail)
@@ -242,7 +149,7 @@ async def get_game(
     game_id: int,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get game detail with all scores."""
+    """Get game detail (uses denormalized columns - instant!)."""
     result = await db.execute(
         select(Game).where(Game.id == game_id)
     )
@@ -251,60 +158,12 @@ async def get_game(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    # Get critic stats (only reviews with actual scores)
-    critic_stats_query = select(
-        func.count(Review.id).label("critic_review_count"),
-        func.avg(Review.score_normalized).label("avg_critic_score"),
-    ).where(
-        Review.game_id == game_id,
-        Review.score_normalized.isnot(None),
-        Review.score_normalized > 0,  # Exclude unscored (0) reviews
-    )
-
-    critic_result = await db.execute(critic_stats_query)
-    critic_row = critic_result.one()
-
-    # Get latest Steam score
-    steam_query = (
-        select(UserScore)
-        .where(UserScore.game_id == game_id, UserScore.source == "STEAM")
-        .order_by(desc(UserScore.scraped_at))
-        .limit(1)
-    )
-    steam_result = await db.execute(steam_query)
-    steam_score = steam_result.scalar_one_or_none()
-
-    # Get latest Metacritic score
-    metacritic_query = (
-        select(UserScore)
-        .where(UserScore.game_id == game_id, UserScore.source == "METACRITIC")
-        .order_by(desc(UserScore.scraped_at))
-        .limit(1)
-    )
-    metacritic_result = await db.execute(metacritic_query)
-    metacritic_score = metacritic_result.scalar_one_or_none()
-
-    avg_critic = critic_row.avg_critic_score
-
-    # Apply minimum sample size filters
-    steam_valid = (
-        steam_score
-        and steam_score.sample_size
-        and steam_score.sample_size >= MIN_STEAM_USER_REVIEWS
-    )
+    # All data is pre-computed on the game record - no additional queries needed!
+    steam_valid = game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
     metacritic_valid = (
-        metacritic_score
-        and metacritic_score.score
-        and (metacritic_score.sample_size is None or metacritic_score.sample_size >= MIN_METACRITIC_USER_REVIEWS)
+        game.metacritic_user_score is not None
+        and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
     )
-
-    disparity_steam = None
-    disparity_metacritic = None
-
-    if avg_critic and steam_valid:
-        disparity_steam = Decimal(str(round(float(avg_critic) - float(steam_score.score), 2)))
-    if avg_critic and metacritic_valid:
-        disparity_metacritic = Decimal(str(round(float(avg_critic) - float(metacritic_score.score), 2)))
 
     return GameDetail(
         id=game.id,
@@ -314,15 +173,15 @@ async def get_game(
         image_url=game.image_url,
         opencritic_id=game.opencritic_id,
         steam_app_id=game.steam_app_id,
-        critic_review_count=critic_row.critic_review_count or 0,
+        critic_review_count=game.critic_review_count or 0,
         opencritic_score=game.top_critic_score,
-        steam_user_score=steam_score.score if steam_valid else None,
-        steam_sample_size=steam_score.sample_size if steam_valid else None,
-        metacritic_user_score=metacritic_score.score if metacritic_valid else None,
-        metacritic_sample_size=metacritic_score.sample_size if metacritic_valid else None,
-        avg_critic_score=Decimal(str(round(avg_critic, 2))) if avg_critic else None,
-        disparity_steam=disparity_steam,
-        disparity_metacritic=disparity_metacritic,
+        steam_user_score=game.steam_user_score if steam_valid else None,
+        steam_sample_size=game.steam_sample_size if steam_valid else None,
+        metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
+        metacritic_sample_size=game.metacritic_sample_size if metacritic_valid else None,
+        avg_critic_score=game.avg_critic_score,
+        disparity_steam=game.disparity_steam if steam_valid else None,
+        disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
         tier=game.tier,
         percent_recommended=game.percent_recommended,
         created_at=game.created_at,
