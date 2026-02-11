@@ -67,6 +67,14 @@ class Outlet(Base):
     opencritic_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, index=True)
     website_url: Mapped[Optional[str]] = mapped_column(String(512))
     logo_url: Mapped[Optional[str]] = mapped_column(String(512))
+    
+    # Denormalized stats for fast leaderboard queries
+    avg_disparity: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    review_count_scored: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    journalist_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    score_std_dev: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    last_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -97,6 +105,14 @@ class Journalist(Base):
     opencritic_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, index=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     bio: Mapped[Optional[str]] = mapped_column(Text)
+    
+    # Denormalized stats for fast leaderboard queries
+    avg_disparity: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    review_count_scored: Mapped[Optional[int]] = mapped_column(Integer, default=0)
+    score_std_dev: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    last_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    primary_outlet: Mapped[Optional[str]] = mapped_column(String(255))
+    
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
