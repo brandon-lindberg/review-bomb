@@ -243,6 +243,8 @@ async def cmd_metacritic(args):
                             # Update denormalized columns on Game
                             game.metacritic_user_score = score_data["user_score"]
                             game.metacritic_sample_size = score_data["user_sample_size"]
+                            if score_data["user_sample_size"] is not None:
+                                print(f"  Sample Size: {score_data['user_sample_size']}")
                         else:
                             # User score is N/A - delete any existing invalid scores for this game
                             delete_result = await db.execute(
