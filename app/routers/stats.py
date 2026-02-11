@@ -120,48 +120,81 @@ async def get_stats(
     review_result = await db.execute(review_count_query)
     total_reviews = review_result.scalar() or 0
 
-    # Calculate site-wide average disparity dynamically
-    # Get all scored reviews with user scores
-    all_reviews_query = (
-        select(Review, Game)
-        .join(Game, Review.game_id == Game.id)
+    # Calculate site-wide average disparity using SQL (optimized)
+    # This avoids loading 137k+ reviews into memory
+    
+    # Subquery to get latest Steam scores per game
+    latest_steam = (
+        select(
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
+        )
+        .where(UserScore.source == UserScoreSource.STEAM)
+        .subquery()
+    )
+    steam_scores = (
+        select(latest_steam.c.game_id, latest_steam.c.score.label('steam_score'))
+        .where(latest_steam.c.rn == 1)
+        .subquery()
+    )
+    
+    # Subquery to get latest Metacritic scores per game
+    latest_metacritic = (
+        select(
+            UserScore.game_id,
+            UserScore.score,
+            func.row_number().over(
+                partition_by=UserScore.game_id,
+                order_by=desc(UserScore.scraped_at)
+            ).label('rn')
+        )
+        .where(UserScore.source == UserScoreSource.METACRITIC)
+        .subquery()
+    )
+    metacritic_scores = (
+        select(latest_metacritic.c.game_id, latest_metacritic.c.score.label('metacritic_score'))
+        .where(latest_metacritic.c.rn == 1)
+        .subquery()
+    )
+    
+    # Calculate average disparity for Steam
+    steam_disparity_query = (
+        select(func.avg(Review.score_normalized - steam_scores.c.steam_score))
+        .select_from(Review)
+        .join(steam_scores, Review.game_id == steam_scores.c.game_id)
         .where(
             Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            Review.score_normalized > 0,
         )
     )
-    all_reviews_result = await db.execute(all_reviews_query)
-    all_reviews = all_reviews_result.all()
-
-    # Get user scores for all games
-    game_ids = list(set(row[1].id for row in all_reviews)) if all_reviews else []
-    user_score_lookup: dict = {}
-    if game_ids:
-        user_scores_query = (
-            select(UserScore)
-            .where(UserScore.game_id.in_(game_ids))
-            .order_by(desc(UserScore.scraped_at))
+    steam_result = await db.execute(steam_disparity_query)
+    steam_avg = steam_result.scalar()
+    
+    # Calculate average disparity for Metacritic
+    metacritic_disparity_query = (
+        select(func.avg(Review.score_normalized - metacritic_scores.c.metacritic_score))
+        .select_from(Review)
+        .join(metacritic_scores, Review.game_id == metacritic_scores.c.game_id)
+        .where(
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
         )
-        user_scores_result = await db.execute(user_scores_query)
-        user_scores = user_scores_result.scalars().all()
-        for us in user_scores:
-            key = (us.game_id, us.source.value)
-            if key not in user_score_lookup:
-                user_score_lookup[key] = us.score
-
-    # Calculate average disparity
-    all_disparities = []
-    for review, game in all_reviews:
-        steam_score = user_score_lookup.get((game.id, "steam"))
-        metacritic_score = user_score_lookup.get((game.id, "metacritic"))
-        if steam_score is not None:
-            all_disparities.append(float(review.score_normalized - steam_score))
-        if metacritic_score is not None:
-            all_disparities.append(float(review.score_normalized - metacritic_score))
-
+    )
+    metacritic_result = await db.execute(metacritic_disparity_query)
+    metacritic_avg = metacritic_result.scalar()
+    
+    # Combine the averages (simple average of both sources)
     avg_disparity = None
-    if all_disparities:
-        avg_disparity = Decimal(str(round(sum(all_disparities) / len(all_disparities), 2)))
+    if steam_avg is not None and metacritic_avg is not None:
+        avg_disparity = Decimal(str(round((float(steam_avg) + float(metacritic_avg)) / 2, 2)))
+    elif steam_avg is not None:
+        avg_disparity = Decimal(str(round(float(steam_avg), 2)))
+    elif metacritic_avg is not None:
+        avg_disparity = Decimal(str(round(float(metacritic_avg), 2)))
 
     return SiteStats(
         total_journalists=total_journalists,
