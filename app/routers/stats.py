@@ -5,13 +5,13 @@ from datetime import datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import Journalist, Outlet, Game, Review, UserScore, UserScoreSource
+from app.models.models import Journalist, Outlet, Game, Review, UserScore
 from app.schemas.schemas import SiteStats, ReviewWithJournalist
-from app.cache import get_cached, set_cached, CACHE_TTL_MEDIUM
+from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 
 router = APIRouter()
 
@@ -24,187 +24,46 @@ MIN_METACRITIC_USER_REVIEWS = 20
 async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get site-wide statistics (cached for 5 minutes)."""
-    # Check cache first
-    cache_key = "stats:site"
-    cached = await get_cached(cache_key)
-    if cached:
-        data = json.loads(cached)
-        return SiteStats(**data)
-    # Subquery for journalists with scored reviews
-    journalist_with_reviews_subq = (
-        select(Review.journalist_id)
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .distinct()
-        .subquery()
-    )
-
-    # Count journalists (only those with scored reviews)
-    journalist_count_query = (
-        select(func.count())
-        .select_from(journalist_with_reviews_subq)
-    )
-    journalist_result = await db.execute(journalist_count_query)
-    total_journalists = journalist_result.scalar() or 0
-
-    # Subquery for outlets with scored reviews
-    outlet_with_reviews_subq = (
-        select(Review.outlet_id)
-        .where(
-            Review.outlet_id.isnot(None),
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .distinct()
-        .subquery()
-    )
-
-    # Count outlets (only those with scored reviews)
-    outlet_count_query = (
-        select(func.count())
-        .select_from(outlet_with_reviews_subq)
-    )
-    outlet_result = await db.execute(outlet_count_query)
-    total_outlets = outlet_result.scalar() or 0
-
-    # Subquery for games with critic reviews
-    games_with_reviews_subq = (
-        select(Review.game_id)
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-        .distinct()
-        .subquery()
-    )
-
-    # Subquery for games with Steam user scores (50+ reviews)
-    steam_subq = (
-        select(UserScore.game_id, UserScore.sample_size)
-        .where(UserScore.source == "STEAM")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
-    # Subquery for games with Metacritic user scores (50+ reviews)
-    metacritic_subq = (
-        select(UserScore.game_id, UserScore.sample_size)
-        .where(UserScore.source == "METACRITIC")
-        .distinct(UserScore.game_id)
-        .order_by(UserScore.game_id, desc(UserScore.scraped_at))
-        .subquery()
-    )
-
-    # Count games (only those with critic reviews AND at least one user score with 50+ reviews)
-    game_count_query = (
-        select(func.count(Game.id.distinct()))
-        .select_from(Game)
-        .join(games_with_reviews_subq, Game.id == games_with_reviews_subq.c.game_id)
-        .outerjoin(steam_subq, Game.id == steam_subq.c.game_id)
-        .outerjoin(metacritic_subq, Game.id == metacritic_subq.c.game_id)
-        .where(
-            or_(
-                steam_subq.c.sample_size >= MIN_STEAM_USER_REVIEWS,
-                metacritic_subq.c.sample_size >= MIN_METACRITIC_USER_REVIEWS,
-            )
-        )
-    )
-    game_result = await db.execute(game_count_query)
-    total_games = game_result.scalar() or 0
-
-    # Count reviews (only scored reviews)
-    review_count_query = (
-        select(func.count())
-        .select_from(Review)
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-        )
-    )
-    review_result = await db.execute(review_count_query)
-    total_reviews = review_result.scalar() or 0
-
-    # Calculate site-wide average disparity using SQL (optimized)
-    # This avoids loading 137k+ reviews into memory
+    """Get site-wide statistics (instant using denormalized columns)."""
+    # All queries are simple COUNTs - very fast!
     
-    # Subquery to get latest Steam scores per game
-    latest_steam = (
-        select(
-            UserScore.game_id,
-            UserScore.score,
-            func.row_number().over(
-                partition_by=UserScore.game_id,
-                order_by=desc(UserScore.scraped_at)
-            ).label('rn')
-        )
-        .where(UserScore.source == UserScoreSource.STEAM)
-        .subquery()
+    # Count journalists with disparity data (uses index)
+    journalist_count = await db.execute(
+        select(func.count()).select_from(Journalist).where(Journalist.avg_disparity.isnot(None))
     )
-    steam_scores = (
-        select(latest_steam.c.game_id, latest_steam.c.score.label('steam_score'))
-        .where(latest_steam.c.rn == 1)
-        .subquery()
+    total_journalists = journalist_count.scalar() or 0
+
+    # Count outlets with disparity data (uses index)
+    outlet_count = await db.execute(
+        select(func.count()).select_from(Outlet).where(Outlet.avg_disparity.isnot(None))
     )
-    
-    # Subquery to get latest Metacritic scores per game
-    latest_metacritic = (
-        select(
-            UserScore.game_id,
-            UserScore.score,
-            func.row_number().over(
-                partition_by=UserScore.game_id,
-                order_by=desc(UserScore.scraped_at)
-            ).label('rn')
-        )
-        .where(UserScore.source == UserScoreSource.METACRITIC)
-        .subquery()
+    total_outlets = outlet_count.scalar() or 0
+
+    # Count games with reviews (simple count)
+    game_count = await db.execute(
+        select(func.count()).select_from(Game).where(Game.avg_critic_score.isnot(None))
     )
-    metacritic_scores = (
-        select(latest_metacritic.c.game_id, latest_metacritic.c.score.label('metacritic_score'))
-        .where(latest_metacritic.c.rn == 1)
-        .subquery()
-    )
-    
-    # Calculate average disparity for Steam
-    steam_disparity_query = (
-        select(func.avg(Review.score_normalized - steam_scores.c.steam_score))
-        .select_from(Review)
-        .join(steam_scores, Review.game_id == steam_scores.c.game_id)
-        .where(
+    total_games = game_count.scalar() or 0
+
+    # Count scored reviews (simple count)
+    review_count = await db.execute(
+        select(func.count()).select_from(Review).where(
             Review.score_normalized.isnot(None),
             Review.score_normalized > 0,
         )
     )
-    steam_result = await db.execute(steam_disparity_query)
-    steam_avg = steam_result.scalar()
-    
-    # Calculate average disparity for Metacritic
-    metacritic_disparity_query = (
-        select(func.avg(Review.score_normalized - metacritic_scores.c.metacritic_score))
-        .select_from(Review)
-        .join(metacritic_scores, Review.game_id == metacritic_scores.c.game_id)
-        .where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
-        )
-    )
-    metacritic_result = await db.execute(metacritic_disparity_query)
-    metacritic_avg = metacritic_result.scalar()
-    
-    # Combine the averages (simple average of both sources)
-    avg_disparity = None
-    if steam_avg is not None and metacritic_avg is not None:
-        avg_disparity = Decimal(str(round((float(steam_avg) + float(metacritic_avg)) / 2, 2)))
-    elif steam_avg is not None:
-        avg_disparity = Decimal(str(round(float(steam_avg), 2)))
-    elif metacritic_avg is not None:
-        avg_disparity = Decimal(str(round(float(metacritic_avg), 2)))
+    total_reviews = review_count.scalar() or 0
 
-    result = SiteStats(
+    # Calculate site-wide avg disparity from pre-computed journalist averages
+    avg_disparity_result = await db.execute(
+        select(func.avg(Journalist.avg_disparity))
+        .where(Journalist.avg_disparity.isnot(None))
+    )
+    avg_disparity = avg_disparity_result.scalar()
+    if avg_disparity is not None:
+        avg_disparity = Decimal(str(round(float(avg_disparity), 2)))
+
+    return SiteStats(
         total_journalists=total_journalists,
         total_outlets=total_outlets,
         total_games=total_games,
@@ -212,11 +71,6 @@ async def get_stats(
         avg_disparity_site=avg_disparity,
         last_updated=datetime.utcnow(),
     )
-    
-    # Cache the result
-    await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_MEDIUM)
-    
-    return result
 
 
 @router.get("/recent-reviews", response_model=list[ReviewWithJournalist])
@@ -224,13 +78,18 @@ async def get_recent_reviews(
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
 ):
-    """Get most recent reviews site-wide (excludes future dates)."""
-    from decimal import Decimal
+    """Get most recent reviews site-wide (cached for 60 seconds)."""
+    # Check cache first
+    cache_key = f"recent-reviews:{limit}"
+    cached = await get_cached(cache_key)
+    if cached:
+        data = json.loads(cached)
+        return [ReviewWithJournalist(**item) for item in data]
 
     today = datetime.utcnow()
 
-    # Get recent reviews with journalist, game, and outlet info
-    # Exclude reviews with future dates (bad data from OpenCritic)
+    # Get recent reviews with journalist, game, outlet, and user scores in ONE query
+    # Use Game's pre-computed scores
     query = (
         select(Review, Journalist, Game, Outlet)
         .join(Journalist, Review.journalist_id == Journalist.id)
@@ -240,7 +99,7 @@ async def get_recent_reviews(
             Review.score_normalized.isnot(None),
             Review.score_normalized > 0,
             Review.published_at.isnot(None),
-            Review.published_at <= today,  # Exclude future dates
+            Review.published_at <= today,
         )
         .order_by(desc(Review.published_at))
         .limit(limit)
@@ -251,33 +110,11 @@ async def get_recent_reviews(
     if not rows:
         return []
 
-    # Get user scores for these games
-    game_ids = list(set(row[2].id for row in rows))
-    user_score_lookup: dict = {}
-    if game_ids:
-        user_scores_query = (
-            select(UserScore)
-            .where(UserScore.game_id.in_(game_ids))
-            .order_by(desc(UserScore.scraped_at))
-        )
-        user_scores_result = await db.execute(user_scores_query)
-        user_scores = user_scores_result.scalars().all()
-        for us in user_scores:
-            key = (us.game_id, us.source.value.lower())
-            if key not in user_score_lookup:
-                user_score_lookup[key] = {"score": us.score, "sample_size": us.sample_size}
-
     items = []
     for review, journalist, game, outlet in rows:
-        steam_data = user_score_lookup.get((game.id, "steam"))
-        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-        # Only use scores if they meet minimum sample size
-        # For Metacritic, if sample_size is None but we have a score, it means 20+ reviews (Metacritic only shows scores then)
-        steam_user_score = steam_data["score"] if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS else None
-        metacritic_user_score = metacritic_data["score"] if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ) else None
+        # Use Game's pre-computed user scores
+        steam_user_score = game.steam_user_score
+        metacritic_user_score = game.metacritic_user_score
 
         disparity_steam = None
         disparity_metacritic = None
@@ -324,6 +161,9 @@ async def get_recent_reviews(
                 review_timing=review_timing,
             )
         )
+
+    # Cache the result for 60 seconds
+    await set_cached(cache_key, json.dumps([item.model_dump(mode='json') for item in items]), CACHE_TTL_SHORT)
 
     return items
 

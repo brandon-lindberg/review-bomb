@@ -1,5 +1,6 @@
 """Games API endpoints."""
 
+import json
 from typing import Optional
 from decimal import Decimal
 from datetime import date
@@ -17,6 +18,7 @@ from app.schemas.schemas import (
     ReviewWithJournalist,
     PaginatedResponse,
 )
+from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 
 router = APIRouter()
 
@@ -35,7 +37,14 @@ async def list_games(
     sort_order: str = Query("desc", regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all games with pagination, filtering, and search."""
+    """List all games with pagination, filtering, and search (cached for 60s)."""
+    # Check cache for common queries (no search/year filter)
+    if not search and not year:
+        cache_key = f"games:{page}:{per_page}:{sort_by}:{sort_order}"
+        cached = await get_cached(cache_key)
+        if cached:
+            data = json.loads(cached)
+            return PaginatedResponse[GameWithScores](**data)
     # Subquery for review count and avg critic score (only reviews with actual scores)
     review_stats_subq = (
         select(
@@ -212,13 +221,20 @@ async def list_games(
             )
         )
 
-    return PaginatedResponse(
+    result = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+    
+    # Cache the result (only for non-filtered queries)
+    if not search and not year:
+        cache_key = f"games:{page}:{per_page}:{sort_by}:{sort_order}"
+        await set_cached(cache_key, result.model_dump_json(), CACHE_TTL_SHORT)
+    
+    return result
 
 
 @router.get("/{game_id}", response_model=GameDetail)
