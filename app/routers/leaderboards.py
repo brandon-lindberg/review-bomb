@@ -24,7 +24,7 @@ MIN_SCORE_STD_DEV = 10  # Minimum score standard deviation (filters out binary/e
 
 @router.get("/journalists", response_model=PaginatedResponse[JournalistRanking])
 async def journalist_leaderboard(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
@@ -93,7 +93,7 @@ async def journalist_leaderboard(
 
 @router.get("/outlets", response_model=PaginatedResponse[OutletRanking])
 async def outlet_leaderboard(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),
@@ -168,7 +168,7 @@ MIN_CRITIC_REVIEWS_FOR_GAME = 10  # Minimum journalist reviews
 
 @router.get("/games", response_model=PaginatedResponse[GameRanking])
 async def game_leaderboard(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     sort: str = Query("recent", regex="^(highest|lowest|recent)$"),
     db: AsyncSession = Depends(get_db),

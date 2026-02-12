@@ -29,7 +29,7 @@ MIN_METACRITIC_USER_REVIEWS = 20
 
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     year: Optional[int] = Query(None, ge=2015),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
@@ -225,7 +225,7 @@ def calculate_review_timing(review_date, game_release_date) -> str:
 async def get_game_reviews(
     request: Request,
     game_id: int,
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     review_timing: Optional[str] = Query(None, regex="^(early|launch_window|late)$"),
     sort_order: Optional[str] = Query(None, regex="^(asc|desc)$"),

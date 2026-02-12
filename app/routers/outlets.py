@@ -57,7 +57,7 @@ def calculate_review_timing(review_date, game_release_date) -> str:
 
 @router.get("", response_model=PaginatedResponse[OutletWithStats])
 async def list_outlets(
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
     sort_by: str = Query("latest_review", regex="^(disparity|name|review_count|latest_review)$"),
@@ -185,7 +185,7 @@ async def get_outlet(
 @router.get("/{outlet_id}/journalists", response_model=PaginatedResponse[JournalistSummary])
 async def get_outlet_journalists(
     outlet_id: int,
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
@@ -263,7 +263,7 @@ async def get_outlet_journalists(
 async def get_outlet_reviews(
     request: Request,
     outlet_id: int,
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
