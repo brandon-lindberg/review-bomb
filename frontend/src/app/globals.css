@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   /* Brand Colors */
   --color-rust: #BB3B0E;
@@ -20,11 +22,11 @@
   --color-disparity-neutral: #D8C593;
 
   /* UI Colors */
-  --background: #FDFBF7;
-  --background-card: #ffffff;
+  --background: #F5F2EC;
+  --background-card: #EEEBE5;
   --foreground: #2D2A26;
-  --foreground-muted: #5C574F;
-  --border: #E8E4DC;
+  --foreground-muted: #6B665D;
+  --border: #DDD8CE;
 }
 
 @theme inline {
@@ -163,6 +165,10 @@ html.dark .hover\:text-blue-600:hover {
 
 html.dark .hover\:text-blue-800:hover {
   color: #6B9FFF !important;
+}
+
+.bg-white {
+  background-color: var(--background-card) !important;
 }
 
 body {
