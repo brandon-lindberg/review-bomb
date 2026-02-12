@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getOutlet, getOutletReviews, getOutletAllReviews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
+import { getDisparityColor, formatDisparity } from "@/lib/disparity-colors";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
 import { JsonLd } from "@/components/JsonLd";
 
@@ -328,18 +329,18 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
                       {/* Steam Disparity */}
                       <div className="text-center px-3 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
                         <div className="text-xs" style={{ color: "#708160" }}>Steam</div>
-                        <div className="text-lg font-bold" style={{ color: "#708160" }}>
-                          {review.disparity_steam != null 
-                            ? `${Number(review.disparity_steam) > 0 ? "+" : ""}${Number(review.disparity_steam).toFixed(0)}`
+                        <div className="text-lg font-bold" style={{ color: getDisparityColor(review.disparity_steam != null ? Number(review.disparity_steam) : null) }}>
+                          {review.disparity_steam != null
+                            ? formatDisparity(Number(review.disparity_steam))
                             : "N/A"}
                         </div>
                       </div>
                       {/* Metacritic Disparity */}
                       <div className="text-center px-3 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
                         <div className="text-xs" style={{ color: "#DD7631" }}>MC</div>
-                        <div className="text-lg font-bold" style={{ color: "#DD7631" }}>
-                          {review.disparity_metacritic != null 
-                            ? `${Number(review.disparity_metacritic) > 0 ? "+" : ""}${Number(review.disparity_metacritic).toFixed(0)}`
+                        <div className="text-lg font-bold" style={{ color: getDisparityColor(review.disparity_metacritic != null ? Number(review.disparity_metacritic) : null) }}>
+                          {review.disparity_metacritic != null
+                            ? formatDisparity(Number(review.disparity_metacritic))
                             : "N/A"}
                         </div>
                       </div>

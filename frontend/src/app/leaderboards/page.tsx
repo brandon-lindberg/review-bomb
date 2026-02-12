@@ -6,6 +6,7 @@ import {
   getGameLeaderboard,
 } from "@/lib/api";
 import { DisparityScores } from "@/components/DisparityScores";
+import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
 
 export const dynamic = "force-dynamic";
@@ -230,19 +231,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                             showLabels={false}
                           />
                         ) : (
-                          <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold ${
-                              combinedDisparity !== null && Number(combinedDisparity) > 0
-                                ? "bg-red-100 text-red-800"
-                                : combinedDisparity !== null && Number(combinedDisparity) < 0
-                                ? "bg-blue-100 text-blue-800"
-                                : "bg-gray-100 text-gray-800"
-                            }`}
-                          >
-                            {combinedDisparity !== null
-                              ? `${Number(combinedDisparity) > 0 ? "+" : ""}${Number(combinedDisparity).toFixed(1)}`
-                              : "N/A"}
-                          </span>
+                          <DisparityBadge disparity={combinedDisparity != null ? Number(combinedDisparity) : null} />
                         )}
                       </td>
                     </tr>

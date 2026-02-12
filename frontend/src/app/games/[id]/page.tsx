@@ -6,6 +6,8 @@ import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
 import { GameDetailTabs } from "@/components/GameDetailTabs";
+import { JournalistAlignmentSection } from "@/components/JournalistAlignmentSection";
+import type { AlignmentJournalist } from "@/components/JournalistAlignmentSection";
 import { JsonLd } from "@/components/JsonLd";
 import type { ReviewWithJournalist } from "@/types";
 
@@ -309,15 +311,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           journalistAlignment={(() => {
             if (!allReviews || allReviews.length === 0) return null;
 
-            // Build journalist alignment data from all reviews
-            const journalistMap = new Map<number, {
-              id: number;
-              name: string;
-              imageUrl: string | null;
-              outletName: string | null;
-              score: number;
-              combinedDisparity: number | null;
-            }>();
+            const journalistMap = new Map<number, AlignmentJournalist>();
 
             for (const review of allReviews as ReviewWithJournalist[]) {
               if (review.score_normalized == null) continue;
@@ -338,98 +332,18 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
                 imageUrl: review.journalist_image_url,
                 outletName: review.outlet_name,
                 score: Number(review.score_normalized),
-                combinedDisparity: combined,
+                disparitySteam: steam,
+                disparityMetacritic: mc,
+                disparityCombined: combined,
               });
             }
 
             const journalists = Array.from(journalistMap.values())
-              .filter(j => j.combinedDisparity !== null);
+              .filter(j => j.disparityCombined !== null || j.disparitySteam !== null || j.disparityMetacritic !== null);
 
             if (journalists.length < 2) return null;
 
-            // FIX: Only show journalists with actual positive/negative disparity in each column
-            const topGenerous = journalists
-              .filter(j => (j.combinedDisparity ?? 0) > 0)
-              .sort((a, b) => (b.combinedDisparity ?? 0) - (a.combinedDisparity ?? 0))
-              .slice(0, 5);
-
-            const topCritical = journalists
-              .filter(j => (j.combinedDisparity ?? 0) < 0)
-              .sort((a, b) => (a.combinedDisparity ?? 0) - (b.combinedDisparity ?? 0))
-              .slice(0, 5);
-
-            if (topGenerous.length === 0 && topCritical.length === 0) return null;
-
-            const renderJournalist = (j: typeof journalists[0], i: number) => (
-              <Link
-                key={j.id}
-                href={`/journalists/${j.id}`}
-                className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-sm text-gray-400 w-5 text-right flex-shrink-0">{i + 1}</span>
-                  {j.imageUrl ? (
-                    <img src={j.imageUrl} alt={j.name} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                      <span className="text-gray-500 text-xs">{j.name.charAt(0)}</span>
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{j.name}</p>
-                    {j.outletName && (
-                      <p className="text-xs text-gray-500 truncate">{j.outletName}</p>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 flex-shrink-0 ml-2">
-                  <span className="text-sm text-gray-500">
-                    Score: {j.score.toFixed(0)}
-                  </span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${
-                    (j.combinedDisparity ?? 0) > 0 ? "bg-red-100 text-red-800" : "bg-blue-100 text-blue-800"
-                  }`}>
-                    {(j.combinedDisparity ?? 0) > 0 ? "+" : ""}{(j.combinedDisparity ?? 0).toFixed(1)}
-                  </span>
-                </div>
-              </Link>
-            );
-
-            return (
-              <div>
-                <p className="text-sm text-gray-500 mb-4">
-                  How individual critics scored this game compared to user consensus
-                </p>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                      Scored Higher Than Users
-                    </h3>
-                    <div className="space-y-2">
-                      {topGenerous.length > 0 ? (
-                        topGenerous.map(renderJournalist)
-                      ) : (
-                        <p className="text-sm text-gray-400 py-3">No critics scored higher than users</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                      Scored Lower Than Users
-                    </h3>
-                    <div className="space-y-2">
-                      {topCritical.length > 0 ? (
-                        topCritical.map(renderJournalist)
-                      ) : (
-                        <p className="text-sm text-gray-400 py-3">No critics scored lower than users</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
+            return <JournalistAlignmentSection journalists={journalists} />;
           })()}
         />
       )}
