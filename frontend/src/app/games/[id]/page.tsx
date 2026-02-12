@@ -1,16 +1,10 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getGame, getGameAllReviews } from "@/lib/api";
+import { getGame } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
-import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
-import { GameDetailTabs } from "@/components/GameDetailTabs";
-import { JournalistAlignmentSection } from "@/components/JournalistAlignmentSection";
-import type { AlignmentJournalist } from "@/components/JournalistAlignmentSection";
+import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
-import { CriticReviewsSection } from "@/components/CriticReviewsSection";
-import type { ReviewWithJournalist } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -58,13 +52,9 @@ export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
 
   let game = null;
-  let allReviews = null;
 
   try {
-    [game, allReviews] = await Promise.all([
-      getGame(parseInt(id)),
-      getGameAllReviews(parseInt(id)).catch(() => []),
-    ]);
+    game = await getGame(parseInt(id));
   } catch (error) {
     console.error("Error fetching game:", error);
     notFound();
@@ -167,70 +157,8 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Disparity Chart */}
-      {allReviews && allReviews.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Review Disparities
-          </h2>
-          <ReviewDisparityChart
-            reviews={allReviews}
-            context="game"
-            gameTitle={game.title}
-            height={300}
-          />
-          <p className="mt-4 text-sm text-gray-500 text-center">
-            Each point represents a critic review. Hover for details.
-            Positive = critic higher than users. Negative = critic lower.
-          </p>
-        </section>
-      )}
-
-      {/* Tabbed Section: Critic Reviews + Journalist Alignment */}
-      {allReviews && allReviews.length > 0 && (
-        <GameDetailTabs
-          criticReviews={
-            <CriticReviewsSection reviews={allReviews as ReviewWithJournalist[]} />
-          }
-          journalistAlignment={(() => {
-            if (!allReviews || allReviews.length === 0) return null;
-
-            const journalistMap = new Map<number, AlignmentJournalist>();
-
-            for (const review of allReviews as ReviewWithJournalist[]) {
-              if (review.score_normalized == null) continue;
-              if (journalistMap.has(review.journalist_id)) continue;
-
-              const steam = review.disparity_steam != null ? Number(review.disparity_steam) : null;
-              const mc = review.disparity_metacritic != null ? Number(review.disparity_metacritic) : null;
-              let combined: number | null = null;
-              if (steam != null && mc != null) {
-                combined = (steam + mc) / 2;
-              } else {
-                combined = steam ?? mc ?? null;
-              }
-
-              journalistMap.set(review.journalist_id, {
-                id: review.journalist_id,
-                name: review.journalist_name,
-                imageUrl: review.journalist_image_url,
-                outletName: review.outlet_name,
-                score: Number(review.score_normalized),
-                disparitySteam: steam,
-                disparityMetacritic: mc,
-                disparityCombined: combined,
-              });
-            }
-
-            const journalists = Array.from(journalistMap.values())
-              .filter(j => j.disparityCombined !== null || j.disparitySteam !== null || j.disparityMetacritic !== null);
-
-            if (journalists.length < 2) return null;
-
-            return <JournalistAlignmentSection journalists={journalists} />;
-          })()}
-        />
-      )}
+      {/* Disparity Chart + Critic Reviews + Journalist Alignment - lazy loaded on scroll */}
+      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} />
     </div>
   );
 }

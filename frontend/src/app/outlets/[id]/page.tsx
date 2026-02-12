@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOutlet, getOutletReviews, getOutletAllReviews } from "@/lib/api";
+import { getOutlet, getOutletReviews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { getDisparityColor, formatDisparity } from "@/lib/disparity-colors";
-import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
+import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
@@ -52,13 +52,11 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
 
   let outlet = null;
   let reviews = null;
-  let allReviews = null;
 
   try {
-    [outlet, reviews, allReviews] = await Promise.all([
+    [outlet, reviews] = await Promise.all([
       getOutlet(parseInt(id)),
       getOutletReviews(parseInt(id), page, 20),
-      getOutletAllReviews(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
     console.error("Error fetching outlet:", error);
@@ -231,19 +229,8 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
         </section>
       )}
 
-      {/* Disparity Trend Chart */}
-      {allReviews && allReviews.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Disparity Over Time
-          </h2>
-          <ReviewDisparityChart reviews={allReviews} context="outlet" height={300} />
-          <p className="mt-4 text-sm text-gray-500 text-center">
-            Each point represents a review. Hover for details.
-            Positive = critic higher than users. Negative = critic lower.
-          </p>
-        </section>
-      )}
+      {/* Disparity Trend Chart - lazy loaded on scroll */}
+      <LazyChartSection entityType="outlet" entityId={parseInt(id)} />
 
       {/* Reviews */}
       {reviews && reviews.items.length > 0 && (

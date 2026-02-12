@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJournalist, getJournalistReviews, getJournalistAllReviews } from "@/lib/api";
+import { getJournalist, getJournalistReviews } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { ReviewScoreCards } from "@/components/ReviewScoreTable";
-import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
+import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
@@ -55,13 +55,11 @@ export default async function JournalistDetailPage({
 
   let journalist = null;
   let reviews = null;
-  let allReviews = null;
 
   try {
-    [journalist, reviews, allReviews] = await Promise.all([
+    [journalist, reviews] = await Promise.all([
       getJournalist(parseInt(id)),
       getJournalistReviews(parseInt(id), page, 20),
-      getJournalistAllReviews(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
     console.error("Error fetching journalist:", error);
@@ -313,19 +311,8 @@ export default async function JournalistDetailPage({
           )}
       </div>
 
-      {/* Disparity Trend Chart */}
-      {allReviews && allReviews.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Disparity Over Time
-          </h2>
-          <ReviewDisparityChart reviews={allReviews} context="journalist" height={300} />
-          <p className="mt-4 text-sm text-gray-500 text-center">
-            Each point represents a review. Hover for details.
-            Positive = critic higher than users. Negative = critic lower.
-          </p>
-        </section>
-      )}
+      {/* Disparity Trend Chart - lazy loaded on scroll */}
+      <LazyChartSection entityType="journalist" entityId={parseInt(id)} />
 
       {/* Reviews */}
       {reviews && reviews.items.length > 0 && (
