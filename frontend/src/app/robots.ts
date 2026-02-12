@@ -35,6 +35,10 @@ export default function robots(): MetadataRoute.Robots {
         disallow: "/",
       },
       {
+        userAgent: "ClaudeBot",
+        disallow: "/",
+      },
+      {
         userAgent: "meta-externalagent",
         disallow: "/",
       },
