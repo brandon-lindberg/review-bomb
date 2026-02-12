@@ -355,6 +355,7 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
               {page > 1 && (
                 <Link
                   href={`/outlets/${id}?page=${page - 1}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -366,6 +367,7 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
               {page < reviews.total_pages && (
                 <Link
                   href={`/outlets/${id}?page=${page + 1}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

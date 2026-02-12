@@ -118,6 +118,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
               {page > 1 && (
                 <Link
                   href={`/outlets?page=${page - 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -129,6 +130,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
               {page < outlets.total_pages && (
                 <Link
                   href={`/outlets?page=${page + 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

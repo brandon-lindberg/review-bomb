@@ -122,6 +122,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               {page > 1 && (
                 <Link
                   href={`/games?page=${page - 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -133,6 +134,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               {page < games.total_pages && (
                 <Link
                   href={`/games?page=${page + 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

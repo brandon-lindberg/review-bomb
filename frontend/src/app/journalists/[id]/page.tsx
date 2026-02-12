@@ -418,6 +418,7 @@ export default async function JournalistDetailPage({
               {page > 1 && (
                 <Link
                   href={`/journalists/${id}?page=${page - 1}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -429,6 +430,7 @@ export default async function JournalistDetailPage({
               {page < reviews.total_pages && (
                 <Link
                   href={`/journalists/${id}?page=${page + 1}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

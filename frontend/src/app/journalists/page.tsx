@@ -117,6 +117,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
               {page > 1 && (
                 <Link
                   href={`/journalists?page=${page - 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -128,6 +129,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
               {page < journalists.total_pages && (
                 <Link
                   href={`/journalists?page=${page + 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next
