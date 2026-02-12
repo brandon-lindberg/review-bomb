@@ -206,6 +206,9 @@ async def cmd_metacritic(args):
                     print(f"Fetching Metacritic scores for: {game.title}...")
                     score_data = await service.get_scores(game.metacritic_slug)
 
+                    if not score_data:
+                        print(f"  No data returned from Metacritic")
+
                     if score_data:
                         updated_anything = False
 
