@@ -8,9 +8,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-BLOCKED_IPS: set[str] = {
-    "74.220.52.254",
-}
+BLOCKED_IPS: set[str] = set()
 
 
 class IPFilterMiddleware(BaseHTTPMiddleware):
