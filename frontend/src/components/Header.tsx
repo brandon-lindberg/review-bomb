@@ -29,8 +29,9 @@ export function Header() {
               <Image
                 src="/logo.png"
                 alt="ReviewDisparity Logo"
-                width={32}
-                height={32}
+                width={48}
+                height={48}
+                className="rounded-sm"
                 priority
               />
               <span className="text-xl font-bold" style={{ color: "var(--foreground)" }}>
