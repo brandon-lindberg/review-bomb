@@ -42,7 +42,7 @@ export function Header() {
 
           <div className="flex items-center gap-4">
             {/* Desktop Navigation */}
-            <nav className="hidden md:flex items-center space-x-8">
+            <nav className="hidden lg:flex items-center space-x-8">
               {navigation.map((item) => {
                 const isActive = pathname === item.href ||
                   (item.href !== "/" && pathname.startsWith(item.href));
@@ -63,14 +63,14 @@ export function Header() {
               })}
             </nav>
 
-            <div className="hidden md:block">
+            <div className="hidden lg:block">
               <ThemeToggle />
             </div>
 
             {/* Mobile menu button */}
             <button
               type="button"
-              className="md:hidden p-2 rounded-lg transition-colors"
+              className="lg:hidden p-2 rounded-lg transition-colors"
               style={{ color: "var(--foreground-muted)" }}
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               aria-label="Toggle menu"
@@ -116,7 +116,7 @@ export function Header() {
       {/* Mobile menu overlay */}
       {mobileMenuOpen && (
         <div
-          className="fixed inset-0 z-40 md:hidden"
+          className="fixed inset-0 z-40 lg:hidden"
           onClick={() => setMobileMenuOpen(false)}
         >
           <div
@@ -128,7 +128,7 @@ export function Header() {
 
       {/* Mobile menu panel */}
       <div
-        className={`fixed top-0 right-0 z-50 h-full w-64 shadow-xl transform transition-transform duration-300 ease-in-out md:hidden ${
+        className={`fixed top-0 right-0 z-50 h-full w-64 shadow-xl transform transition-transform duration-300 ease-in-out lg:hidden ${
           mobileMenuOpen ? "translate-x-0" : "translate-x-full"
         }`}
         style={{ backgroundColor: "var(--background)" }}
