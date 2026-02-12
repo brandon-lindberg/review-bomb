@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
@@ -24,7 +25,14 @@ export function Header() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex">
-            <Link href="/" className="flex items-center">
+            <Link href="/" className="flex items-center gap-2">
+              <Image
+                src="/logo.png"
+                alt="ReviewDisparity Logo"
+                width={32}
+                height={32}
+                priority
+              />
               <span className="text-xl font-bold" style={{ color: "var(--foreground)" }}>
                 Review<span style={{ color: "var(--color-rust)" }}>Disparity</span>
               </span>

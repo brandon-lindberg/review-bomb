@@ -292,7 +292,7 @@ export default function AboutPage() {
             <div>
               <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Minimum User Reviews</h3>
               <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                Games must have at least 50 user reviews on Steam or Metacritic to be included in
+                Games must have at least 50 user reviews on Steam or 20 user reviews on Metacritic to be included in
                 disparity calculations. This ensures we&apos;re comparing against a meaningful sample of
                 player opinions, not just a handful of potentially biased early reviewers.
               </p>
