@@ -4,9 +4,11 @@ from typing import Optional
 from datetime import timedelta
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, desc, asc, extract, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.models import Game, Review, Journalist, Outlet, UserScore
@@ -18,6 +20,7 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 # Anti-gaming: minimum user reviews required for a game to appear in lists (per source)
 MIN_STEAM_USER_REVIEWS = 50
@@ -218,7 +221,9 @@ def calculate_review_timing(review_date, game_release_date) -> str:
 
 
 @router.get("/{game_id}/reviews", response_model=PaginatedResponse[ReviewWithJournalist])
+@limiter.limit("30/minute")
 async def get_game_reviews(
+    request: Request,
     game_id: int,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),

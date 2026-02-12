@@ -7,18 +7,24 @@ import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Gaming Outlets",
-  description:
-    "Browse gaming publications and see how their review scores compare to player opinions. Track outlet-level critic-to-user disparity.",
-  alternates: { canonical: "/outlets" },
-  openGraph: {
-    title: "Gaming Outlets - ReviewDisparity",
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const { page: pageParam } = await searchParams;
+  const page = parseInt(pageParam || "1");
+
+  return {
+    title: "Gaming Outlets",
     description:
-      "Browse gaming publications and see how their review scores compare to player opinions.",
-    url: "/outlets",
-  },
-};
+      "Browse gaming publications and see how their review scores compare to player opinions. Track outlet-level critic-to-user disparity.",
+    alternates: { canonical: "/outlets" },
+    ...(page > 1 && { robots: { index: false, follow: true } }),
+    openGraph: {
+      title: "Gaming Outlets - ReviewDisparity",
+      description:
+        "Browse gaming publications and see how their review scores compare to player opinions.",
+      url: "/outlets",
+    },
+  };
+}
 
 interface PageProps {
   searchParams: Promise<{

@@ -15,8 +15,11 @@ interface PageProps {
   searchParams: Promise<{ page?: string }>;
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { id } = await params;
+  const { page: pageParam } = await searchParams;
+  const page = parseInt(pageParam || "1");
+
   try {
     const outlet = await getOutlet(parseInt(id));
     const disparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
@@ -31,6 +34,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: `${outlet.name} - Review Scores & Disparity`,
       description,
       alternates: { canonical: `/outlets/${id}` },
+      ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
         description,

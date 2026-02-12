@@ -234,6 +234,9 @@ class Review(Base):
         # The opencritic_review_id unique constraint prevents true duplicates.
         Index("idx_reviews_published_at", "published_at"),
         Index("idx_reviews_score_normalized", "score_normalized"),
+        Index("idx_reviews_outlet_published", "outlet_id", "published_at"),
+        Index("idx_reviews_journalist_published", "journalist_id", "published_at"),
+        Index("idx_reviews_game_published", "game_id", "published_at"),
     )
 
 

@@ -15,8 +15,11 @@ interface PageProps {
   searchParams: Promise<{ page?: string }>;
 }
 
-export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { id } = await params;
+  const { page: pageParam } = await searchParams;
+  const page = parseInt(pageParam || "1");
+
   try {
     const journalist = await getJournalist(parseInt(id));
     const disparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
@@ -31,6 +34,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       title: `${journalist.name} - Review Scores & Disparity`,
       description,
       alternates: { canonical: `/journalists/${id}` },
+      ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
         description,

@@ -4,9 +4,11 @@ from datetime import datetime
 from typing import Optional
 from decimal import Decimal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.models import Outlet, Review, Journalist, Game, DisparitySnapshot
@@ -21,6 +23,7 @@ from app.schemas.schemas import (
 )
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60
@@ -256,7 +259,9 @@ async def get_outlet_journalists(
 
 
 @router.get("/{outlet_id}/reviews", response_model=PaginatedResponse[ReviewWithJournalist])
+@limiter.limit("30/minute")
 async def get_outlet_reviews(
+    request: Request,
     outlet_id: int,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),

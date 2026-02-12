@@ -9,18 +9,24 @@ import { SearchInput } from "@/components/SearchInput";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Browse Games",
-  description:
-    "Browse video games and compare critic review scores vs player scores from Steam and Metacritic. Find the biggest review disparities.",
-  alternates: { canonical: "/games" },
-  openGraph: {
-    title: "Browse Games - ReviewDisparity",
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const { page: pageParam } = await searchParams;
+  const page = parseInt(pageParam || "1");
+
+  return {
+    title: "Browse Games",
     description:
-      "Browse video games and compare critic review scores vs player scores from Steam and Metacritic.",
-    url: "/games",
-  },
-};
+      "Browse video games and compare critic review scores vs player scores from Steam and Metacritic. Find the biggest review disparities.",
+    alternates: { canonical: "/games" },
+    ...(page > 1 && { robots: { index: false, follow: true } }),
+    openGraph: {
+      title: "Browse Games - ReviewDisparity",
+      description:
+        "Browse video games and compare critic review scores vs player scores from Steam and Metacritic.",
+      url: "/games",
+    },
+  };
+}
 
 interface PageProps {
   searchParams: Promise<{
