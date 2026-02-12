@@ -23,18 +23,18 @@ export function Header() {
   return (
     <header className="bg-white shadow-sm border-b" style={{ borderColor: "var(--border)" }}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
+        <div className="flex justify-between h-20">
           <div className="flex">
-            <Link href="/" className="flex items-center gap-2">
+            <Link href="/" className="flex items-center gap-3">
               <Image
                 src="/logo.png"
                 alt="ReviewDisparity Logo"
-                width={48}
-                height={48}
-                className="rounded-sm"
+                width={900}
+                height={715}
+                className="rounded-sm h-16 w-auto"
                 priority
               />
-              <span className="text-xl font-bold" style={{ color: "var(--foreground)" }}>
+              <span className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>
                 Review<span style={{ color: "var(--color-rust)" }}>Disparity</span>
               </span>
             </Link>
@@ -131,7 +131,7 @@ export function Header() {
         }`}
         style={{ backgroundColor: "var(--background)" }}
       >
-        <div className="flex items-center justify-between h-16 px-4 border-b" style={{ borderColor: "var(--border)" }}>
+        <div className="flex items-center justify-between h-20 px-4 border-b" style={{ borderColor: "var(--border)" }}>
           <span className="font-bold" style={{ color: "var(--foreground)" }}>Menu</span>
           <button
             type="button"

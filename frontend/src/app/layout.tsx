@@ -47,8 +47,8 @@ export const metadata: Metadata = {
     images: [
       {
         url: "/logo.png",
-        width: 512,
-        height: 512,
+        width: 900,
+        height: 715,
         alt: "ReviewDisparity Logo",
       },
     ],

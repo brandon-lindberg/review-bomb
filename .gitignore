@@ -6,6 +6,7 @@ __pycache__/
 
 # Database backups
 backups/
+*.dump
 .Python
 build/
 develop-eggs/
