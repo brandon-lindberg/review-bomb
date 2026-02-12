@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getGame, getGameReviews, getGameAllReviews } from "@/lib/api";
+import { getGame, getGameAllReviews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { ReviewDisparityChart } from "@/components/ReviewDisparityChart";
@@ -9,13 +9,14 @@ import { GameDetailTabs } from "@/components/GameDetailTabs";
 import { JournalistAlignmentSection } from "@/components/JournalistAlignmentSection";
 import type { AlignmentJournalist } from "@/components/JournalistAlignmentSection";
 import { JsonLd } from "@/components/JsonLd";
+import { CriticReviewsSection } from "@/components/CriticReviewsSection";
 import type { ReviewWithJournalist } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -53,19 +54,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   }
 }
 
-export default async function GameDetailPage({ params, searchParams }: PageProps) {
+export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
 
   let game = null;
-  let reviews = null;
   let allReviews = null;
 
   try {
-    [game, reviews, allReviews] = await Promise.all([
+    [game, allReviews] = await Promise.all([
       getGame(parseInt(id)),
-      getGameReviews(parseInt(id), page, 20),
       getGameAllReviews(parseInt(id)).catch(() => []),
     ]);
   } catch (error) {
@@ -190,123 +187,10 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       )}
 
       {/* Tabbed Section: Critic Reviews + Journalist Alignment */}
-      {reviews && reviews.items.length > 0 && (
+      {allReviews && allReviews.length > 0 && (
         <GameDetailTabs
           criticReviews={
-            <>
-              <div className="space-y-4">
-                {reviews.items.map((review) => (
-                  <div
-                    key={review.id}
-                    className="p-4 border border-gray-200 rounded-lg"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <Link
-                            href={`/journalists/${review.journalist_id}`}
-                            className="font-medium text-gray-900 hover:text-blue-600"
-                          >
-                            {review.journalist_name}
-                          </Link>
-                          {review.outlet_name && (
-                            <>
-                              <span className="text-gray-400">at</span>
-                              <Link
-                                href={`/outlets/${review.outlet_id}`}
-                                className="text-gray-600 hover:text-blue-600"
-                              >
-                                {review.outlet_name}
-                              </Link>
-                            </>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          {review.published_at && (
-                            <p className="text-sm text-gray-500">
-                              {new Date(review.published_at).toLocaleDateString()}
-                            </p>
-                          )}
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
-                              review.review_timing === "early"
-                                ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
-                                : review.review_timing === "launch_window"
-                                ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                                : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                            }`}
-                            title={review.game_release_date
-                              ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
-                                  review.review_timing === "early" ? " (before release)" :
-                                  review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
-                                }`
-                              : "Release date unknown"}
-                          >
-                            {review.review_timing === "early" ? "Early Review" :
-                             review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
-                          </span>
-                        </div>
-                        {review.snippet && (
-                          <p className="mt-2 text-gray-600 text-sm italic">
-                            &ldquo;{review.snippet}&rdquo;
-                          </p>
-                        )}
-                      </div>
-
-                      <div className="flex items-center gap-4 ml-4">
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-gray-900">
-                            {review.score_normalized != null
-                              ? Number(review.score_normalized).toFixed(0)
-                              : "—"}
-                          </p>
-                          {review.score_raw && review.score_scale && (
-                            <p className="text-xs text-gray-500">
-                              {review.score_raw}/{review.score_scale}
-                            </p>
-                          )}
-                        </div>
-                        {review.review_url && (
-                          <a
-                            href={review.review_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            Read
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Pagination */}
-              {reviews.total_pages > 1 && (
-                <div className="mt-6 flex justify-center gap-2">
-                  {page > 1 && (
-                    <Link
-                      href={`/games/${id}?page=${page - 1}`}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                    >
-                      Previous
-                    </Link>
-                  )}
-                  <span className="px-4 py-2 text-gray-600">
-                    Page {page} of {reviews.total_pages}
-                  </span>
-                  {page < reviews.total_pages && (
-                    <Link
-                      href={`/games/${id}?page=${page + 1}`}
-                      className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                    >
-                      Next
-                    </Link>
-                  )}
-                </div>
-              )}
-            </>
+            <CriticReviewsSection reviews={allReviews as ReviewWithJournalist[]} />
           }
           journalistAlignment={(() => {
             if (!allReviews || allReviews.length === 0) return null;

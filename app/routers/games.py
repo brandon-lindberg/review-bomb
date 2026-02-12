@@ -1,6 +1,7 @@
 """Games API endpoints."""
 
 from typing import Optional
+from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -221,6 +222,8 @@ async def get_game_reviews(
     game_id: int,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
+    review_timing: Optional[str] = Query(None, regex="^(early|launch_window|late)$"),
+    sort_order: Optional[str] = Query(None, regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all critic reviews for a game."""
@@ -256,6 +259,21 @@ async def get_game_reviews(
         metacritic_row[1] is None or metacritic_row[1] >= MIN_METACRITIC_USER_REVIEWS
     ) else None
 
+    # Build timing filter conditions
+    timing_conditions = []
+    if review_timing and game.release_date:
+        if review_timing == "early":
+            timing_conditions.append(Review.published_at < game.release_date)
+        elif review_timing == "launch_window":
+            timing_conditions.append(Review.published_at >= game.release_date)
+            timing_conditions.append(
+                Review.published_at <= game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS)
+            )
+        elif review_timing == "late":
+            timing_conditions.append(
+                Review.published_at > game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS)
+            )
+
     # Get total count (only reviews with actual scores)
     count_query = (
         select(func.count())
@@ -264,10 +282,14 @@ async def get_game_reviews(
             Review.game_id == game_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
             Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            *timing_conditions,
         )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
+
+    # Determine sort direction
+    order = asc(Review.published_at) if sort_order == "asc" else desc(Review.published_at)
 
     # Get reviews (only reviews with actual scores)
     query = (
@@ -278,8 +300,9 @@ async def get_game_reviews(
             Review.game_id == game_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
             Review.score_normalized > 0,  # Exclude unscored (0) reviews
+            *timing_conditions,
         )
-        .order_by(desc(Review.published_at))
+        .order_by(order)
         .offset((page - 1) * per_page)
         .limit(per_page)
     )

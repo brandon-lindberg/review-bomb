@@ -117,11 +117,14 @@ export async function getGame(id: number): Promise<GameWithScores> {
 export async function getGameReviews(
   id: number,
   page = 1,
-  perPage = 20
+  perPage = 20,
+  reviewTiming?: string,
+  sortOrder?: string,
 ): Promise<PaginatedResponse<ReviewWithJournalist>> {
-  return fetchAPI<PaginatedResponse<ReviewWithJournalist>>(
-    `/games/${id}/reviews?page=${page}&per_page=${perPage}`
-  );
+  let url = `/games/${id}/reviews?page=${page}&per_page=${perPage}`;
+  if (reviewTiming) url += `&review_timing=${reviewTiming}`;
+  if (sortOrder) url += `&sort_order=${sortOrder}`;
+  return fetchAPI<PaginatedResponse<ReviewWithJournalist>>(url);
 }
 
 // Leaderboards
