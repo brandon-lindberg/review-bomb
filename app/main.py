@@ -13,6 +13,7 @@ from slowapi.util import get_remote_address
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import get_settings
+from app.ip_filter import IPFilterMiddleware
 from app.middleware import (
     SecurityHeadersMiddleware,
     TrustedProxyMiddleware,
@@ -80,6 +81,9 @@ app.add_middleware(
 
 # Security headers on all responses
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Block known abusive IPs (runs after TrustedProxyMiddleware extracts real IP)
+app.add_middleware(IPFilterMiddleware)
 
 # Trusted proxy support (extract real IP from Cloudflare/Render headers)
 app.add_middleware(TrustedProxyMiddleware)
