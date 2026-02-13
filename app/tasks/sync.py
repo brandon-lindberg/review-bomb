@@ -587,6 +587,12 @@ async def _sync_news_feeds():
         await db.commit()
         print(f"Inserted {inserted} new articles")
 
+        # Invalidate news cache so the API serves fresh data
+        if inserted > 0:
+            from app.cache import delete_cached
+            await delete_cached("news:*")
+            print("Cleared news cache")
+
         # Clean up articles older than 30 days
         cutoff = datetime.utcnow() - timedelta(days=30)
         delete_result = await db.execute(

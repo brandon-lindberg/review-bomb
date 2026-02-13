@@ -51,6 +51,15 @@ class SyncOrchestrator:
     STATE_GAMES_QUEUE = "games_queue"
     STATE_LAST_GAME_SKIP = "last_game_skip"
 
+    # Merged games: maps deprecated OpenCritic IDs to their canonical OpenCritic ID.
+    # Reviews from deprecated games are redirected to the canonical game.
+    # The deprecated game record is skipped during sync (not upserted).
+    GAME_MERGES: Dict[int, int] = {
+        # Overwatch 2 (OC 13288) merged back into Overwatch (OC 1673)
+        # Blizzard dropped the "2" in Feb 2026, making OW2 just "Overwatch" again.
+        13288: 1673,
+    }
+
     def __init__(self, db: AsyncSession):
         self.db = db
         self.service = OpenCriticService()
@@ -353,6 +362,26 @@ class SyncOrchestrator:
                     if not opencritic_game_id or opencritic_game_id in synced_ids:
                         continue
 
+                    # Check if this game has been merged into another
+                    if opencritic_game_id in self.GAME_MERGES:
+                        canonical_oc_id = self.GAME_MERGES[opencritic_game_id]
+                        # Find canonical game's internal ID
+                        canonical_result = await self.db.execute(
+                            select(Game.id).where(Game.opencritic_id == canonical_oc_id)
+                        )
+                        canonical_game_id = canonical_result.scalar_one_or_none()
+                        if canonical_game_id:
+                            print(f"Redirecting merged game: {game_data.get('name')} (OC {opencritic_game_id}) -> canonical OC {canonical_oc_id}")
+                            # Fetch reviews from the deprecated OC entry and attach to canonical game
+                            reviews_synced = await self._sync_game_reviews(opencritic_game_id, canonical_game_id)
+                            await self._add_synced_game_id(opencritic_game_id)
+                            synced_ids.add(opencritic_game_id)
+                            stats["reviews_synced"] += reviews_synced
+                            print(f"  Redirected {reviews_synced} reviews to canonical game")
+                            continue
+                        else:
+                            print(f"Warning: canonical game OC {canonical_oc_id} not found, syncing normally")
+
                     print(f"Syncing game: {game_data.get('name')} (OC ID: {opencritic_game_id})")
 
                     # Upsert game
@@ -502,7 +531,21 @@ class SyncOrchestrator:
 
             for game in games:
                 try:
+                    # Skip deprecated merged games
+                    if game.opencritic_id in self.GAME_MERGES:
+                        print(f"Skipping merged game: {game.title} (OC {game.opencritic_id})")
+                        stats["games_skipped"] += 1
+                        continue
+
                     print(f"Refreshing: {game.title} (OC ID: {game.opencritic_id})")
+
+                    # Check if any deprecated games merge INTO this one
+                    # If so, also fetch reviews from those deprecated OC IDs
+                    merged_from = [
+                        deprecated_oc_id
+                        for deprecated_oc_id, canonical_oc_id in self.GAME_MERGES.items()
+                        if canonical_oc_id == game.opencritic_id
+                    ]
 
                     # Re-fetch game details to update top_critic_score, etc.
                     game_data = await self.service.get_game(game.opencritic_id)
@@ -517,6 +560,15 @@ class SyncOrchestrator:
                     reviews_synced = await self._sync_game_reviews(
                         game.opencritic_id, game.id
                     )
+
+                    # Also fetch reviews from any merged-in deprecated game IDs
+                    for deprecated_oc_id in merged_from:
+                        extra_reviews = await self._sync_game_reviews(
+                            deprecated_oc_id, game.id
+                        )
+                        reviews_synced += extra_reviews
+                        if extra_reviews:
+                            print(f"  + {extra_reviews} reviews from merged OC {deprecated_oc_id}")
 
                     game.last_review_sync_at = datetime.utcnow()
                     await self.db.commit()

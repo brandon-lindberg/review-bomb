@@ -70,6 +70,14 @@ def cache_key(*args, **kwargs) -> str:
     return hashlib.md5(key_data.encode()).hexdigest()
 
 
+async def close_redis():
+    """Close the Redis client connection."""
+    global _redis_client
+    if _redis_client is not None:
+        await _redis_client.aclose()
+        _redis_client = None
+
+
 # Cache TTL constants (in seconds)
 CACHE_TTL_SHORT = 60  # 1 minute - for frequently changing data
 CACHE_TTL_MEDIUM = 300  # 5 minutes - for leaderboards, stats

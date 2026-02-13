@@ -1,0 +1,19 @@
+services:
+  - type: cron
+    name: sync-news-feeds
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    schedule: "0 */4 * * *"
+    startCommand: python -m app news
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: review-disparity-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: review-disparity-redis
+          property: connectionString
+      - key: ENVIRONMENT
+        value: production

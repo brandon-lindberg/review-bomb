@@ -20,8 +20,9 @@ class GameMatcher:
     # Manual overrides for games that are hard to match automatically
     # Format: {opencritic_id: {"steam_app_id": int, "metacritic_slug": str}}
     MANUAL_OVERRIDES: Dict[int, Dict[str, Any]] = {
-        # Example entries:
-        # 1234: {"steam_app_id": 292030, "metacritic_slug": "the-witcher-3-wild-hunt"},
+        # Overwatch (canonical entry after OW2 merge) — OC 1673
+        # Steam app 2357570 is the live game, Metacritic "overwatch" is the current page
+        1673: {"steam_app_id": 2357570, "metacritic_slug": "overwatch"},
     }
 
     # Common title transformations to improve matching

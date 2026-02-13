@@ -13,6 +13,8 @@ Usage:
     python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
     python -m app clear             Clear all data from database
     python -m app backfill          Backfill denormalized Game columns from UserScore/Review data
+    python -m app merge-games       Merge deprecated games into canonical records
+    python -m app news              Fetch latest gaming news from RSS feeds
 """
 
 import argparse
@@ -298,33 +300,38 @@ async def cmd_metacritic(args):
 
 async def cmd_disparity(args):
     """Handle disparity calculation command."""
+    import time
     from app.services.disparity import DisparityCalculator
 
     async with async_session_maker() as db:
         calculator = DisparityCalculator(db)
 
-        print("Calculating disparity snapshots...")
+        print(f"\n{'='*50}")
+        print(f"Calculating disparity snapshots at {datetime.now().isoformat()}")
+        print(f"{'='*50}\n")
+
+        start = time.time()
 
         if args.journalists:
-            print("\nProcessing journalists...")
             count = await calculator.generate_journalist_snapshots()
             print(f"Created {count} journalist snapshots.")
 
         if args.outlets:
-            print("\nProcessing outlets...")
             count = await calculator.generate_outlet_snapshots()
             print(f"Created {count} outlet snapshots.")
 
         if args.games:
-            print("\nProcessing games...")
             count = await calculator.generate_game_snapshots()
             print(f"Created {count} game snapshots.")
 
         if not (args.journalists or args.outlets or args.games):
-            # Calculate all by default
-            print("\nGenerating all snapshots...")
             results = await calculator.generate_all_snapshots()
+            print(f"\n{'='*50}")
             print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
+
+        elapsed = time.time() - start
+        print(f"Completed in {elapsed:.1f}s")
+        print(f"{'='*50}")
 
 
 async def cmd_refresh_images(args):
@@ -573,6 +580,140 @@ async def cmd_backfill_game_columns(args):
         print(f"\nBackfill complete: {updated} games updated")
 
 
+async def cmd_merge_games(args):
+    """Merge deprecated game records into their canonical game, based on GAME_MERGES."""
+    from sqlalchemy import select, func, update, delete
+    from app.models.models import Game, Review, UserScore, DisparitySnapshot
+    from app.services.sync_orchestrator import SyncOrchestrator
+
+    merges = SyncOrchestrator.GAME_MERGES
+
+    if not merges:
+        print("No game merges configured in SyncOrchestrator.GAME_MERGES")
+        return
+
+    async with async_session_maker() as db:
+        for deprecated_oc_id, canonical_oc_id in merges.items():
+            # Find both games
+            dep_result = await db.execute(
+                select(Game).where(Game.opencritic_id == deprecated_oc_id)
+            )
+            deprecated_game = dep_result.scalar_one_or_none()
+
+            can_result = await db.execute(
+                select(Game).where(Game.opencritic_id == canonical_oc_id)
+            )
+            canonical_game = can_result.scalar_one_or_none()
+
+            if not canonical_game:
+                print(f"Canonical game OC {canonical_oc_id} not found, skipping")
+                continue
+
+            if not deprecated_game:
+                print(f"Deprecated game OC {deprecated_oc_id} not found (already merged?), skipping")
+                # Still update canonical game's cross-platform IDs
+                print(f"\nUpdating canonical game: {canonical_game.title} (ID {canonical_game.id})")
+                changed = False
+                if not canonical_game.steam_app_id:
+                    from app.services.game_matcher import GameMatcher
+                    override = GameMatcher.MANUAL_OVERRIDES.get(canonical_oc_id, {})
+                    if override.get("steam_app_id"):
+                        canonical_game.steam_app_id = override["steam_app_id"]
+                        print(f"  Set steam_app_id = {override['steam_app_id']}")
+                        changed = True
+                    if override.get("metacritic_slug"):
+                        canonical_game.metacritic_slug = override["metacritic_slug"]
+                        print(f"  Set metacritic_slug = {override['metacritic_slug']}")
+                        changed = True
+                if changed:
+                    await db.commit()
+                continue
+
+            print(f"\n{'='*60}")
+            print(f"MERGING: {deprecated_game.title} (OC {deprecated_oc_id}, ID {deprecated_game.id})")
+            print(f"   INTO: {canonical_game.title} (OC {canonical_oc_id}, ID {canonical_game.id})")
+            print(f"{'='*60}")
+
+            # Count records to merge
+            review_count = await db.execute(
+                select(func.count()).select_from(Review).where(Review.game_id == deprecated_game.id)
+            )
+            score_count = await db.execute(
+                select(func.count()).select_from(UserScore).where(UserScore.game_id == deprecated_game.id)
+            )
+            snapshot_count = await db.execute(
+                select(func.count()).select_from(DisparitySnapshot).where(DisparitySnapshot.game_id == deprecated_game.id)
+            )
+
+            r_count = review_count.scalar() or 0
+            s_count = score_count.scalar() or 0
+            snap_count = snapshot_count.scalar() or 0
+
+            print(f"\nRecords to migrate:")
+            print(f"  Reviews: {r_count}")
+            print(f"  User Scores: {s_count}")
+            print(f"  Disparity Snapshots: {snap_count}")
+
+            if not args.yes:
+                confirm = input(f"\nProceed with merge? [y/N] ")
+                if confirm.lower() != 'y':
+                    print("Skipped.")
+                    continue
+
+            # 1. Move reviews (handle duplicate opencritic_review_ids by skipping conflicts)
+            if r_count > 0:
+                await db.execute(
+                    update(Review)
+                    .where(Review.game_id == deprecated_game.id)
+                    .values(game_id=canonical_game.id)
+                )
+                print(f"  Moved {r_count} reviews")
+
+            # 2. Move user scores
+            if s_count > 0:
+                await db.execute(
+                    update(UserScore)
+                    .where(UserScore.game_id == deprecated_game.id)
+                    .values(game_id=canonical_game.id)
+                )
+                print(f"  Moved {s_count} user scores")
+
+            # 3. Move disparity snapshots
+            if snap_count > 0:
+                await db.execute(
+                    update(DisparitySnapshot)
+                    .where(DisparitySnapshot.game_id == deprecated_game.id)
+                    .values(game_id=canonical_game.id)
+                )
+                print(f"  Moved {snap_count} disparity snapshots")
+
+            # 4. Transfer Steam app ID and Metacritic slug to canonical game
+            if deprecated_game.steam_app_id and not canonical_game.steam_app_id:
+                canonical_game.steam_app_id = deprecated_game.steam_app_id
+                print(f"  Transferred steam_app_id: {deprecated_game.steam_app_id}")
+
+            # Apply manual override values
+            from app.services.game_matcher import GameMatcher
+            override = GameMatcher.MANUAL_OVERRIDES.get(canonical_oc_id, {})
+            if override.get("steam_app_id"):
+                canonical_game.steam_app_id = override["steam_app_id"]
+                print(f"  Set steam_app_id = {override['steam_app_id']} (from override)")
+            if override.get("metacritic_slug"):
+                canonical_game.metacritic_slug = override["metacritic_slug"]
+                print(f"  Set metacritic_slug = {override['metacritic_slug']} (from override)")
+
+            # 5. Delete the deprecated game record
+            await db.execute(
+                delete(Game).where(Game.id == deprecated_game.id)
+            )
+            print(f"  Deleted deprecated game record (ID {deprecated_game.id})")
+
+            await db.commit()
+            print(f"\nMerge complete!")
+
+        print(f"\nAll merges processed.")
+
+
 async def cmd_news(args):
     """Handle news RSS feed sync command."""
     from sqlalchemy import text, select, func
@@ -625,6 +766,13 @@ async def cmd_news(args):
             select(func.count()).select_from(NewsArticle)
         )
         total = total_result.scalar() or 0
+
+        # Invalidate news cache so the API serves fresh data
+        if inserted > 0:
+            from app.cache import delete_cached, close_redis
+            deleted_keys = await delete_cached("news:*")
+            print(f"Cleared {deleted_keys} cached news entries")
+            await close_redis()
 
         print(f"\nNews sync complete: {inserted} new articles inserted ({total} total in database)")
 
@@ -679,6 +827,10 @@ def main():
     # Backfill command
     subparsers.add_parser("backfill", help="Backfill denormalized Game columns from UserScore/Review data")
 
+    # Merge games command
+    merge_parser = subparsers.add_parser("merge-games", help="Merge deprecated games into canonical records (from GAME_MERGES)")
+    merge_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
+
     # News command
     news_parser = subparsers.add_parser("news", help="Fetch latest gaming news from RSS feeds")
     news_parser.add_argument("--clear", action="store_true", help="Clear all news articles")
@@ -708,6 +860,8 @@ def main():
         return asyncio.run(cmd_refresh_images(args))
     elif args.command == "backfill":
         return asyncio.run(cmd_backfill_game_columns(args))
+    elif args.command == "merge-games":
+        return asyncio.run(cmd_merge_games(args))
     elif args.command == "news":
         return asyncio.run(cmd_news(args))
     else:
