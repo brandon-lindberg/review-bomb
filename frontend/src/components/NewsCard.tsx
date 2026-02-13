@@ -20,10 +20,10 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex gap-4 p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        className="flex gap-3 p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
       >
         {article.image_url && (
-          <div className="flex-shrink-0 w-20 h-16 rounded overflow-hidden">
+          <div className="flex-shrink-0 w-16 h-12 sm:w-20 sm:h-16 rounded overflow-hidden">
             <img
               src={article.image_url}
               alt=""
@@ -39,7 +39,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
             {article.title}
           </p>
           <div
-            className="flex items-center gap-2 text-xs mt-1"
+            className="flex items-center gap-1.5 text-xs mt-1"
             style={{ color: "var(--foreground-muted)" }}
           >
             <span className="font-medium">{article.source_name}</span>
@@ -52,7 +52,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
           </div>
           {article.description && (
             <p
-              className="text-xs mt-1 line-clamp-2"
+              className="hidden sm:block text-xs mt-1 line-clamp-1"
               style={{ color: "var(--foreground-muted)" }}
             >
               {article.description}
@@ -60,7 +60,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
           )}
         </div>
         <span
-          className="flex-shrink-0 text-sm px-3 py-1 rounded hover:opacity-80 whitespace-nowrap self-center"
+          className="hidden sm:inline-flex flex-shrink-0 text-sm px-3 py-1 rounded hover:opacity-80 whitespace-nowrap self-center"
           style={{ backgroundColor: "var(--color-rust)", color: "white" }}
         >
           Read Article
