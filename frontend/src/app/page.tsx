@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getStats, getRecentReviews, getGames } from "@/lib/api";
+import { getStats, getRecentReviews, getGames, getNews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
+import { NewsCard } from "@/components/NewsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +12,14 @@ export default async function Home() {
   let stats = null;
   let recentReviews = null;
   let recentGames = null;
+  let recentNews = null;
 
   try {
-    [stats, recentReviews, recentGames] = await Promise.all([
+    [stats, recentReviews, recentGames, recentNews] = await Promise.all([
       getStats(),
       getRecentReviews(5),
       getGames(1, 5, "release_date", "desc"),
+      getNews(1, 4).catch(() => null),
     ]);
   } catch (error) {
     console.error("Error fetching data:", error);
@@ -190,6 +193,29 @@ export default async function Home() {
           </section>
         )}
       </div>
+
+      {/* Latest News */}
+      {recentNews && recentNews.items.length > 0 && (
+        <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
+              Latest News
+            </h2>
+            <Link
+              href="/news"
+              className="text-sm hover:underline"
+              style={{ color: "var(--color-rust)" }}
+            >
+              View All News
+            </Link>
+          </div>
+          <div className="space-y-1">
+            {recentNews.items.map((article) => (
+              <NewsCard key={article.id} article={article} compact />
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Call to Action */}
       <section className="text-center py-8">

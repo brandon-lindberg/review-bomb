@@ -19,7 +19,7 @@ from app.middleware import (
     TrustedProxyMiddleware,
     HTTPSRedirectMiddleware,
 )
-from app.routers import journalists, outlets, games, leaderboards, search, stats
+from app.routers import journalists, outlets, games, leaderboards, search, stats, news
 
 settings = get_settings()
 
@@ -128,6 +128,7 @@ app.include_router(games.router, prefix="/api/v1/games", tags=["games"])
 app.include_router(leaderboards.router, prefix="/api/v1/leaderboards", tags=["leaderboards"])
 app.include_router(search.router, prefix="/api/v1/search", tags=["search"])
 app.include_router(stats.router, prefix="/api/v1/stats", tags=["stats"])
+app.include_router(news.router, prefix="/api/v1/news", tags=["news"])
 
 
 # Global exception handler

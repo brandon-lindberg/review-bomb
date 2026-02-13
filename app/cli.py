@@ -573,6 +573,62 @@ async def cmd_backfill_game_columns(args):
         print(f"\nBackfill complete: {updated} games updated")
 
 
+async def cmd_news(args):
+    """Handle news RSS feed sync command."""
+    from sqlalchemy import text, select, func
+
+    from app.models.models import NewsArticle
+    from app.services.news_rss import NewsRSSService
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    async with async_session_maker() as db:
+        if args.clear:
+            result = await db.execute(
+                select(func.count()).select_from(NewsArticle)
+            )
+            count = result.scalar() or 0
+
+            if count == 0:
+                print("No news articles to clear.")
+                return
+
+            confirm = input(f"Delete all {count:,} news articles? [y/N] ")
+            if confirm.lower() != 'y':
+                print("Cancelled.")
+                return
+
+            await db.execute(text("DELETE FROM news_articles"))
+            await db.commit()
+            print(f"Deleted {count:,} news articles.")
+            return
+
+        service = NewsRSSService()
+
+        print(f"\n{'='*50}")
+        print(f"Fetching gaming news RSS feeds at {datetime.now().isoformat()}")
+        print(f"{'='*50}\n")
+
+        articles = await service.fetch_all_feeds()
+        print(f"Fetched {len(articles)} articles from {len(service.FEEDS)} feeds")
+
+        inserted = 0
+        for article in articles:
+            stmt = pg_insert(NewsArticle).values(**article)
+            stmt = stmt.on_conflict_do_nothing(index_elements=["url"])
+            result = await db.execute(stmt)
+            if result.rowcount > 0:
+                inserted += 1
+
+        await db.commit()
+
+        total_result = await db.execute(
+            select(func.count()).select_from(NewsArticle)
+        )
+        total = total_result.scalar() or 0
+
+        print(f"\nNews sync complete: {inserted} new articles inserted ({total} total in database)")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Game Journalist Review Disparity Tracker CLI",
@@ -623,6 +679,10 @@ def main():
     # Backfill command
     subparsers.add_parser("backfill", help="Backfill denormalized Game columns from UserScore/Review data")
 
+    # News command
+    news_parser = subparsers.add_parser("news", help="Fetch latest gaming news from RSS feeds")
+    news_parser.add_argument("--clear", action="store_true", help="Clear all news articles")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -648,6 +708,8 @@ def main():
         return asyncio.run(cmd_refresh_images(args))
     elif args.command == "backfill":
         return asyncio.run(cmd_backfill_game_columns(args))
+    elif args.command == "news":
+        return asyncio.run(cmd_news(args))
     else:
         parser.print_help()
         return 1

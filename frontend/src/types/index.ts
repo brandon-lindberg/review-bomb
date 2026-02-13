@@ -237,3 +237,15 @@ export interface CompareOutlet {
   outlet: OutletWithStats;
   history: DisparitySnapshot[];
 }
+
+// News Types
+export interface NewsArticle {
+  id: number;
+  title: string;
+  description: string | null;
+  url: string;
+  image_url: string | null;
+  source_name: string;
+  author: string | null;
+  published_at: string | null;
+}

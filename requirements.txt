@@ -39,6 +39,9 @@ passlib[bcrypt]==1.7.4
 # Monitoring
 sentry-sdk[fastapi]==2.19.0
 
+# RSS Feeds
+feedparser==6.0.11
+
 # Development
 pytest==8.3.0
 pytest-asyncio==0.24.0

@@ -354,6 +354,30 @@ class SyncState(Base):
     )
 
 
+class NewsArticle(Base):
+    """
+    Gaming news articles fetched from RSS feeds.
+    Users can preview articles and click through to the original source.
+    """
+    __tablename__ = "news_articles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(String(1024), nullable=False, unique=True)
+    image_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    source_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    author: Mapped[Optional[str]] = mapped_column(String(255))
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("idx_news_source_published", "source_name", "published_at"),
+    )
+
+
 class SyncLog(Base):
     """
     Tracks data synchronization jobs for monitoring and debugging.

@@ -17,6 +17,7 @@ from app.tasks.sync import (
     sync_steam_scores,
     sync_metacritic_scores,
     match_games_to_platforms,
+    sync_news_feeds,
 )
 from app.tasks.disparity import calculate_daily_snapshots
 
@@ -75,6 +76,15 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # News RSS feeds - every 4 hours
+    scheduler.add_job(
+        lambda: sync_news_feeds.send(),
+        trigger=IntervalTrigger(hours=4),
+        id="sync_news_feeds",
+        name="Sync gaming news RSS feeds",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -87,6 +97,7 @@ def main():
     print("  - Metacritic scores sync: daily at 3 AM UTC")
     print("  - Game matching: daily at 1 AM UTC")
     print("  - Disparity snapshots: daily at 5 AM UTC")
+    print("  - News RSS feeds: every 4 hours")
     print()
     print("Press Ctrl+C to exit")
 

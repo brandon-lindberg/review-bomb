@@ -375,3 +375,22 @@ class SiteStats(BaseModel):
     total_reviews: int
     avg_disparity_site: Optional[Decimal] = None
     last_updated: datetime
+
+
+# =============================================================================
+# News Article Schemas
+# =============================================================================
+
+
+class NewsArticleSummary(BaseModel):
+    """News article preview for lists."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    description: Optional[str] = None
+    url: str
+    image_url: Optional[str] = None
+    source_name: str
+    author: Optional[str] = None
+    published_at: Optional[datetime] = None

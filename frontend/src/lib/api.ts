@@ -12,6 +12,7 @@ import type {
   SiteStats,
   SearchResult,
   DisparitySnapshot,
+  NewsArticle,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -234,4 +235,19 @@ export async function getGameAllReviews(
   }
 
   return allReviews;
+}
+
+// News
+export async function getNews(
+  page = 1,
+  perPage = 20,
+  source?: string
+): Promise<PaginatedResponse<NewsArticle>> {
+  let url = `/news?page=${page}&per_page=${perPage}`;
+  if (source) url += `&source=${encodeURIComponent(source)}`;
+  return fetchAPI<PaginatedResponse<NewsArticle>>(url);
+}
+
+export async function getNewsSources(): Promise<string[]> {
+  return fetchAPI<string[]>("/news/sources");
 }
