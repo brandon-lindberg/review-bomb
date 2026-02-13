@@ -7,7 +7,8 @@ import { GameDetailTabs } from "./GameDetailTabs";
 import { CriticReviewsSection } from "./CriticReviewsSection";
 import { JournalistAlignmentSection } from "./JournalistAlignmentSection";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
-import type { ReviewWithDisparity, ReviewWithJournalist } from "@/types";
+import { NewsCard } from "./NewsCard";
+import type { ReviewWithDisparity, ReviewWithJournalist, NewsArticle } from "@/types";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
 
@@ -15,9 +16,10 @@ interface LazyChartSectionProps {
   entityType: "journalist" | "outlet" | "game";
   entityId: number;
   gameTitle?: string;
+  newsArticles?: NewsArticle[];
 }
 
-export function LazyChartSection({ entityType, entityId, gameTitle }: LazyChartSectionProps) {
+export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -121,6 +123,13 @@ export function LazyChartSection({ entityType, entityId, gameTitle }: LazyChartS
                 <CriticReviewsSection reviews={reviews as ReviewWithJournalist[]} />
               }
               journalistAlignment={buildJournalistAlignment(reviews as ReviewWithJournalist[])}
+              latestNews={newsArticles && newsArticles.length > 0 ? (
+                <div className="divide-y divide-gray-100">
+                  {newsArticles.map((article) => (
+                    <NewsCard key={article.id} article={article} compact />
+                  ))}
+                </div>
+              ) : null}
             />
           )}
         </>

@@ -550,16 +550,14 @@ def sync_news_feeds():
     Fetch latest articles from all gaming news RSS feeds.
 
     This fetches RSS feeds from IGN, GameSpot, Kotaku, PC Gamer,
-    Polygon, Eurogamer, and The Verge, inserting new articles
-    and cleaning up articles older than 30 days.
+    Polygon, Eurogamer, and The Verge, inserting new articles.
+    Articles are kept permanently since they may be displayed on game pages.
     """
     run_async(_sync_news_feeds())
 
 
 async def _sync_news_feeds():
     """Async implementation of news feed sync."""
-    from datetime import timedelta
-
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     from app.models.models import NewsArticle
@@ -592,15 +590,6 @@ async def _sync_news_feeds():
             from app.cache import delete_cached
             await delete_cached("news:*")
             print("Cleared news cache")
-
-        # Clean up articles older than 30 days
-        cutoff = datetime.utcnow() - timedelta(days=30)
-        delete_result = await db.execute(
-            delete(NewsArticle).where(NewsArticle.published_at < cutoff)
-        )
-        if delete_result.rowcount > 0:
-            await db.commit()
-            print(f"Cleaned up {delete_result.rowcount} articles older than 30 days")
 
         print("News feed sync complete")
 

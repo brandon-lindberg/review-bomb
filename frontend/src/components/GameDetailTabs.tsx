@@ -5,13 +5,14 @@ import { useState, type ReactNode } from "react";
 interface GameDetailTabsProps {
   criticReviews: ReactNode;
   journalistAlignment: ReactNode | null;
+  latestNews: ReactNode | null;
 }
 
-export function GameDetailTabs({ criticReviews, journalistAlignment }: GameDetailTabsProps) {
-  const [activeTab, setActiveTab] = useState<"reviews" | "alignment">("reviews");
+export function GameDetailTabs({ criticReviews, journalistAlignment, latestNews }: GameDetailTabsProps) {
+  const [activeTab, setActiveTab] = useState<"reviews" | "alignment" | "news">("reviews");
 
-  // If no alignment data, just render reviews directly
-  if (!journalistAlignment) {
+  // If no alignment data and no news, just render reviews directly
+  if (!journalistAlignment && !latestNews) {
     return (
       <section className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-4" style={{ color: "var(--foreground)" }}>
@@ -22,10 +23,11 @@ export function GameDetailTabs({ criticReviews, journalistAlignment }: GameDetai
     );
   }
 
-  const tabs = [
-    { id: "reviews" as const, label: "Critic Reviews" },
-    { id: "alignment" as const, label: "Journalist Alignment" },
+  const tabs: { id: "reviews" | "alignment" | "news"; label: string }[] = [
+    { id: "reviews", label: "Critic Reviews" },
   ];
+  if (journalistAlignment) tabs.push({ id: "alignment", label: "Journalist Alignment" });
+  if (latestNews) tabs.push({ id: "news", label: "Latest News" });
 
   return (
     <section className="bg-white rounded-lg shadow">
@@ -47,7 +49,9 @@ export function GameDetailTabs({ criticReviews, journalistAlignment }: GameDetai
         </nav>
       </div>
       <div className="p-6">
-        {activeTab === "reviews" ? criticReviews : journalistAlignment}
+        {activeTab === "reviews" && criticReviews}
+        {activeTab === "alignment" && journalistAlignment}
+        {activeTab === "news" && latestNews}
       </div>
     </section>
   );

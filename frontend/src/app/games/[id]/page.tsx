@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { getGame } from "@/lib/api";
+import { getGame, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -52,6 +52,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   const { id } = await params;
 
   let game = null;
+  let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
 
   try {
     game = await getGame(parseInt(id));
@@ -62,6 +63,13 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   if (!game) {
     notFound();
+  }
+
+  try {
+    const newsResponse = await getGameNews(game.title, 5);
+    newsArticles = newsResponse.items;
+  } catch {
+    // News is non-critical — silently continue without it
   }
 
   const jsonLdData: Record<string, unknown> = {
@@ -157,8 +165,8 @@ export default async function GameDetailPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Disparity Chart + Critic Reviews + Journalist Alignment - lazy loaded on scroll */}
-      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} />
+      {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
+      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} newsArticles={newsArticles} />
     </div>
   );
 }

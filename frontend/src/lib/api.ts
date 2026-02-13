@@ -251,3 +251,12 @@ export async function getNews(
 export async function getNewsSources(): Promise<string[]> {
   return fetchAPI<string[]>("/news/sources");
 }
+
+export async function getGameNews(
+  gameTitle: string,
+  limit = 5
+): Promise<PaginatedResponse<NewsArticle>> {
+  return fetchAPI<PaginatedResponse<NewsArticle>>(
+    `/news?per_page=${limit}&search=${encodeURIComponent(gameTitle)}`
+  );
+}

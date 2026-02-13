@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Query, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
@@ -24,14 +24,15 @@ limiter = Limiter(key_func=get_remote_address)
 @limiter.limit("30/minute")
 async def list_news(
     request: Request,
-    page: int = Query(1, ge=1, le=100),
+    page: int = Query(1, ge=1, le=15),
     per_page: int = Query(20, ge=1, le=50),
     source: Optional[str] = Query(None, max_length=100),
+    search: Optional[str] = Query(None, max_length=200),
     db: AsyncSession = Depends(get_db),
 ):
     """List recent gaming news articles with pagination."""
     # Check cache
-    key = cache_key("news", page=page, per_page=per_page, source=source)
+    key = cache_key("news", page=page, per_page=per_page, source=source, search=search)
     cached = await get_cached(f"news:{key}")
     if cached:
         return PaginatedResponse[NewsArticleSummary](**json.loads(cached))
@@ -43,6 +44,14 @@ async def list_news(
     if source:
         query = query.where(NewsArticle.source_name == source)
         count_query = count_query.where(NewsArticle.source_name == source)
+
+    if search:
+        search_filter = or_(
+            NewsArticle.title.ilike(f"%{search}%"),
+            NewsArticle.description.ilike(f"%{search}%"),
+        )
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
 
     # Get total count
     total_result = await db.execute(count_query)
