@@ -63,11 +63,13 @@ async def list_news(
     result = await db.execute(query)
     articles = result.scalars().all()
 
-    total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+    max_pages = 15
+    total_pages = min((total + per_page - 1) // per_page if total > 0 else 0, max_pages)
+    capped_total = min(total, max_pages * per_page)
 
     response = PaginatedResponse(
         items=[NewsArticleSummary.model_validate(a) for a in articles],
-        total=total,
+        total=capped_total,
         page=page,
         per_page=per_page,
         total_pages=total_pages,

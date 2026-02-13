@@ -131,7 +131,7 @@ async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select, func, delete
+    from sqlalchemy import select, func, delete, or_, and_
 
     async with async_session_maker() as db:
         # Handle --status flag
@@ -181,10 +181,22 @@ async def cmd_metacritic(args):
             # Re-sync all games
             query = select(Game).where(Game.metacritic_slug.isnot(None))
         else:
-            # Only sync games that haven't been synced yet
+            # Sync games that either: have no metascore yet, OR have a metascore but no user score
+            games_with_user_score = (
+                select(UserScore.game_id)
+                .where(UserScore.source == UserScoreSource.METACRITIC)
+                .distinct()
+                .scalar_subquery()
+            )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                Game.metacritic_score.is_(None)
+                or_(
+                    Game.metacritic_score.is_(None),
+                    and_(
+                        Game.metacritic_score.isnot(None),
+                        Game.id.notin_(games_with_user_score),
+                    ),
+                ),
             )
         result = await db.execute(query)
         games = result.scalars().all()
