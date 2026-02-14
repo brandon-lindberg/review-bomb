@@ -162,7 +162,66 @@ async def get_outlet(
     stats_result = await db.execute(stats_query)
     stats_row = stats_result.one()
 
-    # Use denormalized columns from outlet
+    # Calculate per-source disparity from reviews (same approach as journalist endpoint)
+    from app.models.models import UserScore
+
+    reviews_query = (
+        select(Review, Game)
+        .join(Game, Review.game_id == Game.id)
+        .where(
+            Review.outlet_id == outlet_id,
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+    )
+    reviews_result = await db.execute(reviews_query)
+    review_rows = reviews_result.all()
+
+    game_ids = list(set(row[1].id for row in review_rows)) if review_rows else []
+    user_score_lookup: dict = {}
+    if game_ids:
+        user_scores_query = (
+            select(UserScore)
+            .where(UserScore.game_id.in_(game_ids))
+            .order_by(desc(UserScore.scraped_at))
+        )
+        user_scores_result = await db.execute(user_scores_query)
+        user_scores = user_scores_result.scalars().all()
+        for us in user_scores:
+            key = (us.game_id, us.source.value)
+            if key not in user_score_lookup:
+                user_score_lookup[key] = {
+                    "score": us.score,
+                    "sample_size": us.sample_size,
+                }
+
+    launch_window_steam_disparities = []
+    launch_window_metacritic_disparities = []
+
+    for review, game in review_rows:
+        steam_data = user_score_lookup.get((game.id, "steam"))
+        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
+
+        review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
+        timing = calculate_review_timing(review_date, game.release_date)
+
+        if timing != "launch_window":
+            continue
+
+        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
+            launch_window_steam_disparities.append(float(review.score_normalized - steam_data["score"]))
+
+        if metacritic_data and metacritic_data["score"] and (
+            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
+        ):
+            launch_window_metacritic_disparities.append(float(review.score_normalized - metacritic_data["score"]))
+
+    avg_disparity_steam = Decimal(str(round(sum(launch_window_steam_disparities) / len(launch_window_steam_disparities), 2))) if launch_window_steam_disparities else None
+    avg_disparity_metacritic = Decimal(str(round(sum(launch_window_metacritic_disparities) / len(launch_window_metacritic_disparities), 2))) if launch_window_metacritic_disparities else None
+
+    combined_values = [v for v in [avg_disparity_steam, avg_disparity_metacritic] if v is not None]
+    avg_disparity_combined = Decimal(str(round(sum(float(v) for v in combined_values) / len(combined_values), 2))) if combined_values else None
+
     return OutletWithStats(
         id=outlet.id,
         name=outlet.name,
@@ -172,9 +231,9 @@ async def get_outlet(
         journalist_count=outlet.journalist_count or 0,
         review_count=outlet.review_count_scored or 0,
         avg_disparity=outlet.avg_disparity,
-        avg_disparity_steam=None,  # Not stored separately on outlet
-        avg_disparity_metacritic=None,
-        avg_disparity_combined=outlet.avg_disparity,
+        avg_disparity_steam=avg_disparity_steam,
+        avg_disparity_metacritic=avg_disparity_metacritic,
+        avg_disparity_combined=avg_disparity_combined,
         avg_score=stats_row.avg_score,
         min_score_given=Decimal(str(round(stats_row.min_score, 2))) if stats_row.min_score else None,
         max_score_given=Decimal(str(round(stats_row.max_score, 2))) if stats_row.max_score else None,
