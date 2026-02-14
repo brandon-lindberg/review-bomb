@@ -235,10 +235,10 @@ export function ReviewScoreCards({
       : steamNum ?? metacriticNum;
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
       {/* Critic Score */}
       <div
-        className="px-3 py-2 rounded-lg text-center min-w-[60px]"
+        className="px-3 py-2 rounded-lg text-center"
         style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
       >
         <div className="text-xs mb-0.5" style={{ color: "var(--foreground-muted)" }}>
@@ -251,7 +251,7 @@ export function ReviewScoreCards({
 
       {/* Steam */}
       <div
-        className="px-3 py-2 rounded-lg text-center min-w-[80px]"
+        className="px-3 py-2 rounded-lg text-center"
         style={{ backgroundColor: "rgba(112, 129, 96, 0.1)", border: "1px solid rgba(112, 129, 96, 0.3)" }}
       >
         <div className="text-xs mb-0.5" style={{ color: "#708160" }}>
@@ -272,11 +272,11 @@ export function ReviewScoreCards({
 
       {/* Metacritic */}
       <div
-        className="px-3 py-2 rounded-lg text-center min-w-[80px]"
+        className="px-3 py-2 rounded-lg text-center"
         style={{ backgroundColor: "rgba(221, 118, 49, 0.1)", border: "1px solid rgba(221, 118, 49, 0.3)" }}
       >
         <div className="text-xs mb-0.5" style={{ color: "#DD7631" }}>
-          Metacritic
+          MC
         </div>
         <div className="flex items-baseline justify-center gap-1">
           <span className="text-lg" style={{ color: "var(--foreground)" }}>
@@ -293,7 +293,7 @@ export function ReviewScoreCards({
 
       {/* Combined */}
       <div
-        className="px-3 py-2 rounded-lg text-center min-w-[80px]"
+        className="px-3 py-2 rounded-lg text-center"
         style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
       >
         <div className="text-xs mb-0.5" style={{ color: "#5C574F" }}>

@@ -122,7 +122,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
             Score Breakdown
           </h2>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <ScoreCard
               label="Critic Average"
               value={game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(1) : undefined}

@@ -81,14 +81,24 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
             {paged.map((review) => (
               <div
                 key={review.id}
-                className="p-4 border border-gray-200 rounded-lg"
+                className="relative p-4 border border-gray-200 rounded-lg"
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                {/* Mobile: full-card tap target for review URL */}
+                {review.review_url && (
+                  <a
+                    href={review.review_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute inset-0 sm:hidden z-0"
+                    aria-label={`Read review by ${review.journalist_name}`}
+                  />
+                )}
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <Link
                         href={`/journalists/${review.journalist_id}`}
-                        className="font-medium text-gray-900 hover:text-blue-600"
+                        className="relative z-10 font-medium text-gray-900 hover:text-blue-600"
                       >
                         {review.journalist_name}
                       </Link>
@@ -97,14 +107,14 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                           <span className="text-gray-400">at</span>
                           <Link
                             href={`/outlets/${review.outlet_id}`}
-                            className="text-gray-600 hover:text-blue-600"
+                            className="relative z-10 text-gray-600 hover:text-blue-600"
                           >
                             {review.outlet_name}
                           </Link>
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {review.published_at && (
                         <p className="text-sm text-gray-500">
                           {new Date(review.published_at).toLocaleDateString()}
@@ -129,14 +139,9 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                          review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
                       </span>
                     </div>
-                    {review.snippet && (
-                      <p className="mt-2 text-gray-600 text-sm italic">
-                        &ldquo;{review.snippet}&rdquo;
-                      </p>
-                    )}
                   </div>
 
-                  <div className="flex items-center gap-4 ml-4">
+                  <div className="flex items-center gap-4 sm:ml-4">
                     <div className="text-right">
                       <p className="text-2xl font-bold text-gray-900">
                         {review.score_normalized != null
@@ -154,13 +159,18 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                         href={review.review_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:text-blue-800"
+                        className="relative z-10 hidden sm:inline text-blue-600 hover:text-blue-800"
                       >
                         Read
                       </a>
                     )}
                   </div>
                 </div>
+                {review.snippet && (
+                  <p className="mt-2 text-gray-600 text-sm italic">
+                    &ldquo;{review.snippet}&rdquo;
+                  </p>
+                )}
               </div>
             ))}
           </div>

@@ -150,6 +150,15 @@ export function ReviewDisparityChart({
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
+  // Responsive margins - smaller on mobile
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   // Calculate rolling window size based on data volume
   const rollingWindowSize = useMemo(() => {
     const count = reviews.length;
@@ -574,28 +583,29 @@ export function ReviewDisparityChart({
           <ResponsiveContainer width="100%" height={height}>
             <ComposedChart
               data={chartData}
-              margin={{ top: 10, right: 30, left: 60, bottom: 30 }}
+              margin={isMobile ? { top: 5, right: 10, left: 5, bottom: 20 } : { top: 10, right: 15, left: 10, bottom: 25 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
               <XAxis
                 dataKey="date"
                 type="number"
                 domain={xDomain as [number, number]}
-                tick={{ fontSize: 12, fill: colors.text }}
+                tick={{ fontSize: isMobile ? 10 : 12, fill: colors.text }}
                 tickLine={{ stroke: colors.axis }}
                 axisLine={{ stroke: colors.axis }}
                 tickFormatter={(value) => {
                   const date = new Date(value);
-                  return date.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+                  return date.toLocaleDateString("en-US", { month: "short", year: isMobile ? "2-digit" : "numeric" });
                 }}
               />
               <YAxis
-                tick={{ fontSize: 12, fill: colors.text }}
+                tick={{ fontSize: isMobile ? 10 : 12, fill: colors.text }}
                 tickLine={{ stroke: colors.axis }}
                 axisLine={{ stroke: colors.axis }}
                 domain={yDomain as [number, number]}
+                width={isMobile ? 35 : 45}
                 tickFormatter={(value) => `${value > 0 ? "+" : ""}${Math.round(value)}`}
-                label={{
+                label={isMobile ? undefined : {
                   value: "Disparity",
                   angle: -90,
                   position: "insideLeft",

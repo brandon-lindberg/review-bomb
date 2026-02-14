@@ -125,7 +125,7 @@ export default async function JournalistDetailPage({
 
                 return (
                   <>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                       {/* Avg Score Given */}
                       <div
                         className="p-4 rounded-lg text-center"
@@ -212,24 +212,20 @@ export default async function JournalistDetailPage({
 
                     {/* Transparency: Early, launch window, and late review breakdown */}
                     {(journalist.stats?.early_review_count != null || journalist.stats?.launch_window_review_count != null || journalist.stats?.late_review_count != null) && (
-                      <div className="mt-3 text-xs" style={{ color: "var(--foreground-muted)" }}>
+                      <div className="mt-3 text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--foreground-muted)" }}>
                         {(journalist.stats?.early_review_count ?? 0) > 0 && (
-                          <>
-                            <span className="inline-flex items-center gap-1">
-                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                              {journalist.stats?.early_review_count ?? 0} early reviews (before release)
-                            </span>
-                            <span className="mx-2">|</span>
-                          </>
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                            {journalist.stats?.early_review_count ?? 0} early (before release)
+                          </span>
                         )}
                         <span className="inline-flex items-center gap-1">
                           <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                          {journalist.stats?.launch_window_review_count ?? 0} launch window reviews (within 60 days of release)
+                          {journalist.stats?.launch_window_review_count ?? 0} launch window
                         </span>
-                        <span className="mx-2">|</span>
                         <span className="inline-flex items-center gap-1">
                           <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                          {journalist.stats?.late_review_count ?? 0} late reviews
+                          {journalist.stats?.late_review_count ?? 0} late
                         </span>
                         {isUsingOverall && (
                           <span className="ml-2 text-amber-600">
@@ -251,7 +247,7 @@ export default async function JournalistDetailPage({
             <h2 className="text-lg font-semibold text-gray-900 mb-4">
               Scoring Pattern
             </h2>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 bg-gray-50 rounded-lg text-center">
                 <div className="text-2xl font-bold text-gray-900">
                   {journalist.stats?.min_score_given != null ? Number(journalist.stats.min_score_given).toFixed(0) : "N/A"}
@@ -326,16 +322,26 @@ export default async function JournalistDetailPage({
             {reviews.items.map((review) => (
               <div
                 key={review.id}
-                className="p-4 border rounded-lg"
+                className="relative p-4 border rounded-lg"
                 style={{ borderColor: "var(--border)" }}
               >
+                {/* Mobile: full-card tap target for review URL */}
+                {review.review_url && (
+                  <a
+                    href={review.review_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="absolute inset-0 sm:hidden z-0"
+                    aria-label={`Read review of ${review.game_title}`}
+                  />
+                )}
                 {/* Header: Game title, outlet, date */}
-                <div className="flex items-start justify-between mb-3">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
                         href={`/games/${review.game_id}`}
-                        className="font-medium hover:opacity-80"
+                        className="relative z-10 font-medium hover:opacity-80"
                         style={{ color: "var(--foreground)" }}
                       >
                         {review.game_title}
@@ -345,7 +351,7 @@ export default async function JournalistDetailPage({
                           <span style={{ color: "var(--foreground-muted)" }}>via</span>
                           <Link
                             href={`/outlets/${review.outlet_id}`}
-                            className="hover:opacity-80"
+                            className="relative z-10 hover:opacity-80"
                             style={{ color: "var(--foreground-muted)" }}
                           >
                             {review.outlet_name}
@@ -353,7 +359,7 @@ export default async function JournalistDetailPage({
                         </>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-1">
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {review.published_at && (
                         <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
                           {new Date(review.published_at).toLocaleDateString()}
@@ -384,7 +390,7 @@ export default async function JournalistDetailPage({
                       href={review.review_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm px-3 py-1 rounded hover:opacity-80"
+                      className="relative z-10 hidden sm:inline-block text-sm px-3 py-1 rounded hover:opacity-80"
                       style={{ backgroundColor: "var(--color-rust)", color: "white" }}
                     >
                       Read Review
