@@ -11,11 +11,12 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models.models import Game, Review, Journalist, Outlet, UserScore
+from app.models.models import Game, Review, Journalist, Outlet, UserScore, NewsArticle
 from app.schemas.schemas import (
     GameDetail,
     GameWithScores,
     ReviewWithJournalist,
+    NewsArticleSummary,
     PaginatedResponse,
 )
 
@@ -162,12 +163,20 @@ async def get_game(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    # All data is pre-computed on the game record - no additional queries needed!
     steam_valid = game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
     metacritic_valid = (
         game.metacritic_user_score is not None
         and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
     )
+
+    # Fetch the 5 most recent news articles for this game
+    news_result = await db.execute(
+        select(NewsArticle)
+        .where(NewsArticle.game_id == game_id)
+        .order_by(desc(NewsArticle.published_at).nulls_last())
+        .limit(5)
+    )
+    recent_news = news_result.scalars().all()
 
     return GameDetail(
         id=game.id,
@@ -190,6 +199,47 @@ async def get_game(
         percent_recommended=game.percent_recommended,
         created_at=game.created_at,
         updated_at=game.updated_at,
+        recent_news=[NewsArticleSummary.model_validate(a) for a in recent_news],
+    )
+
+
+@router.get("/{game_id}/news", response_model=PaginatedResponse[NewsArticleSummary])
+@limiter.limit("30/minute")
+async def get_game_news(
+    request: Request,
+    game_id: int,
+    page: int = Query(1, ge=1, le=100),
+    per_page: int = Query(5, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all news articles for a game, newest first."""
+    game_result = await db.execute(select(Game).where(Game.id == game_id))
+    game = game_result.scalar_one_or_none()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    count_result = await db.execute(
+        select(func.count())
+        .select_from(NewsArticle)
+        .where(NewsArticle.game_id == game_id)
+    )
+    total = count_result.scalar() or 0
+
+    articles_result = await db.execute(
+        select(NewsArticle)
+        .where(NewsArticle.game_id == game_id)
+        .order_by(desc(NewsArticle.published_at).nulls_last())
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+    )
+    articles = articles_result.scalars().all()
+
+    return PaginatedResponse(
+        items=[NewsArticleSummary.model_validate(a) for a in articles],
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
 
 

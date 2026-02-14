@@ -15,6 +15,7 @@ Usage:
     python -m app backfill          Backfill denormalized Game columns from UserScore/Review data
     python -m app merge-games       Merge deprecated games into canonical records
     python -m app news              Fetch latest gaming news from RSS feeds
+    python -m app news-backfill     Link existing news articles to games by title matching
 """
 
 import argparse
@@ -730,8 +731,9 @@ async def cmd_news(args):
     """Handle news RSS feed sync command."""
     from sqlalchemy import text, select, func
 
-    from app.models.models import NewsArticle
+    from app.models.models import Game, NewsArticle
     from app.services.news_rss import NewsRSSService
+    from app.services.news_matcher import NewsMatcher
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     async with async_session_maker() as db:
@@ -764,8 +766,17 @@ async def cmd_news(args):
         articles = await service.fetch_all_feeds()
         print(f"Fetched {len(articles)} articles from {len(service.FEEDS)} feeds")
 
+        # Load game titles for matching articles to games
+        games_result = await db.execute(select(Game.id, Game.title))
+        matcher = NewsMatcher(games_result.all())
+
         inserted = 0
+        matched = 0
         for article in articles:
+            game_id = matcher.match(article["title"], article.get("description"))
+            if game_id:
+                article["game_id"] = game_id
+                matched += 1
             stmt = pg_insert(NewsArticle).values(**article)
             stmt = stmt.on_conflict_do_nothing(index_elements=["url"])
             result = await db.execute(stmt)
@@ -786,7 +797,42 @@ async def cmd_news(args):
             print(f"Cleared {deleted_keys} cached news entries")
             await close_redis()
 
-        print(f"\nNews sync complete: {inserted} new articles inserted ({total} total in database)")
+        print(f"\nNews sync complete: {inserted} new articles inserted, {matched} matched to games ({total} total in database)")
+
+
+async def cmd_news_backfill(args):
+    """Backfill game_id on existing news articles by matching titles."""
+    from sqlalchemy import select
+
+    from app.models.models import Game, NewsArticle
+    from app.services.news_matcher import NewsMatcher
+
+    async with async_session_maker() as db:
+        # Load all game titles
+        games_result = await db.execute(select(Game.id, Game.title))
+        games = games_result.all()
+        matcher = NewsMatcher(games)
+        print(f"Loaded {len(games)} game titles for matching")
+
+        # Get all unlinked articles
+        articles_result = await db.execute(
+            select(NewsArticle).where(NewsArticle.game_id.is_(None))
+        )
+        articles = articles_result.scalars().all()
+        print(f"Found {len(articles)} unlinked articles to process")
+
+        matched = 0
+        for i, article in enumerate(articles):
+            game_id = matcher.match(article.title, article.description)
+            if game_id:
+                article.game_id = game_id
+                matched += 1
+            if (i + 1) % 100 == 0:
+                await db.commit()
+                print(f"  Processed {i + 1}/{len(articles)}, matched {matched} so far...")
+
+        await db.commit()
+        print(f"\nBackfill complete: {matched}/{len(articles)} articles linked to games")
 
 
 def main():
@@ -847,6 +893,9 @@ def main():
     news_parser = subparsers.add_parser("news", help="Fetch latest gaming news from RSS feeds")
     news_parser.add_argument("--clear", action="store_true", help="Clear all news articles")
 
+    # News backfill command
+    subparsers.add_parser("news-backfill", help="Link existing news articles to games by title matching")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -876,6 +925,8 @@ def main():
         return asyncio.run(cmd_merge_games(args))
     elif args.command == "news":
         return asyncio.run(cmd_news(args))
+    elif args.command == "news-backfill":
+        return asyncio.run(cmd_news_backfill(args))
     else:
         parser.print_help()
         return 1

@@ -200,6 +200,7 @@ class GameDetail(GameWithScores):
     percent_recommended: Optional[Decimal] = None
     created_at: datetime
     updated_at: datetime
+    recent_news: list["NewsArticleSummary"] = []
 
 
 # =============================================================================

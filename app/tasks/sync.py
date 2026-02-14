@@ -562,6 +562,7 @@ async def _sync_news_feeds():
 
     from app.models.models import NewsArticle
     from app.services.news_rss import NewsRSSService
+    from app.services.news_matcher import NewsMatcher
 
     async with async_session_maker() as db:
         service = NewsRSSService()
@@ -570,8 +571,15 @@ async def _sync_news_feeds():
         articles = await service.fetch_all_feeds()
         print(f"Fetched {len(articles)} articles from {len(service.FEEDS)} feeds")
 
+        # Load game titles for matching
+        games_result = await db.execute(select(Game.id, Game.title))
+        matcher = NewsMatcher(games_result.all())
+
         inserted = 0
         for article in articles:
+            game_id = matcher.match(article["title"], article.get("description"))
+            if game_id:
+                article["game_id"] = game_id
             stmt = pg_insert(NewsArticle).values(**article)
             stmt = stmt.on_conflict_do_nothing(index_elements=["url"])
             result = await db.execute(stmt)

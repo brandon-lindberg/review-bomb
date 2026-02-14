@@ -178,6 +178,7 @@ class Game(Base):
     disparity_snapshots: Mapped[List["DisparitySnapshot"]] = relationship(
         back_populates="game"
     )
+    news_articles: Mapped[List["NewsArticle"]] = relationship(back_populates="game")
 
     __table_args__ = (
         Index("idx_games_release_date", "release_date"),
@@ -372,9 +373,16 @@ class NewsArticle(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    game_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("games.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # Relationships
+    game: Mapped[Optional["Game"]] = relationship(back_populates="news_articles")
 
     __table_args__ = (
         Index("idx_news_source_published", "source_name", "published_at"),
+        Index("idx_news_game_published", "game_id", "published_at"),
     )
 
 
