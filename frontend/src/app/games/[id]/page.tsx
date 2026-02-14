@@ -53,6 +53,7 @@ export default async function GameDetailPage({ params }: PageProps) {
 
   let game = null;
   let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
+  let newsTotalPages = 0;
 
   try {
     game = await getGame(parseInt(id));
@@ -66,8 +67,9 @@ export default async function GameDetailPage({ params }: PageProps) {
   }
 
   try {
-    const newsResponse = await getGameNews(game.title, 5);
+    const newsResponse = await getGameNews(game.id, 1, 5);
     newsArticles = newsResponse.items;
+    newsTotalPages = newsResponse.total_pages;
   } catch {
     // News is non-critical — silently continue without it
   }
@@ -166,7 +168,7 @@ export default async function GameDetailPage({ params }: PageProps) {
       </div>
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
-      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} newsArticles={newsArticles} />
+      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} newsArticles={newsArticles} newsTotalPages={newsTotalPages} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews } from "@/lib/api";
+import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews, getGameNews } from "@/lib/api";
 import { ReviewDisparityChart } from "./ReviewDisparityChart";
 import { GameDetailTabs } from "./GameDetailTabs";
 import { CriticReviewsSection } from "./CriticReviewsSection";
@@ -17,14 +17,21 @@ interface LazyChartSectionProps {
   entityId: number;
   gameTitle?: string;
   newsArticles?: NewsArticle[];
+  newsTotalPages?: number;
 }
 
-export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles }: LazyChartSectionProps) {
+export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles, newsTotalPages = 0 }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
+
+  // News pagination state
+  const [allNews, setAllNews] = useState<NewsArticle[]>(newsArticles || []);
+  const [newsPage, setNewsPage] = useState(1);
+  const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
+  const [newsLoading, setNewsLoading] = useState(false);
 
   // Intersection Observer: trigger fetch when section scrolls into view
   useEffect(() => {
@@ -70,6 +77,22 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
 
     fetchData();
   }, [loading, reviews, error, entityId, entityType]);
+
+  const loadMoreNews = async () => {
+    if (newsLoading || !newsHasMore) return;
+    setNewsLoading(true);
+    try {
+      const nextPage = newsPage + 1;
+      const response = await getGameNews(entityId, nextPage, 5);
+      setAllNews((prev) => [...prev, ...response.items]);
+      setNewsPage(nextPage);
+      setNewsHasMore(nextPage < response.total_pages);
+    } catch {
+      // Silently fail — existing articles remain visible
+    } finally {
+      setNewsLoading(false);
+    }
+  };
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -123,11 +146,28 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
                 <CriticReviewsSection reviews={reviews as ReviewWithJournalist[]} />
               }
               journalistAlignment={buildJournalistAlignment(reviews as ReviewWithJournalist[])}
-              latestNews={newsArticles && newsArticles.length > 0 ? (
-                <div className="divide-y divide-gray-100">
-                  {newsArticles.map((article) => (
-                    <NewsCard key={article.id} article={article} compact />
-                  ))}
+              latestNews={allNews.length > 0 ? (
+                <div>
+                  <div className="divide-y divide-gray-100">
+                    {allNews.map((article) => (
+                      <NewsCard key={article.id} article={article} compact />
+                    ))}
+                  </div>
+                  {newsHasMore && (
+                    <div className="mt-4 text-center">
+                      <button
+                        onClick={loadMoreNews}
+                        disabled={newsLoading}
+                        className="px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                        style={{
+                          backgroundColor: "var(--color-rust)",
+                          color: "white",
+                        }}
+                      >
+                        {newsLoading ? "Loading..." : "Load More Articles"}
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : null}
             />

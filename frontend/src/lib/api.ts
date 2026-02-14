@@ -253,10 +253,11 @@ export async function getNewsSources(): Promise<string[]> {
 }
 
 export async function getGameNews(
-  gameTitle: string,
-  limit = 5
+  gameId: number,
+  page = 1,
+  perPage = 5
 ): Promise<PaginatedResponse<NewsArticle>> {
   return fetchAPI<PaginatedResponse<NewsArticle>>(
-    `/news?per_page=${limit}&search=${encodeURIComponent(gameTitle)}`
+    `/games/${gameId}/news?page=${page}&per_page=${perPage}`
   );
 }
