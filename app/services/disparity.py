@@ -92,7 +92,7 @@ class DisparityCalculator:
             game_id, score, sample_size = row
             if game_id not in scores:
                 scores[game_id] = {"steam_score": None, "metacritic_score": None}
-            if (sample_size or 0) >= MIN_METACRITIC_USER_REVIEWS:
+            if sample_size is None or sample_size >= MIN_METACRITIC_USER_REVIEWS:
                 scores[game_id]["metacritic_score"] = score
 
         self._user_scores_cache = scores
@@ -212,7 +212,7 @@ class DisparityCalculator:
         )
         metacritic_result = await self.db.execute(metacritic_query)
         metacritic_row = metacritic_result.first()
-        if metacritic_row and (metacritic_row[1] or 0) >= MIN_METACRITIC_USER_REVIEWS:
+        if metacritic_row and (metacritic_row[1] is None or metacritic_row[1] >= MIN_METACRITIC_USER_REVIEWS):
             result["metacritic_score"] = metacritic_row[0]
 
         return result
