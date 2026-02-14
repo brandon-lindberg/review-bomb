@@ -34,7 +34,7 @@ export function ScoreDisplay({
   const classes = sizeClasses[size];
 
   return (
-    <div className="flex items-center gap-4">
+    <div className="flex items-center justify-center sm:justify-start gap-4">
       {label && <span className="text-gray-500 text-sm w-20">{label}</span>}
 
       <div className="flex items-center gap-2">
