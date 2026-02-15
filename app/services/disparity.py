@@ -524,10 +524,10 @@ class DisparityCalculator:
                     journalist_obj.last_review_at = journalist_last_review.get(journalist_id)
 
             if i % 1000 == 0:
-                await self.db.flush()
+                await self.db.commit()
                 print(f"  {i}/{len(journalist_ids)} journalists processed...")
 
-        await self.db.flush()
+        await self.db.commit()
         print(f"  Done: {journalist_count} journalist snapshots")
 
         # ---- Outlets ----
@@ -560,10 +560,10 @@ class DisparityCalculator:
                     outlet_obj.journalist_count = outlet_journalist_counts.get(outlet_id, 0)
 
             if i % 100 == 0:
-                await self.db.flush()
+                await self.db.commit()
                 print(f"  {i}/{len(outlet_ids)} outlets processed...")
 
-        await self.db.flush()
+        await self.db.commit()
         print(f"  Done: {outlet_count} outlet snapshots")
 
         # ---- Games ----
@@ -593,7 +593,7 @@ class DisparityCalculator:
                     game_obj.disparity_metacritic = stats["avg_disparity_metacritic"]
 
             if i % 2000 == 0:
-                await self.db.flush()
+                await self.db.commit()
                 print(f"  {i}/{len(game_ids)} games processed...")
 
         await self.db.commit()

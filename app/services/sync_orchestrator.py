@@ -222,6 +222,10 @@ class SyncOrchestrator:
         self._request_count += 1
 
         synced_count = 0
+        # Track journalist/outlet published_at for last_review_at updates
+        journalist_latest: Dict[int, datetime] = {}
+        outlet_latest: Dict[int, datetime] = {}
+
         for review_data in reviews:
             try:
                 # Extract and upsert outlet from review
@@ -271,9 +275,28 @@ class SyncOrchestrator:
                 await self.db.execute(stmt)
                 synced_count += 1
 
+                # Track latest published_at per journalist/outlet
+                pub_at = transformed.get("published_at")
+                if pub_at:
+                    if journalist_id not in journalist_latest or pub_at > journalist_latest[journalist_id]:
+                        journalist_latest[journalist_id] = pub_at
+                    if outlet_id and (outlet_id not in outlet_latest or pub_at > outlet_latest[outlet_id]):
+                        outlet_latest[outlet_id] = pub_at
+
             except Exception as e:
                 print(f"Error processing review: {e}")
                 continue
+
+        # Update last_review_at on journalists and outlets
+        for j_id, latest in journalist_latest.items():
+            j_obj = await self.db.get(Journalist, j_id)
+            if j_obj and (j_obj.last_review_at is None or latest > j_obj.last_review_at):
+                j_obj.last_review_at = latest
+
+        for o_id, latest in outlet_latest.items():
+            o_obj = await self.db.get(Outlet, o_id)
+            if o_obj and (o_obj.last_review_at is None or latest > o_obj.last_review_at):
+                o_obj.last_review_at = latest
 
         await self.db.commit()
         return synced_count
