@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews, getGameNews } from "@/lib/api";
 import { ReviewDisparityChart } from "./ReviewDisparityChart";
+import { ReviewTimingChart } from "./ReviewTimingChart";
 import { GameDetailTabs } from "./GameDetailTabs";
 import { CriticReviewsSection } from "./CriticReviewsSection";
 import { JournalistAlignmentSection } from "./JournalistAlignmentSection";
@@ -18,14 +19,16 @@ interface LazyChartSectionProps {
   gameTitle?: string;
   newsArticles?: NewsArticle[];
   newsTotalPages?: number;
+  timingCounts?: { early: number; launchWindow: number; late: number };
 }
 
-export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles, newsTotalPages = 0 }: LazyChartSectionProps) {
+export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles, newsTotalPages = 0, timingCounts }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
+  const [chartTab, setChartTab] = useState<"disparity" | "timing">("disparity");
 
   // News pagination state
   const [allNews, setAllNews] = useState<NewsArticle[]>(newsArticles || []);
@@ -123,20 +126,62 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
       {/* Chart */}
       {reviews && reviews.length > 0 && (
         <>
-          <section className="bg-white rounded-lg shadow p-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
-              {entityType === "game" ? "Review Disparities" : "Disparity Over Time"}
-            </h2>
-            <ReviewDisparityChart
-              reviews={reviews}
-              context={entityType}
-              height={300}
-              {...(entityType === "game" && gameTitle ? { gameTitle } : {})}
-            />
-            <p className="mt-4 text-sm text-gray-500 text-center">
-              Each point represents a {entityType === "game" ? "critic " : ""}review. Hover for details.
-              Positive = critic higher than users. Negative = critic lower.
-            </p>
+          <section className="bg-white rounded-lg shadow">
+            {/* Tab bar for journalist/outlet pages */}
+            {entityType !== "game" && timingCounts && (
+              <div className="border-b" style={{ borderColor: "var(--border)" }}>
+                <nav className="flex gap-2 sm:gap-4 px-4 sm:px-6 overflow-x-auto">
+                  <button
+                    onClick={() => setChartTab("disparity")}
+                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                    style={chartTab === "disparity"
+                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                    }
+                  >
+                    Disparity Trend
+                  </button>
+                  <button
+                    onClick={() => setChartTab("timing")}
+                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                    style={chartTab === "timing"
+                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                    }
+                  >
+                    Review Timing
+                  </button>
+                </nav>
+              </div>
+            )}
+
+            <div className="p-6">
+              {(entityType === "game" || chartTab === "disparity") && (
+                <>
+                  {entityType === "game" && (
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Review Disparities</h2>
+                  )}
+                  <ReviewDisparityChart
+                    reviews={reviews}
+                    context={entityType}
+                    height={300}
+                    {...(entityType === "game" && gameTitle ? { gameTitle } : {})}
+                  />
+                  <p className="mt-4 text-sm text-gray-500 text-center">
+                    Each point represents a {entityType === "game" ? "critic " : ""}review. Hover for details.
+                    Positive = critic higher than users. Negative = critic lower.
+                  </p>
+                </>
+              )}
+
+              {entityType !== "game" && chartTab === "timing" && timingCounts && (
+                <ReviewTimingChart
+                  early={timingCounts.early}
+                  launchWindow={timingCounts.launchWindow}
+                  late={timingCounts.late}
+                />
+              )}
+            </div>
           </section>
 
           {/* Game-specific: Tabbed section with critic reviews and journalist alignment */}

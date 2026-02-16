@@ -211,29 +211,37 @@ export default async function JournalistDetailPage({
                     </div>
 
                     {/* Transparency: Early, launch window, and late review breakdown */}
-                    {(journalist.stats?.early_review_count != null || journalist.stats?.launch_window_review_count != null || journalist.stats?.late_review_count != null) && (
-                      <div className="mt-3 text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--foreground-muted)" }}>
-                        {(journalist.stats?.early_review_count ?? 0) > 0 && (
+                    {(journalist.stats?.early_review_count != null || journalist.stats?.launch_window_review_count != null || journalist.stats?.late_review_count != null) && (() => {
+                      const early = journalist.stats?.early_review_count ?? 0;
+                      const launchWindow = journalist.stats?.launch_window_review_count ?? 0;
+                      const late = journalist.stats?.late_review_count ?? 0;
+                      const timingTotal = early + launchWindow + late;
+                      const pct = (n: number) => timingTotal > 0 ? ((n / timingTotal) * 100).toFixed(0) : "0";
+
+                      return (
+                        <div className="mt-3 text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--foreground-muted)" }}>
+                          {early > 0 && (
+                            <span className="inline-flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              {early} early ({pct(early)}%)
+                            </span>
+                          )}
                           <span className="inline-flex items-center gap-1">
-                            <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                            {journalist.stats?.early_review_count ?? 0} early (before release)
+                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            {launchWindow} launch window ({pct(launchWindow)}%)
                           </span>
-                        )}
-                        <span className="inline-flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                          {journalist.stats?.launch_window_review_count ?? 0} launch window
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-                          {journalist.stats?.late_review_count ?? 0} late
-                        </span>
-                        {isUsingOverall && (
-                          <span className="ml-2 text-amber-600">
-                            *No launch window reviews - showing overall disparity
+                          <span className="inline-flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                            {late} late ({pct(late)}%)
                           </span>
-                        )}
-                      </div>
-                    )}
+                          {isUsingOverall && (
+                            <span className="ml-2 text-amber-600">
+                              *No launch window reviews - showing overall disparity
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </>
                 );
               })()}
@@ -315,7 +323,15 @@ export default async function JournalistDetailPage({
       </div>
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
-      <LazyChartSection entityType="journalist" entityId={parseInt(id)} />
+      <LazyChartSection
+        entityType="journalist"
+        entityId={parseInt(id)}
+        timingCounts={{
+          early: journalist.stats?.early_review_count ?? 0,
+          launchWindow: journalist.stats?.launch_window_review_count ?? 0,
+          late: journalist.stats?.late_review_count ?? 0,
+        }}
+      />
 
       {/* Reviews */}
       {reviews && reviews.items.length > 0 && (

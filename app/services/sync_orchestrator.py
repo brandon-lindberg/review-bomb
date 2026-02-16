@@ -14,7 +14,7 @@ Features:
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
@@ -276,12 +276,16 @@ class SyncOrchestrator:
                 synced_count += 1
 
                 # Track latest published_at per journalist/outlet
+                # Guard against obviously wrong future dates from OpenCritic
                 pub_at = transformed.get("published_at")
-                if pub_at:
+                max_reasonable_date = datetime.utcnow() + timedelta(days=30)
+                if pub_at and pub_at <= max_reasonable_date:
                     if journalist_id not in journalist_latest or pub_at > journalist_latest[journalist_id]:
                         journalist_latest[journalist_id] = pub_at
                     if outlet_id and (outlet_id not in outlet_latest or pub_at > outlet_latest[outlet_id]):
                         outlet_latest[outlet_id] = pub_at
+                elif pub_at and pub_at > max_reasonable_date:
+                    print(f"Warning: Skipping future date {pub_at} for review {transformed.get('opencritic_review_id')}")
 
             except Exception as e:
                 print(f"Error processing review: {e}")
@@ -510,8 +514,6 @@ class SyncOrchestrator:
 
         Returns stats about what was refreshed.
         """
-        from datetime import timedelta
-
         print(f"Starting review refresh (days={days}, all={all_games})")
 
         sync_log = SyncLog(
