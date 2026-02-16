@@ -8,7 +8,8 @@ Usage:
     python -m app sync --reset      Reset sync state (start fresh)
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app steam             Sync Steam user scores
-    python -m app metacritic        Sync Metacritic scores (user + metascore)
+    python -m app metacritic        Sync Metacritic scores (skips recently synced games)
+    python -m app metacritic --recent  Sync only games released in last 90 days
     python -m app disparity         Calculate disparity snapshots
     python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
     python -m app clear             Clear all data from database
@@ -133,6 +134,7 @@ async def cmd_metacritic(args):
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import select, func, delete, or_, and_
+    from datetime import timedelta, date as date_type
 
     async with async_session_maker() as db:
         # Handle --status flag
@@ -178,9 +180,20 @@ async def cmd_metacritic(args):
                 Game.metacritic_user_score.isnot(None),
                 Game.metacritic_sample_size.is_(None),
             )
+            mode = 'missing sample size'
         elif args.force:
             # Re-sync all games
             query = select(Game).where(Game.metacritic_slug.isnot(None))
+            mode = 'total'
+        elif args.recent is not None:
+            # Only process games released in the last N days
+            days = args.recent
+            cutoff_date = date_type.today() - timedelta(days=days)
+            query = select(Game).where(
+                Game.metacritic_slug.isnot(None),
+                Game.release_date >= cutoff_date,
+            )
+            mode = f'released in last {days} days'
         else:
             # Sync games that either: have no metascore yet, OR have a metascore but no user score
             games_with_user_score = (
@@ -199,10 +212,21 @@ async def cmd_metacritic(args):
                     ),
                 ),
             )
+
+            # Apply stale-days filter: skip games synced recently
+            stale_days = args.stale_days
+            if stale_days > 0:
+                stale_cutoff = datetime.utcnow() - timedelta(days=stale_days)
+                query = query.where(
+                    or_(
+                        Game.metacritic_synced_at.is_(None),
+                        Game.metacritic_synced_at < stale_cutoff,
+                    )
+                )
+
+            mode = 'needing'
         result = await db.execute(query)
         games = result.scalars().all()
-
-        mode = 'total' if args.force else ('missing sample size' if args.backfill_counts else 'needing')
         print(f"Found {len(games)} games {mode} Metacritic sync")
 
         if args.limit:
@@ -293,6 +317,9 @@ async def cmd_metacritic(args):
 
                         if not updated_anything:
                             skipped += 1
+
+                    # Mark this game as synced regardless of whether data changed
+                    game.metacritic_synced_at = datetime.utcnow()
 
                     # Commit every 10 games processed
                     processed += 1
@@ -863,6 +890,8 @@ def main():
     metacritic_parser.add_argument("--force", action="store_true", help="Re-sync all games, even already synced ones")
     metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts")
     metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
+    metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days (default: 90)")
+    metacritic_parser.add_argument("--stale-days", type=int, default=30, help="Skip games synced within the last N days (default: 30, use 0 to disable)")
 
     # Disparity command
     disparity_parser = subparsers.add_parser("disparity", help="Calculate disparity snapshots")

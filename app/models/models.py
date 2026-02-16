@@ -165,6 +165,7 @@ class Game(Base):
 
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    metacritic_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -6,6 +6,10 @@ on:
     - cron: '0 */4 * * *'
     # Disparity calculation - every 12 hours
     - cron: '0 */12 * * *'
+    # Metacritic recent 45 days - once a day at 6 AM UTC
+    - cron: '0 6 * * *'
+    # Metacritic recent 90 days - once a day at 6 PM UTC
+    - cron: '0 18 * * *'
   workflow_dispatch:
     inputs:
       job:
@@ -15,6 +19,8 @@ on:
         options:
           - news
           - disparity
+          - metacritic-recent-45
+          - metacritic-recent-90
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -53,3 +59,39 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m app disparity
         timeout-minutes: 60
+
+  metacritic-recent-45:
+    name: Sync Metacritic (Last 45 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 6 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-recent-45')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium --with-deps
+      - run: python -m app metacritic --recent 45
+        timeout-minutes: 120
+
+  metacritic-recent-90:
+    name: Sync Metacritic (Last 90 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 18 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-recent-90')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium --with-deps
+      - run: python -m app metacritic --recent
+        timeout-minutes: 120
