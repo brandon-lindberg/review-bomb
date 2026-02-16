@@ -19,6 +19,7 @@ if settings.environment == "production":
     ssl_context.check_hostname = False
     ssl_context.verify_mode = ssl.CERT_NONE
     connect_args["ssl"] = ssl_context
+    connect_args["timeout"] = 30  # Connection timeout in seconds
 
 # Create async engine
 engine = create_async_engine(
