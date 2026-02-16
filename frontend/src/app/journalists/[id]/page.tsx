@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getJournalist, getJournalistReviews } from "@/lib/api";
+import { getJournalist } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
-import { ReviewScoreCards } from "@/components/ReviewScoreTable";
 import { LazyChartSection } from "@/components/LazyChartSection";
+import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
@@ -51,20 +51,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
 export default async function JournalistDetailPage({
   params,
-  searchParams,
 }: PageProps) {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
 
   let journalist = null;
-  let reviews = null;
 
   try {
-    [journalist, reviews] = await Promise.all([
-      getJournalist(parseInt(id)),
-      getJournalistReviews(parseInt(id), page, 20),
-    ]);
+    journalist = await getJournalist(parseInt(id));
   } catch (error) {
     console.error("Error fetching journalist:", error);
     notFound();
@@ -333,142 +326,8 @@ export default async function JournalistDetailPage({
         }}
       />
 
-      {/* Reviews */}
-      {reviews && reviews.items.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Reviews</h2>
-          <div className="space-y-4">
-            {reviews.items.map((review) => (
-              <div
-                key={review.id}
-                className="relative p-4 border rounded-lg"
-                style={{ borderColor: "var(--border)" }}
-              >
-                {/* Mobile: full-card tap target for review URL */}
-                {review.review_url && (
-                  <a
-                    href={review.review_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute inset-0 sm:hidden z-0"
-                    aria-label={`Read review of ${review.game_title}`}
-                  />
-                )}
-                {/* Header: Game title, outlet, date */}
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link
-                        href={`/games/${review.game_id}`}
-                        className="relative z-10 font-medium hover:opacity-80"
-                        style={{ color: "var(--foreground)" }}
-                      >
-                        {review.game_title}
-                      </Link>
-                      {review.outlet_name && (
-                        <>
-                          <span style={{ color: "var(--foreground-muted)" }}>via</span>
-                          <Link
-                            href={`/outlets/${review.outlet_id}`}
-                            className="relative z-10 hover:opacity-80"
-                            style={{ color: "var(--foreground-muted)" }}
-                          >
-                            {review.outlet_name}
-                          </Link>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {review.published_at && (
-                        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                          {new Date(review.published_at).toLocaleDateString()}
-                        </p>
-                      )}
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
-                          review.review_timing === "early"
-                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
-                            : review.review_timing === "launch_window"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                        }`}
-                        title={review.game_release_date
-                          ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
-                              review.review_timing === "early" ? " (before release)" :
-                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
-                            }`
-                          : "Release date unknown"}
-                      >
-                        {review.review_timing === "early" ? "Early Review" :
-                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
-                      </span>
-                    </div>
-                  </div>
-                  {review.review_url && (
-                    <a
-                      href={review.review_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="relative z-10 hidden sm:inline-block text-sm px-3 py-1 rounded hover:opacity-80"
-                      style={{ backgroundColor: "var(--color-rust)", color: "white" }}
-                    >
-                      Read Review
-                    </a>
-                  )}
-                </div>
-
-                {/* Snippet */}
-                {review.snippet && (
-                  <p className="mb-3 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
-                    &ldquo;{review.snippet}&rdquo;
-                  </p>
-                )}
-
-                {/* Score breakdown */}
-                <ReviewScoreCards
-                  criticScore={review.score_normalized}
-                  steamScore={review.steam_user_score}
-                  steamDisparity={review.disparity_steam}
-                  metacriticScore={review.metacritic_user_score}
-                  metacriticDisparity={review.disparity_metacritic}
-                  combinedDisparity={
-                    review.disparity_steam != null && review.disparity_metacritic != null
-                      ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
-                      : review.disparity_steam ?? review.disparity_metacritic
-                  }
-                />
-              </div>
-            ))}
-          </div>
-
-          {/* Pagination */}
-          {reviews.total_pages > 1 && (
-            <div className="mt-6 flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/journalists/${id}?page=${page - 1}`}
-                  prefetch={false}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {reviews.total_pages}
-              </span>
-              {page < reviews.total_pages && (
-                <Link
-                  href={`/journalists/${id}?page=${page + 1}`}
-                  prefetch={false}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
-        </section>
-      )}
+      {/* Reviews - client-side with filtering */}
+      <JournalistReviewsSection journalistId={parseInt(id)} />
     </div>
   );
 }

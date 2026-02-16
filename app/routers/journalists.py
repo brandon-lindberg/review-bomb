@@ -370,12 +370,12 @@ async def get_journalist(
 
 
 @router.get("/{journalist_id}/reviews", response_model=PaginatedResponse[ReviewWithDisparity])
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def get_journalist_reviews(
     request: Request,
     journalist_id: int,
     page: int = Query(1, ge=1, le=100),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """Get paginated reviews for a journalist, newest first."""

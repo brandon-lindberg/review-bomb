@@ -189,7 +189,7 @@ export async function getJournalistAllReviews(
 
   while (hasMore) {
     const response = await fetchAPI<PaginatedResponse<ReviewWithDisparity>>(
-      `/journalists/${id}/reviews?page=${page}&per_page=100`
+      `/journalists/${id}/reviews?page=${page}&per_page=500`
     );
     allReviews.push(...response.items);
     hasMore = page < response.total_pages;
