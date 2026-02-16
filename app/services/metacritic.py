@@ -7,7 +7,7 @@ Note: Use responsibly and respect robots.txt and rate limits.
 
 import asyncio
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from decimal import Decimal
 
@@ -174,7 +174,7 @@ class MetacriticService:
                         "user_sample_size": None,
                         "metascore": None,
                         "critic_count": None,
-                        "scraped_at": datetime.utcnow(),
+                        "scraped_at": datetime.now(timezone.utc),
                     }
 
                     # === METASCORE (Critic aggregate) ===

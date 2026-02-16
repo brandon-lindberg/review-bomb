@@ -5,7 +5,7 @@ Fetches user review data from Steam Web API.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from decimal import Decimal
 
@@ -190,7 +190,7 @@ class SteamService:
             "positive_count": positive,
             "negative_count": negative,
             "review_score_desc": review_desc,
-            "scraped_at": datetime.utcnow(),
+            "scraped_at": datetime.now(timezone.utc),
         }
 
     async def search_games(self, query: str) -> list[Dict[str, Any]]:

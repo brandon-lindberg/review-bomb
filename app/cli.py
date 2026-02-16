@@ -22,7 +22,7 @@ Usage:
 import argparse
 import asyncio
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 from app.database import async_session_maker
 from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get_sync_status
@@ -226,7 +226,7 @@ async def cmd_metacritic(args):
             # Apply stale-days filter: skip games synced recently
             stale_days = args.stale_days
             if stale_days > 0:
-                stale_cutoff = datetime.utcnow() - timedelta(days=stale_days)
+                stale_cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
                 query = query.where(
                     or_(
                         Game.metacritic_synced_at.is_(None),
@@ -329,7 +329,7 @@ async def cmd_metacritic(args):
                             skipped += 1
 
                     # Mark this game as synced regardless of whether data changed
-                    game.metacritic_synced_at = datetime.utcnow()
+                    game.metacritic_synced_at = datetime.now(timezone.utc)
 
                     # Commit every 10 games processed
                     processed += 1

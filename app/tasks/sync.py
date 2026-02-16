@@ -6,7 +6,7 @@ and storing it in the database.
 """
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import dramatiq
@@ -81,7 +81,7 @@ async def _sync_opencritic_full():
                         "name": stmt.excluded.name,
                         "website_url": stmt.excluded.website_url,
                         "logo_url": stmt.excluded.logo_url,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                     },
                 )
                 await db.execute(stmt)
@@ -101,7 +101,7 @@ async def _sync_opencritic_full():
                     set_={
                         "name": stmt.excluded.name,
                         "image_url": stmt.excluded.image_url,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                     },
                 )
                 await db.execute(stmt)
@@ -155,7 +155,7 @@ async def _sync_opencritic_full():
                         "image_url": stmt.excluded.image_url,
                         "steam_app_id": stmt.excluded.steam_app_id,
                         "metacritic_slug": stmt.excluded.metacritic_slug,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                     },
                 )
                 await db.execute(stmt)
@@ -228,7 +228,7 @@ async def _sync_opencritic_full():
                             "score_normalized": stmt.excluded.score_normalized,
                             "review_url": stmt.excluded.review_url,
                             "snippet": stmt.excluded.snippet,
-                            "updated_at": datetime.utcnow(),
+                            "updated_at": datetime.now(timezone.utc),
                         },
                     )
                     await db.execute(stmt)
@@ -246,7 +246,7 @@ async def _sync_opencritic_full():
             sync_log.status = SyncStatus.COMPLETED
             sync_log.records_processed = records_processed
             sync_log.records_created = records_created
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
             print(f"OpenCritic full sync completed: {records_processed} records processed")
@@ -254,7 +254,7 @@ async def _sync_opencritic_full():
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
             sync_log.error_message = str(e)
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
             raise
 
@@ -358,7 +358,7 @@ async def _sync_steam_scores():
             sync_log.records_processed = records_processed
             sync_log.records_created = records_created
             sync_log.records_failed = records_failed
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
             print(f"Steam sync completed: {records_created} scores created")
@@ -366,7 +366,7 @@ async def _sync_steam_scores():
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
             sync_log.error_message = str(e)
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
             raise
 
@@ -481,7 +481,7 @@ async def _sync_metacritic_scores():
             sync_log.records_created = records_created
             sync_log.records_updated = records_updated
             sync_log.records_failed = records_failed
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
             print(f"Metacritic sync completed: {records_created} user scores created, {records_deleted} invalid scores deleted, {records_updated} metascores updated")
@@ -489,7 +489,7 @@ async def _sync_metacritic_scores():
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
             sync_log.error_message = str(e)
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
             raise
 

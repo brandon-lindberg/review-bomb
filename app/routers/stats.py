@@ -1,7 +1,7 @@
 """Stats API endpoints."""
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends
@@ -73,7 +73,7 @@ async def get_stats(
         total_games=total_games,
         total_reviews=total_reviews,
         avg_disparity_site=avg_disparity,
-        last_updated=datetime.utcnow(),
+        last_updated=datetime.now(timezone.utc),
     )
 
 
@@ -90,7 +90,7 @@ async def get_recent_reviews(
         data = json.loads(cached)
         return [ReviewWithJournalist(**item) for item in data]
 
-    today = datetime.utcnow()
+    today = datetime.now(timezone.utc)
 
     # Get recent reviews with journalist, game, and outlet
     query = (

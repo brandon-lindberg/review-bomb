@@ -8,7 +8,7 @@ Optimized to use bulk-loading: all user scores and reviews are loaded
 upfront in a few queries, then all calculations happen in-memory.
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from collections import defaultdict
 from typing import Optional, List, Dict, Any, Tuple
@@ -472,7 +472,7 @@ class DisparityCalculator:
         last_review_result = await self.db.execute(last_review_query)
         journalist_last_review: Dict[int, datetime] = {}
         outlet_last_review: Dict[int, datetime] = {}
-        max_reasonable_date = datetime.utcnow() + timedelta(days=30)
+        max_reasonable_date = datetime.now(timezone.utc) + timedelta(days=30)
         for row in last_review_result:
             j_id, o_id, last_at = row
             if last_at is not None and last_at <= max_reasonable_date:

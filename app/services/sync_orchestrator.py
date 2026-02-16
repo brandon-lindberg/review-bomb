@@ -14,7 +14,7 @@ Features:
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
@@ -78,7 +78,7 @@ class SyncOrchestrator:
         stmt = insert(SyncState).values(key=key, value=value)
         stmt = stmt.on_conflict_do_update(
             index_elements=["key"],
-            set_={"value": stmt.excluded.value, "updated_at": datetime.utcnow()},
+            set_={"value": stmt.excluded.value, "updated_at": datetime.now(timezone.utc)},
         )
         await self.db.execute(stmt)
         await self.db.commit()
@@ -151,7 +151,7 @@ class SyncOrchestrator:
                 "name": stmt.excluded.name,
                 "website_url": stmt.excluded.website_url,
                 "logo_url": stmt.excluded.logo_url,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         await self.db.execute(stmt)
@@ -174,7 +174,7 @@ class SyncOrchestrator:
             set_={
                 "name": stmt.excluded.name,
                 "image_url": stmt.excluded.image_url,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         await self.db.execute(stmt)
@@ -199,7 +199,7 @@ class SyncOrchestrator:
                 "percent_recommended": stmt.excluded.percent_recommended,
                 "tier": stmt.excluded.tier,
                 "image_url": stmt.excluded.image_url,
-                "updated_at": datetime.utcnow(),
+                "updated_at": datetime.now(timezone.utc),
             },
         )
         await self.db.execute(stmt)
@@ -269,7 +269,7 @@ class SyncOrchestrator:
                         "score_normalized": stmt.excluded.score_normalized,
                         "review_url": stmt.excluded.review_url,
                         "snippet": stmt.excluded.snippet,
-                        "updated_at": datetime.utcnow(),
+                        "updated_at": datetime.now(timezone.utc),
                     },
                 )
                 await self.db.execute(stmt)
@@ -278,7 +278,7 @@ class SyncOrchestrator:
                 # Track latest published_at per journalist/outlet
                 # Guard against obviously wrong future dates from OpenCritic
                 pub_at = transformed.get("published_at")
-                max_reasonable_date = datetime.now(tz=pub_at.tzinfo) + timedelta(days=30) if pub_at and pub_at.tzinfo else datetime.utcnow() + timedelta(days=30)
+                max_reasonable_date = datetime.now(timezone.utc) + timedelta(days=30)
                 if pub_at and pub_at <= max_reasonable_date:
                     if journalist_id not in journalist_latest or pub_at > journalist_latest[journalist_id]:
                         journalist_latest[journalist_id] = pub_at
@@ -422,7 +422,7 @@ class SyncOrchestrator:
                     # Set last_review_sync_at on the game
                     game_obj = await self.db.get(Game, internal_game_id)
                     if game_obj:
-                        game_obj.last_review_sync_at = datetime.utcnow()
+                        game_obj.last_review_sync_at = datetime.now(timezone.utc)
 
                     # Mark as synced
                     await self._add_synced_game_id(opencritic_game_id)
@@ -450,7 +450,7 @@ class SyncOrchestrator:
             sync_log.status = SyncStatus.COMPLETED
             sync_log.records_processed = stats["games_synced"]
             sync_log.records_created = stats["reviews_synced"]
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
 
             print(f"\nSync complete:")
@@ -463,7 +463,7 @@ class SyncOrchestrator:
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
             sync_log.error_message = str(e)
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
             raise
 
@@ -537,7 +537,7 @@ class SyncOrchestrator:
             if all_games:
                 query = select(Game).where(Game.opencritic_id.isnot(None))
             else:
-                cutoff_date = (datetime.utcnow() - timedelta(days=days)).date()
+                cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).date()
                 query = select(Game).where(
                     Game.opencritic_id.isnot(None),
                     Game.release_date.isnot(None),
@@ -595,7 +595,7 @@ class SyncOrchestrator:
                         if extra_reviews:
                             print(f"  + {extra_reviews} reviews from merged OC {deprecated_oc_id}")
 
-                    game.last_review_sync_at = datetime.utcnow()
+                    game.last_review_sync_at = datetime.now(timezone.utc)
                     await self.db.commit()
 
                     stats["games_refreshed"] += 1
@@ -610,7 +610,7 @@ class SyncOrchestrator:
             sync_log.status = SyncStatus.COMPLETED
             sync_log.records_processed = stats["games_refreshed"]
             sync_log.records_created = stats["reviews_synced"]
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
 
             print(f"\nRefresh complete:")
@@ -621,7 +621,7 @@ class SyncOrchestrator:
         except Exception as e:
             sync_log.status = SyncStatus.FAILED
             sync_log.error_message = str(e)
-            sync_log.completed_at = datetime.utcnow()
+            sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
             raise
 
