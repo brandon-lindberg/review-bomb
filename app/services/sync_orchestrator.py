@@ -278,7 +278,7 @@ class SyncOrchestrator:
                 # Track latest published_at per journalist/outlet
                 # Guard against obviously wrong future dates from OpenCritic
                 pub_at = transformed.get("published_at")
-                max_reasonable_date = datetime.utcnow() + timedelta(days=30)
+                max_reasonable_date = datetime.now(tz=pub_at.tzinfo) + timedelta(days=30) if pub_at and pub_at.tzinfo else datetime.utcnow() + timedelta(days=30)
                 if pub_at and pub_at <= max_reasonable_date:
                     if journalist_id not in journalist_latest or pub_at > journalist_latest[journalist_id]:
                         journalist_latest[journalist_id] = pub_at
