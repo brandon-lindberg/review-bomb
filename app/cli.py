@@ -194,6 +194,16 @@ async def cmd_metacritic(args):
                 Game.release_date >= cutoff_date,
             )
             mode = f'released in last {days} days'
+        elif args.new_only is not None:
+            # Only process recently released games that have never been synced from Metacritic
+            days = args.new_only
+            cutoff_date = date_type.today() - timedelta(days=days)
+            query = select(Game).where(
+                Game.metacritic_slug.isnot(None),
+                Game.metacritic_synced_at.is_(None),
+                Game.release_date >= cutoff_date,
+            )
+            mode = f'new (released in last {days} days, never synced)'
         else:
             # Sync games that either: have no metascore yet, OR have a metascore but no user score
             games_with_user_score = (
@@ -891,6 +901,7 @@ def main():
     metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts")
     metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
     metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days (default: 90)")
+    metacritic_parser.add_argument("--new-only", type=int, nargs="?", const=60, default=None, help="Only process games released in last N days that have never been synced (default: 60)")
     metacritic_parser.add_argument("--stale-days", type=int, default=30, help="Skip games synced within the last N days (default: 30, use 0 to disable)")
 
     # Disparity command
