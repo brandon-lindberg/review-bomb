@@ -70,7 +70,7 @@ export default async function Home() {
       <div className="grid md:grid-cols-2 gap-8">
         {/* Recent Reviews */}
         {recentReviews && recentReviews.length > 0 && (
-          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
                 Recent Reviews
@@ -97,20 +97,21 @@ export default async function Home() {
                           href={`/games/${review.game_id}`}
                           className="font-medium hover:underline block truncate"
                           style={{ color: "var(--foreground)" }}
+                          title={review.game_title ?? undefined}
                         >
                           {review.game_title}
                         </Link>
-                        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
+                        <div className="flex items-center gap-2 text-sm min-w-0 overflow-hidden" style={{ color: "var(--foreground-muted)" }}>
                           <Link
                             href={`/journalists/${review.journalist_id}`}
-                            className="hover:underline"
+                            className="hover:underline truncate shrink-0 max-w-[45%]"
                           >
                             {review.journalist_name}
                           </Link>
                           {review.outlet_name && (
                             <>
-                              <span>•</span>
-                              <span>{review.outlet_name}</span>
+                              <span className="shrink-0">•</span>
+                              <span className="truncate">{review.outlet_name}</span>
                             </>
                           )}
                         </div>
@@ -139,7 +140,7 @@ export default async function Home() {
 
         {/* Recent Games */}
         {recentGames && recentGames.items.length > 0 && (
-          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
                 Recent Games
