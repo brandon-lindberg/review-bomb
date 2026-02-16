@@ -84,6 +84,10 @@ export interface OutletWithStats extends Outlet {
   avg_disparity_combined: number | null;
   avg_score: number | null;
   journalists?: Journalist[];
+  // Transparency metrics - timing
+  early_review_count?: number;
+  launch_window_review_count?: number;
+  late_review_count?: number;
   // Transparency metrics - scoring patterns
   min_score_given: number | null;
   max_score_given: number | null;

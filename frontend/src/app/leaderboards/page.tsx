@@ -99,146 +99,159 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
       {data ? (
         <>
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-16">
-                    {sort === "recent" ? "#" : "Rank"}
-                  </th>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                    {tab === "games" ? "Game" : "Name"}
-                  </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500 w-24">
-                    Reviews
-                  </th>
-                  <th className="px-4 py-3 text-right text-sm font-medium text-gray-500 whitespace-nowrap">
-                    {tab === "games" ? (
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="min-w-[70px] text-center" style={{ color: "#708160" }}>Steam</span>
-                        <span className="min-w-[70px] text-center" style={{ color: "#DD7631" }}>MC</span>
-                        <span className="min-w-[70px] text-center" style={{ color: "#5C574F" }}>Combined</span>
-                      </div>
-                    ) : "Avg Disparity"}
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {data.items.map((item, index) => {
-                  const rank = (page - 1) * 20 + index + 1;
+            {/* Desktop table header */}
+            <div className="hidden md:flex items-center bg-gray-50 px-4 py-3 text-sm font-medium text-gray-500 gap-3">
+              <div className="w-12 shrink-0">{sort === "recent" ? "#" : "Rank"}</div>
+              {/* Avatar placeholder for journalists/outlets */}
+              {tab !== "games" && <div className="w-8 shrink-0" />}
+              <div className="flex-1 min-w-0">{tab === "games" ? "Game" : "Name"}</div>
+              <div className="w-20 text-right shrink-0">Reviews</div>
+              {tab === "games" ? (
+                <div className="flex items-center justify-end gap-2 shrink-0 ml-4">
+                  <span className="w-[70px] text-center" style={{ color: "#708160" }}>Steam</span>
+                  <span className="w-[70px] text-center" style={{ color: "#DD7631" }}>MC</span>
+                  <span className="w-[70px] text-center" style={{ color: "#5C574F" }}>Combined</span>
+                </div>
+              ) : (
+                <div className="w-24 text-right shrink-0 ml-4">Avg Disparity</div>
+              )}
+            </div>
 
-                  // Extract fields based on leaderboard type
-                  let id: number;
-                  let linkHref: string;
-                  let name: string;
-                  let subtitle: string | null = null;
-                  let imageUrl: string | null = null;
-                  let reviewCount: number;
-                  let steamDisparity: number | null = null;
-                  let metacriticDisparity: number | null = null;
-                  let combinedDisparity: number | null = null;
+            {/* List items */}
+            <div className="divide-y divide-gray-200">
+              {data.items.map((item, index) => {
+                const rank = (page - 1) * 20 + index + 1;
 
-                  if (tab === "journalists" && "journalist_id" in item) {
-                    id = item.journalist_id;
-                    linkHref = `/journalists/${id}`;
-                    name = item.journalist_name;
-                    subtitle = item.outlet_name || null;
-                    imageUrl = item.journalist_image_url;
-                    reviewCount = item.review_count;
-                    steamDisparity = item.avg_disparity_steam ?? null;
-                    metacriticDisparity = item.avg_disparity_metacritic ?? null;
-                    combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
-                  } else if (tab === "outlets" && "outlet_id" in item) {
-                    id = item.outlet_id;
-                    linkHref = `/outlets/${id}`;
-                    name = item.outlet_name;
-                    imageUrl = item.outlet_logo_url;
-                    reviewCount = item.review_count;
-                    steamDisparity = item.avg_disparity_steam ?? null;
-                    metacriticDisparity = item.avg_disparity_metacritic ?? null;
-                    combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
-                  } else if (tab === "games" && "game_id" in item) {
-                    id = item.game_id;
-                    linkHref = `/games/${id}`;
-                    name = item.game_title;
-                    subtitle = item.release_date
-                      ? new Date(item.release_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                      : null;
-                    imageUrl = item.game_image_url;
-                    reviewCount = item.critic_review_count;
-                    steamDisparity = item.disparity_steam ?? null;
-                    metacriticDisparity = item.disparity_metacritic ?? null;
-                    combinedDisparity = item.disparity;
-                  } else {
-                    return null;
-                  }
+                // Extract fields based on leaderboard type
+                let id: number;
+                let linkHref: string;
+                let name: string;
+                let subtitle: string | null = null;
+                let imageUrl: string | null = null;
+                let reviewCount: number;
+                let steamDisparity: number | null = null;
+                let metacriticDisparity: number | null = null;
+                let combinedDisparity: number | null = null;
 
-                  return (
-                    <tr key={id} className="hover:bg-gray-50">
-                      <td className="px-4 py-4 text-sm text-gray-500 w-16">
-                        {rank}
-                      </td>
-                      <td className="px-4 py-4">
-                        <Link
-                          href={linkHref}
-                          className="flex items-center gap-3 font-medium hover:opacity-80"
-                          style={{ color: "var(--foreground)" }}
+                if (tab === "journalists" && "journalist_id" in item) {
+                  id = item.journalist_id;
+                  linkHref = `/journalists/${id}`;
+                  name = item.journalist_name;
+                  subtitle = item.outlet_name || null;
+                  imageUrl = item.journalist_image_url;
+                  reviewCount = item.review_count;
+                  steamDisparity = item.avg_disparity_steam ?? null;
+                  metacriticDisparity = item.avg_disparity_metacritic ?? null;
+                  combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
+                } else if (tab === "outlets" && "outlet_id" in item) {
+                  id = item.outlet_id;
+                  linkHref = `/outlets/${id}`;
+                  name = item.outlet_name;
+                  imageUrl = item.outlet_logo_url;
+                  reviewCount = item.review_count;
+                  steamDisparity = item.avg_disparity_steam ?? null;
+                  metacriticDisparity = item.avg_disparity_metacritic ?? null;
+                  combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
+                } else if (tab === "games" && "game_id" in item) {
+                  id = item.game_id;
+                  linkHref = `/games/${id}`;
+                  name = item.game_title;
+                  subtitle = item.release_date
+                    ? new Date(item.release_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                    : null;
+                  imageUrl = item.game_image_url;
+                  reviewCount = item.critic_review_count;
+                  steamDisparity = item.disparity_steam ?? null;
+                  metacriticDisparity = item.disparity_metacritic ?? null;
+                  combinedDisparity = item.disparity;
+                } else {
+                  return null;
+                }
+
+                return (
+                  <Link
+                    key={id}
+                    href={linkHref}
+                    className="flex items-center px-4 py-4 hover:bg-gray-50 transition-colors gap-3"
+                  >
+                    {/* Rank */}
+                    <div className="w-8 md:w-12 shrink-0 text-sm text-gray-500">
+                      {rank}
+                    </div>
+
+                    {/* Avatar (journalists/outlets only) */}
+                    {tab !== "games" && (
+                      imageUrl ? (
+                        <img
+                          src={imageUrl}
+                          alt={name}
+                          className={`flex-shrink-0 ${
+                            tab === "journalists"
+                              ? "w-8 h-8 rounded-full object-cover"
+                              : "w-8 h-8 rounded object-contain bg-gray-100"
+                          }`}
+                        />
+                      ) : (
+                        <div
+                          className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
+                            tab === "journalists"
+                              ? "w-8 h-8 rounded-full"
+                              : "w-8 h-8 rounded"
+                          }`}
                         >
-                          {tab !== "games" && (
-                            imageUrl ? (
-                              <img
-                                src={imageUrl}
-                                alt={name}
-                                className={`flex-shrink-0 ${
-                                  tab === "journalists"
-                                    ? "w-8 h-8 rounded-full object-cover"
-                                    : "w-8 h-8 rounded object-contain bg-gray-100"
-                                }`}
-                              />
-                            ) : (
-                              <div
-                                className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
-                                  tab === "journalists"
-                                    ? "w-8 h-8 rounded-full"
-                                    : "w-8 h-8 rounded"
-                                }`}
-                              >
-                                <span className="text-gray-500 text-xs font-medium">
-                                  {name.charAt(0)}
-                                </span>
-                              </div>
-                            )
-                          )}
-                          <div>
-                            <span>{name}</span>
-                            {subtitle && (
-                              <span className="block text-xs font-normal" style={{ color: "var(--foreground-muted)" }}>
-                                {subtitle}
-                              </span>
-                            )}
+                          <span className="text-gray-500 text-xs font-medium">
+                            {name.charAt(0)}
+                          </span>
+                        </div>
+                      )
+                    )}
+
+                    {/* Name + subtitle */}
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium block truncate" style={{ color: "var(--foreground)" }}>
+                        {name}
+                      </span>
+                      {subtitle && (
+                        <span className="block text-xs truncate" style={{ color: "var(--foreground-muted)" }}>
+                          {subtitle}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Reviews count */}
+                    <div className="w-12 md:w-20 text-right shrink-0 text-sm text-gray-500">
+                      {reviewCount}
+                    </div>
+
+                    {/* Disparity */}
+                    <div className="shrink-0 ml-1 md:ml-4">
+                      {tab === "games" ? (
+                        <>
+                          {/* Mobile: combined only */}
+                          <div className="md:hidden">
+                            <DisparityBadge disparity={combinedDisparity != null ? Number(combinedDisparity) : null} />
                           </div>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-4 text-sm text-gray-500 text-right w-24">
-                        {reviewCount}
-                      </td>
-                      <td className="px-4 py-4 text-right whitespace-nowrap">
-                        {tab === "games" ? (
-                          <DisparityScores
-                            steamDisparity={steamDisparity}
-                            metacriticDisparity={metacriticDisparity}
-                            combinedDisparity={combinedDisparity}
-                            layout="compact"
-                            showLabels={false}
-                          />
-                        ) : (
+                          {/* Desktop: full breakdown */}
+                          <div className="hidden md:block">
+                            <DisparityScores
+                              steamDisparity={steamDisparity}
+                              metacriticDisparity={metacriticDisparity}
+                              combinedDisparity={combinedDisparity}
+                              layout="compact"
+                              showLabels={false}
+                            />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="md:w-24 md:text-right">
                           <DisparityBadge disparity={combinedDisparity != null ? Number(combinedDisparity) : null} />
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </div>
+                      )}
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
           </div>
 
           {/* Pagination */}

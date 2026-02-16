@@ -66,6 +66,10 @@ class OutletWithStats(OutletSummary):
     avg_disparity_metacritic: Optional[Decimal] = None
     avg_disparity_combined: Optional[Decimal] = None
     avg_score: Optional[Decimal] = None
+    # Transparency metrics - timing
+    early_review_count: int = 0
+    launch_window_review_count: int = 0
+    late_review_count: int = 0
     # Transparency metrics - scoring patterns
     min_score_given: Optional[Decimal] = None
     max_score_given: Optional[Decimal] = None

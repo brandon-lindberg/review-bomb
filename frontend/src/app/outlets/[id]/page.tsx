@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getOutlet, getOutletReviews } from "@/lib/api";
+import { getOutlet } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
-import { getDisparityColor, formatDisparity } from "@/lib/disparity-colors";
 import { LazyChartSection } from "@/components/LazyChartSection";
+import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
 
 export const dynamic = "force-dynamic";
@@ -49,19 +49,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   }
 }
 
-export default async function OutletDetailPage({ params, searchParams }: PageProps) {
+export default async function OutletDetailPage({ params }: PageProps) {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
 
   let outlet = null;
-  let reviews = null;
 
   try {
-    [outlet, reviews] = await Promise.all([
-      getOutlet(parseInt(id)),
-      getOutletReviews(parseInt(id), page, 20),
-    ]);
+    outlet = await getOutlet(parseInt(id));
   } catch (error) {
     console.error("Error fetching outlet:", error);
     notFound();
@@ -188,6 +182,40 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
             )}
           </div>
         )}
+
+        {/* Review Timing Breakdown */}
+        {(outlet.early_review_count != null || outlet.launch_window_review_count != null || outlet.late_review_count != null) && (() => {
+          const early = outlet.early_review_count ?? 0;
+          const launchWindow = outlet.launch_window_review_count ?? 0;
+          const late = outlet.late_review_count ?? 0;
+          const timingTotal = early + launchWindow + late;
+          if (timingTotal === 0) return null;
+          const pct = (n: number) => timingTotal > 0 ? ((n / timingTotal) * 100).toFixed(0) : "0";
+
+          return (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground)" }}>
+                Review Timing
+              </h2>
+              <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--foreground-muted)" }}>
+                {early > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    {early} early ({pct(early)}%)
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  {launchWindow} launch window ({pct(launchWindow)}%)
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  {late} late ({pct(late)}%)
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Journalists at this outlet */}
@@ -234,162 +262,18 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
       )}
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
-      <LazyChartSection entityType="outlet" entityId={parseInt(id)} />
+      <LazyChartSection
+        entityType="outlet"
+        entityId={parseInt(id)}
+        timingCounts={{
+          early: outlet.early_review_count ?? 0,
+          launchWindow: outlet.launch_window_review_count ?? 0,
+          late: outlet.late_review_count ?? 0,
+        }}
+      />
 
-      {/* Reviews */}
-      {reviews && reviews.items.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Recent Reviews
-          </h2>
-          <div className="space-y-4">
-            {reviews.items.map((review) => (
-              <div
-                key={review.id}
-                className="relative p-4 border rounded-lg"
-                style={{ borderColor: "var(--border)" }}
-              >
-                {/* Mobile: full-card tap target for review URL */}
-                {review.review_url && (
-                  <a
-                    href={review.review_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute inset-0 sm:hidden z-0"
-                    aria-label={`Read review of ${review.game_title || "game"}`}
-                  />
-                )}
-                <div className="space-y-3">
-                  {/* Top: Review info + Read button */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Link
-                          href={`/games/${review.game_id}`}
-                          className="relative z-10 font-medium hover:opacity-80"
-                          style={{ color: "var(--foreground)" }}
-                        >
-                          {review.game_title || "Unknown Game"}
-                        </Link>
-                        {review.journalist_id && review.journalist_name && (
-                          <>
-                            <span style={{ color: "var(--foreground-muted)" }}>by</span>
-                            <Link
-                              href={`/journalists/${review.journalist_id}`}
-                              className="relative z-10 hover:opacity-80"
-                              style={{ color: "var(--foreground-muted)" }}
-                            >
-                              {review.journalist_name}
-                            </Link>
-                          </>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {review.published_at && (
-                          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                            {new Date(review.published_at).toLocaleDateString()}
-                          </p>
-                        )}
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
-                            review.review_timing === "early"
-                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
-                              : review.review_timing === "launch_window"
-                              ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                          }`}
-                          title={review.game_release_date
-                            ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
-                                review.review_timing === "early" ? " (before release)" :
-                                review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
-                              }`
-                            : "Release date unknown"}
-                        >
-                          {review.review_timing === "early" ? "Early Review" :
-                           review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
-                        </span>
-                      </div>
-                    </div>
-                    {review.review_url && (
-                      <a
-                        href={review.review_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="relative z-10 hidden sm:inline-block text-sm px-3 py-2 rounded hover:opacity-80 flex-shrink-0"
-                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
-                      >
-                        Read
-                      </a>
-                    )}
-                  </div>
-                  {/* Snippet - outside flex row so it spans full width */}
-                  {review.snippet && (
-                    <p className="text-sm italic" style={{ color: "var(--foreground-muted)" }}>
-                      &ldquo;{review.snippet}&rdquo;
-                    </p>
-                  )}
-
-                  {/* Bottom: Score cards in a grid */}
-                  <div className="grid grid-cols-3 gap-2">
-                    {/* Critic Score */}
-                    <div className="text-center px-2 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
-                      <div className="text-xs" style={{ color: "var(--foreground-muted)" }}>Critic</div>
-                      <div className="text-lg font-bold" style={{ color: "var(--foreground)" }}>
-                        {review.score_normalized != null ? Number(review.score_normalized).toFixed(0) : "—"}
-                      </div>
-                    </div>
-                    {/* Steam Disparity */}
-                    <div className="text-center px-2 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
-                      <div className="text-xs" style={{ color: "#708160" }}>Steam</div>
-                      <div className="text-lg font-bold" style={{ color: getDisparityColor(review.disparity_steam != null ? Number(review.disparity_steam) : null) }}>
-                        {review.disparity_steam != null
-                          ? formatDisparity(Number(review.disparity_steam))
-                          : "N/A"}
-                      </div>
-                    </div>
-                    {/* Metacritic Disparity */}
-                    <div className="text-center px-2 py-2 rounded" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
-                      <div className="text-xs" style={{ color: "#DD7631" }}>MC</div>
-                      <div className="text-lg font-bold" style={{ color: getDisparityColor(review.disparity_metacritic != null ? Number(review.disparity_metacritic) : null) }}>
-                        {review.disparity_metacritic != null
-                          ? formatDisparity(Number(review.disparity_metacritic))
-                          : "N/A"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Pagination */}
-          {reviews.total_pages > 1 && (
-            <div className="mt-6 flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/outlets/${id}?page=${page - 1}`}
-                  prefetch={false}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {reviews.total_pages}
-              </span>
-              {page < reviews.total_pages && (
-                <Link
-                  href={`/outlets/${id}?page=${page + 1}`}
-                  prefetch={false}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
-        </section>
-      )}
+      {/* Reviews with filters */}
+      <OutletReviewsSection outletId={parseInt(id)} />
     </div>
   );
 }

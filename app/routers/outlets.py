@@ -198,12 +198,23 @@ async def get_outlet(
     launch_window_steam_disparities = []
     launch_window_metacritic_disparities = []
 
+    early_review_count = 0
+    launch_window_review_count = 0
+    late_review_count = 0
+
     for review, game in review_rows:
         steam_data = user_score_lookup.get((game.id, "steam"))
         metacritic_data = user_score_lookup.get((game.id, "metacritic"))
 
         review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
         timing = calculate_review_timing(review_date, game.release_date)
+
+        if timing == "early":
+            early_review_count += 1
+        elif timing == "launch_window":
+            launch_window_review_count += 1
+        else:
+            late_review_count += 1
 
         if timing != "launch_window":
             continue
@@ -235,6 +246,9 @@ async def get_outlet(
         avg_disparity_metacritic=avg_disparity_metacritic,
         avg_disparity_combined=avg_disparity_combined,
         avg_score=stats_row.avg_score,
+        early_review_count=early_review_count,
+        launch_window_review_count=launch_window_review_count,
+        late_review_count=late_review_count,
         min_score_given=Decimal(str(round(stats_row.min_score, 2))) if stats_row.min_score else None,
         max_score_given=Decimal(str(round(stats_row.max_score, 2))) if stats_row.max_score else None,
         score_std_deviation=outlet.score_std_dev,
