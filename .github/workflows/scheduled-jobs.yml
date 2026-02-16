@@ -1,0 +1,55 @@
+name: Scheduled Jobs
+
+on:
+  schedule:
+    # News sync - every 4 hours
+    - cron: '0 */4 * * *'
+    # Disparity calculation - every 12 hours
+    - cron: '0 */12 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Which job to run manually'
+        required: true
+        type: choice
+        options:
+          - news
+          - disparity
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  REDIS_URL: ${{ secrets.REDIS_URL }}
+  ENVIRONMENT: production
+
+jobs:
+  news:
+    name: Sync News Feeds
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 */4 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'news')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app news
+        timeout-minutes: 30
+
+  disparity:
+    name: Calculate Disparity Scores
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 */12 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app disparity
+        timeout-minutes: 60
