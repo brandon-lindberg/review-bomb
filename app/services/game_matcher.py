@@ -23,6 +23,9 @@ class GameMatcher:
         # Overwatch (canonical entry after OW2 merge) — OC 1673
         # Steam app 2357570 is the live game, Metacritic "overwatch" is the current page
         1673: {"steam_app_id": 2357570, "metacritic_slug": "overwatch"},
+        # Ghost of Tsushima Director's Cut — OC lists PS release date (2021),
+        # but Steam release is in 2024; force known Steam app mapping.
+        11839: {"steam_app_id": 2215430},
     }
 
     # Common title transformations to improve matching
@@ -225,8 +228,10 @@ class GameMatcher:
                         app_details, result["steam_app_id"]
                     )
                     if not self.dates_match(release_date, steam_data.get("release_date")):
-                        # Penalize score if dates don't match
-                        adjusted *= 0.7
+                        # Cross-platform ports/remasters can have large release-date deltas.
+                        # Keep near-exact title matches viable, penalize only weaker matches.
+                        if similarity < 0.97:
+                            adjusted *= 0.7
 
             if adjusted > best_score:
                 best_score = adjusted

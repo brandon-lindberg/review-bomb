@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,7 @@ class SyncOrchestrator:
     GAMES_PER_REQUEST = 20  # OpenCritic RapidAPI currently returns max 20 per page
     DEFAULT_STALE_PAGES_BEFORE_STOP = 5  # For fast incremental tail-scan runs
     DEFAULT_TAIL_SCAN_PAGES = 60  # Always scan this many tail pages before stale-stop
+    MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
 
     # State keys for persistence
     STATE_SYNCED_GAMES = "synced_opencritic_game_ids"
@@ -729,13 +730,36 @@ class SyncOrchestrator:
         query = select(Game).where(Game.steam_app_id.is_(None))
         mode = "without Steam IDs"
         if days is not None:
-            cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=days)
-            query = query.where(
-                Game.release_date.isnot(None),
-                Game.release_date >= cutoff_date,
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=days)).date()
+            new_game_window_days = min(days, self.MATCH_NEW_GAME_GRACE_DAYS)
+            created_cutoff_date = (now - timedelta(days=new_game_window_days)).date()
+            created_cutoff_dt = datetime.combine(
+                created_cutoff_date,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
             )
-            mode = f"released in last {days} days without Steam IDs"
-        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            query = query.where(
+                or_(
+                    and_(
+                        Game.release_date.isnot(None),
+                        Game.release_date >= cutoff_date,
+                    ),
+                    Game.created_at >= created_cutoff_dt,
+                )
+            )
+            mode = (
+                f"released in last {days} days or added in last "
+                f"{new_game_window_days} days without Steam IDs"
+            )
+        if days is not None:
+            query = query.order_by(
+                Game.created_at.desc().nulls_last(),
+                Game.release_date.desc().nulls_last(),
+                Game.id.desc(),
+            )
+        else:
+            query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
         if limit:
             query = query.limit(limit)
 

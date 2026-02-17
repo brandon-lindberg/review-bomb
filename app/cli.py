@@ -86,21 +86,45 @@ async def cmd_steam(args):
     """Handle Steam sync command."""
     from app.services.steam import SteamService
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select
-    from datetime import date as date_type, timedelta
+    from sqlalchemy import select, and_, or_
+    from datetime import timedelta
 
     async with async_session_maker() as db:
+        new_game_grace_days = 14
         # Get all games with Steam app IDs
         query = select(Game).where(Game.steam_app_id.isnot(None))
         mode = "with Steam IDs"
         if args.days is not None:
-            cutoff_date = date_type.today() - timedelta(days=args.days)
-            query = query.where(
-                Game.release_date.isnot(None),
-                Game.release_date >= cutoff_date,
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=args.days)).date()
+            new_game_window_days = min(args.days, new_game_grace_days)
+            created_cutoff_date = (now - timedelta(days=new_game_window_days)).date()
+            created_cutoff_dt = datetime.combine(
+                created_cutoff_date,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
             )
-            mode = f"released in last {args.days} days with Steam IDs"
-        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            query = query.where(
+                or_(
+                    and_(
+                        Game.release_date.isnot(None),
+                        Game.release_date >= cutoff_date,
+                    ),
+                    Game.created_at >= created_cutoff_dt,
+                )
+            )
+            mode = (
+                f"released in last {args.days} days or added in last "
+                f"{new_game_window_days} days with Steam IDs"
+            )
+        if args.days is not None:
+            query = query.order_by(
+                Game.created_at.desc().nulls_last(),
+                Game.release_date.desc().nulls_last(),
+                Game.id.desc(),
+            )
+        else:
+            query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
         result = await db.execute(query)
         games = result.scalars().all()
 

@@ -2,6 +2,8 @@ name: Scheduled Jobs
 
 on:
   schedule:
+    # OpenCritic sync - once a day
+    - cron: '30 5 * * *'
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
     # News relink backfill (last 14 days) - Tue/Fri at 03:30 UTC
@@ -31,6 +33,7 @@ on:
         required: true
         type: choice
         options:
+          - sync
           - news
           - news-backfill
           - disparity-people
@@ -49,6 +52,22 @@ env:
   ENVIRONMENT: production
 
 jobs:
+  sync:
+    name: Sync OpenCritic Games
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '30 5 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sync')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app sync
+        timeout-minutes: 90
+
   news:
     name: Sync News Feeds
     runs-on: ubuntu-latest
