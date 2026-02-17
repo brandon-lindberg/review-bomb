@@ -291,6 +291,36 @@ class SyncOrchestrator:
         await self.db.commit()
         return synced_count
 
+    async def _update_game_critic_aggregates(self, internal_game_id: int) -> None:
+        """
+        Recompute denormalized critic aggregates for a game from Review rows.
+
+        This keeps avg_critic_score and critic_review_count current during sync,
+        so a separate backfill is not required for newly synced games.
+        """
+        result = await self.db.execute(
+            select(
+                func.avg(Review.score_normalized),
+                func.count(Review.id),
+            ).where(
+                Review.game_id == internal_game_id,
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
+        )
+        avg_score_raw, review_count = result.first() or (None, 0)
+
+        game_obj = await self.db.get(Game, internal_game_id)
+        if not game_obj:
+            return
+
+        if review_count and avg_score_raw is not None:
+            game_obj.avg_critic_score = Decimal(str(round(float(avg_score_raw), 2)))
+            game_obj.critic_review_count = int(review_count)
+        else:
+            game_obj.avg_critic_score = None
+            game_obj.critic_review_count = 0
+
     async def run_daily_sync(
         self,
         continuous: bool = True,
@@ -444,6 +474,7 @@ class SyncOrchestrator:
                             print(f"Redirecting merged game: {game_data.get('name')} (OC {opencritic_game_id}) -> canonical OC {canonical_oc_id}")
                             # Fetch reviews from the deprecated OC entry and attach to canonical game
                             reviews_synced = await self._sync_game_reviews(opencritic_game_id, canonical_game_id)
+                            await self._update_game_critic_aggregates(canonical_game_id)
                             await self._add_synced_game_id(opencritic_game_id)
                             synced_ids.add(opencritic_game_id)
                             stats["reviews_synced"] += reviews_synced
@@ -461,6 +492,7 @@ class SyncOrchestrator:
 
                     # Fetch and sync reviews (uses 1 API request)
                     reviews_synced = await self._sync_game_reviews(opencritic_game_id, internal_game_id)
+                    await self._update_game_critic_aggregates(internal_game_id)
 
                     # Set last_review_sync_at on the game
                     game_obj = await self.db.get(Game, internal_game_id)
@@ -641,6 +673,7 @@ class SyncOrchestrator:
                         if extra_reviews:
                             print(f"  + {extra_reviews} reviews from merged OC {deprecated_oc_id}")
 
+                    await self._update_game_critic_aggregates(game.id)
                     game.last_review_sync_at = datetime.now(timezone.utc)
                     await self.db.commit()
 

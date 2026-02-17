@@ -4,8 +4,10 @@ on:
   schedule:
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
-    # Disparity calculation - every 12 hours
+    # Disparity (journalists + outlets) - every 12 hours
     - cron: '0 */12 * * *'
+    # Disparity (games) - every 12 hours, staggered 30 minutes later
+    - cron: '30 */12 * * *'
     # Metacritic recent 45 days - once a day at 6 AM UTC
     - cron: '0 6 * * *'
     # Metacritic new/unsynced games - once a day at 6 PM UTC
@@ -18,7 +20,8 @@ on:
         type: choice
         options:
           - news
-          - disparity
+          - disparity-people
+          - disparity-games
           - metacritic-recent
           - metacritic-new
 
@@ -44,12 +47,12 @@ jobs:
       - run: python -m app news
         timeout-minutes: 30
 
-  disparity:
-    name: Calculate Disparity Scores
+  disparity-people:
+    name: Calculate Disparity (Journalists + Outlets)
     runs-on: ubuntu-latest
     if: >
       github.event.schedule == '0 */12 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity')
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-people')
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -57,8 +60,24 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
-      - run: python -u -m app disparity
-        timeout-minutes: 60
+      - run: python -u -m app disparity --journalists --outlets
+        timeout-minutes: 120
+
+  disparity-games:
+    name: Calculate Disparity (Games)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '30 */12 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-games')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -u -m app disparity --games
+        timeout-minutes: 240
 
   metacritic-recent:
     name: Sync Metacritic (Last 45 Days)
