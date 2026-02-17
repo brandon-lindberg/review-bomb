@@ -39,6 +39,53 @@ class GameMatcher:
         (r"\s+", " "),              # Normalize whitespace
     ]
 
+    # Common suffix patterns in store/listing names that can hide the canonical title.
+    SEARCH_SUFFIX_PATTERNS = [
+        r"(?i)\s*[:\-]?\s*chapters?\s+\d+(?:\s*(?:&|and|,)\s*\d+)*.*$",
+        r"(?i)\s*[:\-]?\s*chapter\s+\d+.*$",
+        r"(?i)\s*[:\-]?\s*episode\s+\d+.*$",
+    ]
+
+    @classmethod
+    def build_search_queries(cls, title: str) -> List[str]:
+        """
+        Build fallback Steam search queries for problematic titles.
+
+        Steam search can return no results for some punctuation/symbol combinations
+        (for example "Delta" vs "Δ" or titles with subtitle suffixes).
+        """
+        candidates: List[str] = []
+
+        def add(value: Optional[str]) -> None:
+            if not value:
+                return
+            v = value.strip()
+            if v and v not in candidates:
+                candidates.append(v)
+
+        add(title)
+
+        # Symbol normalization fallbacks.
+        if re.search(r"\bdelta\b", title, flags=re.IGNORECASE):
+            add(re.sub(r"\bdelta\b", "Δ", title, flags=re.IGNORECASE))
+        if "Δ" in title:
+            add(title.replace("Δ", "Delta"))
+
+        # Subtitle splits.
+        for sep in [":", " - ", " – ", " — "]:
+            if sep in title:
+                left, right = title.split(sep, 1)
+                add(left)
+                add(right)
+
+        # Strip common chapter/episode suffixes.
+        stripped = title
+        for pattern in cls.SEARCH_SUFFIX_PATTERNS:
+            stripped = re.sub(pattern, "", stripped).strip()
+        add(stripped)
+
+        return candidates
+
     def __init__(
         self,
         steam_service: Optional[SteamService] = None,
@@ -140,18 +187,35 @@ class GameMatcher:
             if "steam_app_id" in override:
                 return override["steam_app_id"]
 
-        # Search Steam
-        search_results = await self.steam_service.search_games(title)
+        # Search Steam with fallbacks for known store-search quirks.
+        search_results: List[Dict[str, Any]] = []
+        for query in self.build_search_queries(title):
+            search_results = await self.steam_service.search_games(query)
+            if search_results:
+                break
         if not search_results:
             return None
 
+        comparison_titles = self.build_search_queries(title)
+
         # Find best match
-        best_match = None
+        best_match: Optional[int] = None
         best_score = 0.0
 
+        # First pass: title similarity only (cheap).
+        scored: List[Tuple[float, Dict[str, Any]]] = []
         for result in search_results:
             steam_title = result.get("name", "")
-            similarity = self.calculate_similarity(title, steam_title)
+            similarity = max(
+                self.calculate_similarity(candidate, steam_title)
+                for candidate in comparison_titles
+            )
+            scored.append((similarity, result))
+
+        # Evaluate strongest candidates first; limit app-details requests.
+        scored.sort(key=lambda item: item[0], reverse=True)
+        for similarity, result in scored[:10]:
+            adjusted = similarity
 
             # Get release date from Steam for verification if we have one
             if similarity > 0.8 and release_date:
@@ -162,10 +226,10 @@ class GameMatcher:
                     )
                     if not self.dates_match(release_date, steam_data.get("release_date")):
                         # Penalize score if dates don't match
-                        similarity *= 0.7
+                        adjusted *= 0.7
 
-            if similarity > best_score:
-                best_score = similarity
+            if adjusted > best_score:
+                best_score = adjusted
                 best_match = result["steam_app_id"]
 
         # Only return if confidence is high enough

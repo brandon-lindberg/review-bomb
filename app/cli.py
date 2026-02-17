@@ -220,7 +220,16 @@ async def cmd_metacritic(args):
                 Game.metacritic_user_score.isnot(None),
                 Game.metacritic_sample_size.is_(None),
             )
-            mode = 'missing sample size'
+            if args.recent is not None:
+                days = args.recent
+                cutoff_date = date_type.today() - timedelta(days=days)
+                query = query.where(
+                    Game.release_date.isnot(None),
+                    Game.release_date >= cutoff_date,
+                )
+                mode = f'missing sample size (released in last {days} days)'
+            else:
+                mode = 'missing sample size'
         elif args.force:
             # Re-sync all games
             query = select(Game).where(Game.metacritic_slug.isnot(None))
@@ -290,7 +299,7 @@ async def cmd_metacritic(args):
                     if score_data:
                         updated_anything = False
 
-                        # Check and update user score only if changed
+                        # Check and update user score/sample size only if changed
                         if score_data.get("user_score") is not None:
                             # Get existing user score for this game
                             existing_score_result = await db.execute(
@@ -301,8 +310,13 @@ async def cmd_metacritic(args):
                             )
                             existing_score = existing_score_result.scalar_one_or_none()
 
-                            # Only add if no existing score or score changed
-                            if existing_score is None or existing_score.score != score_data["user_score"]:
+                            score_changed = (
+                                existing_score is None or existing_score.score != score_data["user_score"]
+                            )
+                            sample_size_changed = (
+                                existing_score is None or existing_score.sample_size != score_data["user_sample_size"]
+                            )
+                            if score_changed or sample_size_changed:
                                 user_score = UserScore(
                                     game_id=game.id,
                                     source=UserScoreSource.METACRITIC,
@@ -317,14 +331,26 @@ async def cmd_metacritic(args):
                                 db.add(user_score)
                                 synced_user += 1
                                 updated_anything = True
-                                old_val = existing_score.score if existing_score else "None"
-                                print(f"  User Score: {old_val} -> {score_data['user_score']}")
+                                old_score = existing_score.score if existing_score else "None"
+                                old_size = existing_score.sample_size if existing_score else "None"
+                                print(
+                                    "  User Score/Sample: "
+                                    f"{old_score} ({old_size}) -> "
+                                    f"{score_data['user_score']} ({score_data['user_sample_size']})"
+                                )
                             else:
-                                print(f"  User Score: {score_data['user_score']} (unchanged)")
+                                print(
+                                    f"  User Score/Sample: {score_data['user_score']} "
+                                    f"({score_data['user_sample_size']}) (unchanged)"
+                                )
 
                             # Update denormalized columns on Game
+                            previous_user = game.metacritic_user_score
+                            previous_size = game.metacritic_sample_size
                             game.metacritic_user_score = score_data["user_score"]
                             game.metacritic_sample_size = score_data["user_sample_size"]
+                            if previous_user != game.metacritic_user_score or previous_size != game.metacritic_sample_size:
+                                updated_anything = True
                             if score_data["user_sample_size"] is not None:
                                 print(f"  Sample Size: {score_data['user_sample_size']}")
                         else:
@@ -990,7 +1016,7 @@ def main():
     metacritic_parser = subparsers.add_parser("metacritic", help="Sync Metacritic scores (user + metascore)")
     metacritic_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     metacritic_parser.add_argument("--force", action="store_true", help="Re-sync all games, even already synced ones")
-    metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts")
+    metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts (can combine with --recent)")
     metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
     metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days that still need Metacritic sync (default: 90)")
     metacritic_parser.add_argument("--new-only", type=int, nargs="?", const=60, default=None, help="Only process games released in last N days that have never been synced (default: 60)")

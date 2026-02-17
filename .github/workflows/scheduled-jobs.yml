@@ -14,6 +14,8 @@ on:
     - cron: '0 6 * * *'
     # Metacritic new/unsynced games - once a day at 6 PM UTC
     - cron: '0 18 * * *'
+    # Metacritic user-count backfill (last 45 days) - once a day
+    - cron: '0 9 * * *'
     # Match recent games to Steam IDs - once a day
     - cron: '10 7 * * *'
     # Refresh Steam user scores for recent games - once a day
@@ -35,6 +37,7 @@ on:
           - disparity-games
           - metacritic-recent
           - metacritic-new
+          - metacritic-counts-backfill
           - match-30d
           - steam-30d
           - match-180d
@@ -144,6 +147,24 @@ jobs:
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
       - run: python -m app metacritic --new-only
+        timeout-minutes: 120
+
+  metacritic-counts-backfill:
+    name: Backfill Metacritic User Counts (Last 45 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 9 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-counts-backfill')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium --with-deps
+      - run: python -m app metacritic --backfill-counts --recent 45
         timeout-minutes: 120
 
   match-30d:
