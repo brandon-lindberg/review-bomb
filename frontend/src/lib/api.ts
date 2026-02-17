@@ -16,6 +16,7 @@ import type {
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const outletAllReviewsCache = new Map<number, Promise<ReviewWithJournalist[]>>();
 
 async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${endpoint}`, {
@@ -202,20 +203,43 @@ export async function getJournalistAllReviews(
 export async function getOutletAllReviews(
   id: number
 ): Promise<ReviewWithJournalist[]> {
-  const allReviews: ReviewWithJournalist[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const response = await fetchAPI<PaginatedResponse<ReviewWithJournalist>>(
-      `/outlets/${id}/reviews?page=${page}&per_page=100`
-    );
-    allReviews.push(...response.items);
-    hasMore = page < response.total_pages;
-    page++;
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    const cached = outletAllReviewsCache.get(id);
+    if (cached) {
+      return cached;
+    }
   }
 
-  return allReviews;
+  const request = (async () => {
+    const allReviews: ReviewWithJournalist[] = [];
+    let page = 1;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await fetchAPI<PaginatedResponse<ReviewWithJournalist>>(
+        `/outlets/${id}/reviews?page=${page}&per_page=500`
+      );
+      allReviews.push(...response.items);
+      hasMore = page < response.total_pages;
+      page++;
+    }
+
+    return allReviews;
+  })();
+
+  if (isBrowser) {
+    outletAllReviewsCache.set(id, request);
+  }
+
+  try {
+    return await request;
+  } catch (error) {
+    if (isBrowser) {
+      outletAllReviewsCache.delete(id);
+    }
+    throw error;
+  }
 }
 
 export async function getGameAllReviews(

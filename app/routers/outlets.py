@@ -332,12 +332,12 @@ async def get_outlet_journalists(
 
 
 @router.get("/{outlet_id}/reviews", response_model=PaginatedResponse[ReviewWithJournalist])
-@limiter.limit("30/minute")
+@limiter.limit("60/minute")
 async def get_outlet_reviews(
     request: Request,
     outlet_id: int,
     page: int = Query(1, ge=1, le=100),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all reviews from this outlet."""
