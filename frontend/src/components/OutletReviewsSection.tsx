@@ -117,103 +117,115 @@ export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
       ) : (
         <>
           <div className="space-y-4">
-            {paged.map((review) => (
-              <div
-                key={review.id}
-                className="relative p-4 border rounded-lg"
-                style={{ borderColor: "var(--border)" }}
-              >
-                {review.review_url && (
-                  <a
-                    href={review.review_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="absolute inset-0 sm:hidden z-0"
-                    aria-label={`Read review of ${review.game_title || "game"}`}
-                  />
-                )}
-                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Link
-                        href={`/games/${review.game_id}`}
-                        className="relative z-10 font-medium hover:opacity-80"
-                        style={{ color: "var(--foreground)" }}
-                      >
-                        {review.game_title || "Unknown Game"}
-                      </Link>
-                      {review.journalist_id && review.journalist_name && (
-                        <>
-                          <span style={{ color: "var(--foreground-muted)" }}>by</span>
-                          <Link
-                            href={`/journalists/${review.journalist_id}`}
-                            className="relative z-10 hover:opacity-80"
-                            style={{ color: "var(--foreground-muted)" }}
-                          >
-                            {review.journalist_name}
-                          </Link>
-                        </>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
-                      {review.published_at && (
-                        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                          {new Date(review.published_at).toLocaleDateString()}
-                        </p>
-                      )}
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
-                          review.review_timing === "early"
-                            ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
-                            : review.review_timing === "launch_window"
-                            ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
-                        }`}
-                        title={review.game_release_date
-                          ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
-                              review.review_timing === "early" ? " (before release)" :
-                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
-                            }`
-                          : "Release date unknown"}
-                      >
-                        {review.review_timing === "early" ? "Early Review" :
-                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
-                      </span>
-                    </div>
-                  </div>
+            {paged.map((review) => {
+              // Outlet review payloads include disparities but not raw user scores.
+              const steamScore =
+                review.score_normalized != null && review.disparity_steam != null
+                  ? Number(review.score_normalized) - Number(review.disparity_steam)
+                  : null;
+              const metacriticScore =
+                review.score_normalized != null && review.disparity_metacritic != null
+                  ? Number(review.score_normalized) - Number(review.disparity_metacritic)
+                  : null;
+
+              return (
+                <div
+                  key={review.id}
+                  className="relative p-4 border rounded-lg"
+                  style={{ borderColor: "var(--border)" }}
+                >
                   {review.review_url && (
                     <a
                       href={review.review_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="relative z-10 hidden sm:inline-block text-sm px-3 py-1 rounded hover:opacity-80"
-                      style={{ backgroundColor: "var(--color-rust)", color: "white" }}
-                    >
-                      Read Review
-                    </a>
+                      className="absolute inset-0 sm:hidden z-0"
+                      aria-label={`Read review of ${review.game_title || "game"}`}
+                    />
                   )}
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/games/${review.game_id}`}
+                          className="relative z-10 font-medium hover:opacity-80"
+                          style={{ color: "var(--foreground)" }}
+                        >
+                          {review.game_title || "Unknown Game"}
+                        </Link>
+                        {review.journalist_id && review.journalist_name && (
+                          <>
+                            <span style={{ color: "var(--foreground-muted)" }}>by</span>
+                            <Link
+                              href={`/journalists/${review.journalist_id}`}
+                              className="relative z-10 hover:opacity-80"
+                              style={{ color: "var(--foreground-muted)" }}
+                            >
+                              {review.journalist_name}
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {review.published_at && (
+                          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                            {new Date(review.published_at).toLocaleDateString()}
+                          </p>
+                        )}
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${
+                            review.review_timing === "early"
+                              ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
+                              : review.review_timing === "launch_window"
+                              ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                          }`}
+                          title={review.game_release_date
+                            ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
+                                review.review_timing === "early" ? " (before release)" :
+                                review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
+                              }`
+                            : "Release date unknown"}
+                        >
+                          {review.review_timing === "early" ? "Early Review" :
+                           review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
+                        </span>
+                      </div>
+                    </div>
+                    {review.review_url && (
+                      <a
+                        href={review.review_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="relative z-10 hidden sm:inline-block text-sm px-3 py-1 rounded hover:opacity-80"
+                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
+                      >
+                        Read Review
+                      </a>
+                    )}
+                  </div>
+
+                  {review.snippet && (
+                    <p className="mb-3 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
+                      &ldquo;{review.snippet}&rdquo;
+                    </p>
+                  )}
+
+                  <ReviewScoreCards
+                    criticScore={review.score_normalized}
+                    steamScore={steamScore}
+                    steamDisparity={review.disparity_steam}
+                    metacriticScore={metacriticScore}
+                    metacriticDisparity={review.disparity_metacritic}
+                    combinedDisparity={
+                      review.disparity_steam != null && review.disparity_metacritic != null
+                        ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
+                        : review.disparity_steam ?? review.disparity_metacritic
+                    }
+                  />
                 </div>
-
-                {review.snippet && (
-                  <p className="mb-3 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
-                    &ldquo;{review.snippet}&rdquo;
-                  </p>
-                )}
-
-                <ReviewScoreCards
-                  criticScore={review.score_normalized}
-                  steamScore={null}
-                  steamDisparity={review.disparity_steam}
-                  metacriticScore={null}
-                  metacriticDisparity={review.disparity_metacritic}
-                  combinedDisparity={
-                    review.disparity_steam != null && review.disparity_metacritic != null
-                      ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
-                      : review.disparity_steam ?? review.disparity_metacritic
-                  }
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {totalPages > 1 && (
