@@ -3,9 +3,10 @@
 CLI for managing the Game Journalist Review Disparity Tracker.
 
 Usage:
-    python -m app sync              Run OpenCritic sync (fetches all games)
+    python -m app sync              Run OpenCritic sync (fast incremental tail scan)
     python -m app sync --status     Show sync status and progress
     python -m app sync --reset      Reset sync state (start fresh)
+    python -m app sync --full-scan  Force full OpenCritic catalog sweep
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app steam             Sync Steam user scores
     python -m app metacritic        Sync Metacritic scores (skips recently synced games)
@@ -56,10 +57,20 @@ async def cmd_sync(args):
         # Run the daily sync
         print(f"\n{'='*50}")
         print(f"Starting OpenCritic sync at {datetime.now().isoformat()}")
+        if args.full_scan:
+            print("Mode: FULL catalog scan")
+        else:
+            print(
+                "Mode: incremental tail scan "
+                f"(stop after {args.stale_pages} consecutive stale pages)"
+            )
         print(f"{'='*50}\n")
 
         try:
-            stats = await orchestrator.run_daily_sync()
+            stats = await orchestrator.run_daily_sync(
+                full_scan=args.full_scan,
+                stale_pages_before_stop=args.stale_pages,
+            )
             print(f"\n{'='*50}")
             print("Sync completed successfully!")
             print(f"{'='*50}")
@@ -885,6 +896,8 @@ def main():
     sync_parser = subparsers.add_parser("sync", help="OpenCritic sync operations")
     sync_parser.add_argument("--status", action="store_true", help="Show sync status")
     sync_parser.add_argument("--reset", action="store_true", help="Reset sync state")
+    sync_parser.add_argument("--full-scan", action="store_true", help="Force full OpenCritic catalog sweep (slower)")
+    sync_parser.add_argument("--stale-pages", type=int, default=5, help="Incremental mode: stop after N consecutive pages with no new games (default: 5, use 0 to disable)")
 
     # Match command
     match_parser = subparsers.add_parser("match", help="Match games to Steam/Metacritic IDs")

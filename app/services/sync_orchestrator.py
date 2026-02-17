@@ -44,7 +44,9 @@ class SyncOrchestrator:
     - Rate limiting handled by opencritic.py (100 req/s)
     """
 
-    GAMES_PER_REQUEST = 50  # OpenCritic limit per request
+    GAMES_PER_REQUEST = 20  # OpenCritic RapidAPI currently returns max 20 per page
+    DEFAULT_STALE_PAGES_BEFORE_STOP = 5  # For fast incremental tail-scan runs
+    DEFAULT_TAIL_SCAN_PAGES = 60  # Always scan this many tail pages before stale-stop
 
     # State keys for persistence
     STATE_SYNCED_GAMES = "synced_opencritic_game_ids"
@@ -103,40 +105,24 @@ class SyncOrchestrator:
         """Update the games queue."""
         await self._set_state(self.STATE_GAMES_QUEUE, json.dumps(queue))
 
-    async def _fetch_game_batch(self, skip: int = 0) -> tuple[List[Dict[str, Any]], bool]:
+    async def _fetch_game_batch(self, skip: int = 0) -> tuple[List[Dict[str, Any]], int]:
         """
         Fetch a batch of games from OpenCritic.
-        
+
         Returns:
-            Tuple of (games_list, success_flag)
-            - If API returns data: (games, True)
-            - If API returns empty but succeeded: ([], True) 
-            - If API error after retries: ([], False)
+            Tuple of (games_list, api_count).
+            api_count is the number of raw records returned by OpenCritic.
         """
         print(f"Fetching games batch (skip={skip})...")
         games = await self.service.get_games(skip=skip, limit=self.GAMES_PER_REQUEST, sort="date")
         self._request_count += 1
 
-        # If games is empty, it could be end of data OR API error
-        # The API should return at least some games if skip is valid
         if not games:
-            # If we're at a high skip value, empty might mean API error
-            if skip > 0:
-                return [], False  # Indicate potential API failure
-            return [], True  # skip=0 returning empty means genuinely no data
+            return [], 0
 
-        # Filter to games with valid data
-        filtered = []
-        for game in games:
-            release_str = game.get("firstReleaseDate")
-            if release_str:
-                filtered.append(game)
-            else:
-                # Include games without release date if they have reviews
-                if game.get("numReviews", 0) > 0:
-                    filtered.append(game)
-
-        return filtered, True
+        # Do not filter game list here: we want to ingest newly created titles
+        # even if OpenCritic has not populated release/review metadata yet.
+        return games, len(games)
 
     async def _upsert_outlet_from_review(self, outlet_data: Dict[str, Any]) -> Optional[int]:
         """Insert/update outlet from review data and return internal ID."""
@@ -305,17 +291,30 @@ class SyncOrchestrator:
         await self.db.commit()
         return synced_count
 
-    async def run_daily_sync(self, continuous: bool = True) -> Dict[str, Any]:
+    async def run_daily_sync(
+        self,
+        continuous: bool = True,
+        full_scan: bool = False,
+        stale_pages_before_stop: int = DEFAULT_STALE_PAGES_BEFORE_STOP,
+    ) -> Dict[str, Any]:
         """
         Run the sync.
 
         Args:
             continuous: If True, keep fetching until all games are synced.
                        If False, only fetch one batch.
+            full_scan: If True, always traverse the full OpenCritic catalog.
+            stale_pages_before_stop: In incremental mode, stop after this many
+                consecutive pages contain no unsynced game IDs. Set to 0 to disable.
 
         Returns stats about what was synced.
         """
-        print(f"Starting sync (continuous={continuous})")
+        incremental_tail_scan = continuous and not full_scan and stale_pages_before_stop > 0
+        print(
+            "Starting sync "
+            f"(continuous={continuous}, full_scan={full_scan}, "
+            f"stale_pages_before_stop={stale_pages_before_stop})"
+        )
 
         # Create sync log
         sync_log = SyncLog(
@@ -345,25 +344,42 @@ class SyncOrchestrator:
             synced_ids = await self._get_synced_game_ids()
             games_queue = await self._get_games_queue()
             all_games_fetched = False
+            last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
+            stale_pages_seen = 0
+            pages_fetched = 0
+            min_pages_before_stale = 0
+
+            # OpenCritic `sort=date` is oldest-first, so new games appear near
+            # the end of pagination. Incremental sync starts near the tail.
+            if incremental_tail_scan:
+                estimated_total = max(last_skip, len(synced_ids))
+                backtrack_pages = max(
+                    self.DEFAULT_TAIL_SCAN_PAGES,
+                    stale_pages_before_stop,
+                )
+                next_skip = max(0, estimated_total - (backtrack_pages * self.GAMES_PER_REQUEST))
+                min_pages_before_stale = backtrack_pages
+                print(
+                    f"Scanning near catalog tail (start skip={next_skip}, "
+                    f"estimated total={estimated_total}, tail pages={backtrack_pages})"
+                )
+            else:
+                next_skip = 0
+                if continuous and full_scan:
+                    print("Running full catalog scan from skip=0.")
 
             # Main sync loop - keeps running until all games are fetched and processed
             while not all_games_fetched:
                 # If queue is empty, fetch more games
                 if not games_queue:
-                    last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
-
                     # Fetch a batch of games
-                    batch, api_success = await self._fetch_game_batch(skip=last_skip)
+                    batch, api_count = await self._fetch_game_batch(skip=next_skip)
+                    pages_fetched += 1
 
-                    if not batch:
-                        if api_success:
-                            # Empty batch with success = genuinely no more games
-                            all_games_fetched = True
-                            print("All games fetched from API")
-                        else:
-                            # API error - save state and exit gracefully
-                            print(f"API error at skip={last_skip}. Run sync again to resume.")
-                            stats["api_error"] = True
+                    if api_count == 0:
+                        # End of list for current scan.
+                        all_games_fetched = True
+                        print("All games fetched from API")
                         break
 
                     # Filter out already-synced games
@@ -371,11 +387,38 @@ class SyncOrchestrator:
                         g for g in batch
                         if g.get("id") and g["id"] not in synced_ids
                     ]
+                    new_games_in_batch = len(games_queue)
 
-                    await self._set_state(self.STATE_LAST_GAME_SKIP, str(last_skip + len(batch)))
+                    next_skip += api_count
+                    await self._set_state(self.STATE_LAST_GAME_SKIP, str(next_skip))
 
                     if games_queue:
-                        print(f"Fetched {len(batch)} games, {len(games_queue)} new to sync (skip={last_skip})")
+                        print(
+                            f"Fetched {api_count} games, {new_games_in_batch} new to sync "
+                            f"(skip={next_skip - api_count})"
+                        )
+                    elif incremental_tail_scan:
+                        if pages_fetched >= min_pages_before_stale:
+                            stale_pages_seen += 1
+                            print(
+                                f"Fetched {api_count} games, 0 new to sync "
+                                f"(stale page {stale_pages_seen}/{stale_pages_before_stop})"
+                            )
+                            if stale_pages_seen >= stale_pages_before_stop:
+                                all_games_fetched = True
+                                print(
+                                    "Stopping early after consecutive stale pages; "
+                                    "run with --full-scan for a complete sweep."
+                                )
+                                break
+                        else:
+                            print(
+                                f"Fetched {api_count} games, 0 new to sync "
+                                f"(warming tail window {pages_fetched}/{min_pages_before_stale})"
+                            )
+
+                    if new_games_in_batch > 0:
+                        stale_pages_seen = 0
 
                     # In non-continuous mode, only fetch once
                     if not continuous and not games_queue:
@@ -437,6 +480,9 @@ class SyncOrchestrator:
                     if stats["games_synced"] % 50 == 0:
                         await self._set_games_queue(games_queue)
                         print(f"Progress: {stats['games_synced']} games synced, {stats['reviews_synced']} reviews")
+
+            # Clear persisted queue on clean completion so next run starts fresh.
+            await self._set_games_queue([])
 
             # Count new entities
             journalists_after = await self.db.execute(select(func.count()).select_from(Journalist))
@@ -687,15 +733,25 @@ class SyncOrchestrator:
         return stats
 
 
-async def run_daily_sync(continuous: bool = True):
+async def run_daily_sync(
+    continuous: bool = True,
+    full_scan: bool = False,
+    stale_pages_before_stop: int = SyncOrchestrator.DEFAULT_STALE_PAGES_BEFORE_STOP,
+):
     """Convenience function to run the sync.
     
     Args:
         continuous: If True, keep fetching until all games are synced.
+        full_scan: If True, scan the entire OpenCritic catalog.
+        stale_pages_before_stop: Incremental mode stop threshold.
     """
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
-        return await orchestrator.run_daily_sync(continuous=continuous)
+        return await orchestrator.run_daily_sync(
+            continuous=continuous,
+            full_scan=full_scan,
+            stale_pages_before_stop=stale_pages_before_stop,
+        )
 
 
 async def get_sync_status():

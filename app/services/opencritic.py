@@ -200,7 +200,7 @@ class OpenCriticService:
 
     async def get_all_games(
         self,
-        batch_size: int = 50,
+        batch_size: int = 20,
     ) -> List[Dict[str, Any]]:
         """
         Fetch all games from OpenCritic.
@@ -215,21 +215,10 @@ class OpenCriticService:
             games = await self.get_games(skip=skip, limit=batch_size, sort="date")
             if not games:
                 break
+            all_games.extend(games)
 
-            for game in games:
-                # Include games with release dates
-                release_date_str = game.get("firstReleaseDate")
-                if release_date_str:
-                    all_games.append(game)
-                else:
-                    # Include games without release date if they have reviews
-                    if game.get("numReviews", 0) > 0:
-                        all_games.append(game)
-
-            if len(games) < batch_size:
-                break
-
-            skip += batch_size
+            # Advance by the number of records actually returned.
+            skip += len(games)
             # Minimal delay with premium plan (100 req/s limit)
             await asyncio.sleep(0.01)
 
