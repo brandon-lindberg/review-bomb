@@ -706,12 +706,17 @@ class SyncOrchestrator:
 
         return stats
 
-    async def match_games_to_steam(self, limit: Optional[int] = None) -> Dict[str, Any]:
+    async def match_games_to_steam(
+        self,
+        limit: Optional[int] = None,
+        days: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """
         Match games in database to Steam app IDs.
 
         Args:
             limit: Optional limit on number of games to process
+            days: Optional release-date filter (only games in last N days)
 
         Returns:
             Stats about matching results
@@ -722,21 +727,32 @@ class SyncOrchestrator:
 
         # Get games without Steam IDs
         query = select(Game).where(Game.steam_app_id.is_(None))
+        mode = "without Steam IDs"
+        if days is not None:
+            cutoff_date = datetime.now(timezone.utc).date() - timedelta(days=days)
+            query = query.where(
+                Game.release_date.isnot(None),
+                Game.release_date >= cutoff_date,
+            )
+            mode = f"released in last {days} days without Steam IDs"
+        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
         if limit:
             query = query.limit(limit)
 
         result = await self.db.execute(query)
         games = result.scalars().all()
 
-        print(f"Matching {len(games)} games to Steam...")
+        print(f"Matching {len(games)} games {mode}...")
 
         stats = {
             "total": len(games),
             "matched": 0,
             "failed": 0,
         }
+        processed = 0
 
         for game in games:
+            processed += 1
             try:
                 match_result = await matcher.match_game(
                     title=game.title,
@@ -752,15 +768,17 @@ class SyncOrchestrator:
                 if match_result["metacritic_slug"] and not game.metacritic_slug:
                     game.metacritic_slug = match_result["metacritic_slug"]
 
-                # Commit every 10 games
-                if stats["matched"] % 10 == 0:
-                    await self.db.commit()
-
             except Exception as e:
                 print(f"  Error matching {game.title}: {e}")
                 stats["failed"] += 1
 
+            # Commit every 25 games processed
+            if processed % 25 == 0:
+                await self.db.commit()
+                print(f"  Processed {processed}/{len(games)} games...")
+
         await self.db.commit()
+        await matcher.steam_service.aclose()
 
         print(f"\nMatching complete: {stats['matched']} matched, {stats['failed']} failed")
         return stats

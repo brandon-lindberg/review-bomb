@@ -15,7 +15,7 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from statistics import mean, stdev
 
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
@@ -625,10 +625,27 @@ class DisparityCalculator:
         await self._load_all_user_scores()
         await self._load_all_reviews()
 
+        # Build last_review_at lookup (guard against bad future dates).
+        last_review_query = (
+            select(
+                Review.journalist_id,
+                func.max(Review.published_at).label("last_review_at"),
+            )
+            .where(Review.score_normalized.isnot(None))
+            .group_by(Review.journalist_id)
+        )
+        last_review_result = await self.db.execute(last_review_query)
+        journalist_last_review: Dict[int, datetime] = {}
+        max_reasonable_date = datetime.now(timezone.utc) + timedelta(days=30)
+        for journalist_id, last_at in last_review_result:
+            if journalist_id is not None and last_at is not None and last_at <= max_reasonable_date:
+                journalist_last_review[journalist_id] = last_at
+
         journalist_ids = set(r[2] for r in self._reviews_cache)
         print(f"Processing {len(journalist_ids)} journalists...")
 
         count = 0
+        journalist_updates: List[Dict[str, Any]] = []
         for i, journalist_id in enumerate(journalist_ids, 1):
             stats = self._calculate_entity_disparity_from_cache("journalist", journalist_id)
             if stats and stats["review_count"] > 0:
@@ -645,10 +662,23 @@ class DisparityCalculator:
                 )
                 self.db.add(snapshot)
                 count += 1
+                journalist_updates.append({
+                    "id": journalist_id,
+                    "avg_disparity": stats["avg_disparity_combined"],
+                    "review_count_scored": stats["review_count"],
+                    "score_std_dev": stats["std_deviation"],
+                    "last_review_at": journalist_last_review.get(journalist_id),
+                })
 
             if i % 1000 == 0:
+                if journalist_updates:
+                    await self.db.execute(update(Journalist), journalist_updates)
+                    journalist_updates = []
                 await self.db.flush()
                 print(f"  {i}/{len(journalist_ids)} processed...")
+
+        if journalist_updates:
+            await self.db.execute(update(Journalist), journalist_updates)
 
         await self.db.commit()
         return count
@@ -664,10 +694,49 @@ class DisparityCalculator:
         await self._load_all_user_scores()
         await self._load_all_reviews()
 
+        # Build last_review_at lookup (guard against bad future dates).
+        outlet_last_review_query = (
+            select(
+                Review.outlet_id,
+                func.max(Review.published_at).label("last_review_at"),
+            )
+            .where(
+                Review.outlet_id.isnot(None),
+                Review.score_normalized.isnot(None),
+            )
+            .group_by(Review.outlet_id)
+        )
+        outlet_last_review_result = await self.db.execute(outlet_last_review_query)
+        outlet_last_review: Dict[int, datetime] = {}
+        max_reasonable_date = datetime.now(timezone.utc) + timedelta(days=30)
+        for outlet_id, last_at in outlet_last_review_result:
+            if outlet_id is not None and last_at is not None and last_at <= max_reasonable_date:
+                outlet_last_review[outlet_id] = last_at
+
+        # Build journalist_count per outlet.
+        journalist_count_query = (
+            select(
+                Review.outlet_id,
+                func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
+            )
+            .where(
+                Review.outlet_id.isnot(None),
+                Review.score_normalized.isnot(None),
+            )
+            .group_by(Review.outlet_id)
+        )
+        journalist_count_result = await self.db.execute(journalist_count_query)
+        outlet_journalist_counts: Dict[int, int] = {
+            outlet_id: journalist_count
+            for outlet_id, journalist_count in journalist_count_result
+            if outlet_id is not None
+        }
+
         outlet_ids = set(r[3] for r in self._reviews_cache if r[3] is not None)
         print(f"Processing {len(outlet_ids)} outlets...")
 
         count = 0
+        outlet_updates: List[Dict[str, Any]] = []
         for i, outlet_id in enumerate(outlet_ids, 1):
             stats = self._calculate_entity_disparity_from_cache("outlet", outlet_id)
             if stats and stats["review_count"] > 0:
@@ -684,10 +753,24 @@ class DisparityCalculator:
                 )
                 self.db.add(snapshot)
                 count += 1
+                outlet_updates.append({
+                    "id": outlet_id,
+                    "avg_disparity": stats["avg_disparity_combined"],
+                    "review_count_scored": stats["review_count"],
+                    "score_std_dev": stats["std_deviation"],
+                    "last_review_at": outlet_last_review.get(outlet_id),
+                    "journalist_count": outlet_journalist_counts.get(outlet_id, 0),
+                })
 
             if i % 100 == 0:
+                if outlet_updates:
+                    await self.db.execute(update(Outlet), outlet_updates)
+                    outlet_updates = []
                 await self.db.flush()
                 print(f"  {i}/{len(outlet_ids)} processed...")
+
+        if outlet_updates:
+            await self.db.execute(update(Outlet), outlet_updates)
 
         await self.db.commit()
         return count
@@ -707,6 +790,7 @@ class DisparityCalculator:
         print(f"Processing {len(game_ids)} games...")
 
         count = 0
+        game_updates: List[Dict[str, Any]] = []
         for i, game_id in enumerate(game_ids, 1):
             stats = self._calculate_entity_disparity_from_cache("game", game_id)
             if stats and stats["review_count"] > 0:
@@ -723,10 +807,21 @@ class DisparityCalculator:
                 )
                 self.db.add(snapshot)
                 count += 1
+                game_updates.append({
+                    "id": game_id,
+                    "disparity_steam": stats["avg_disparity_steam"],
+                    "disparity_metacritic": stats["avg_disparity_metacritic"],
+                })
 
             if i % 2000 == 0:
+                if game_updates:
+                    await self.db.execute(update(Game), game_updates)
+                    game_updates = []
                 await self.db.flush()
                 print(f"  {i}/{len(game_ids)} processed...")
+
+        if game_updates:
+            await self.db.execute(update(Game), game_updates)
 
         await self.db.commit()
         return count

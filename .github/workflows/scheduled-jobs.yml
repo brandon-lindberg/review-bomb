@@ -4,6 +4,8 @@ on:
   schedule:
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
+    # News relink backfill (last 14 days) - Tue/Fri at 03:30 UTC
+    - cron: '30 3 * * 2,5'
     # Disparity (journalists + outlets) - every 12 hours
     - cron: '0 */12 * * *'
     # Disparity (games) - every 12 hours, staggered 30 minutes later
@@ -12,6 +14,14 @@ on:
     - cron: '0 6 * * *'
     # Metacritic new/unsynced games - once a day at 6 PM UTC
     - cron: '0 18 * * *'
+    # Match recent games to Steam IDs - once a day
+    - cron: '10 7 * * *'
+    # Refresh Steam user scores for recent games - once a day
+    - cron: '40 7 * * *'
+    # Match broader 180-day window - monthly (1st day)
+    - cron: '0 8 1 * *'
+    # Steam scores for broader 180-day window - monthly (1st day)
+    - cron: '30 8 1 * *'
   workflow_dispatch:
     inputs:
       job:
@@ -20,10 +30,15 @@ on:
         type: choice
         options:
           - news
+          - news-backfill
           - disparity-people
           - disparity-games
           - metacritic-recent
           - metacritic-new
+          - match-30d
+          - steam-30d
+          - match-180d
+          - steam-180d
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -46,6 +61,22 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m app news
         timeout-minutes: 30
+
+  news-backfill:
+    name: Backfill News Game Links (14 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '30 3 * * 2,5' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'news-backfill')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app news-backfill --all --relink --days 14
+        timeout-minutes: 90
 
   disparity-people:
     name: Calculate Disparity (Journalists + Outlets)
@@ -114,3 +145,67 @@ jobs:
         run: python -m playwright install chromium --with-deps
       - run: python -m app metacritic --new-only
         timeout-minutes: 120
+
+  match-30d:
+    name: Match Games (Last 30 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '10 7 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-30d')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app match --days 30
+        timeout-minutes: 120
+
+  steam-30d:
+    name: Sync Steam Scores (Last 30 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '40 7 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-30d')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app steam --days 30
+        timeout-minutes: 120
+
+  match-180d:
+    name: Match Games (Last 180 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '0 8 1 * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-180d')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app match --days 180
+        timeout-minutes: 240
+
+  steam-180d:
+    name: Sync Steam Scores (Last 180 Days)
+    runs-on: ubuntu-latest
+    if: >
+      github.event.schedule == '30 8 1 * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-180d')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app steam --days 180
+        timeout-minutes: 240

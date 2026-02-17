@@ -8,7 +8,9 @@ Usage:
     python -m app sync --reset      Reset sync state (start fresh)
     python -m app sync --full-scan  Force full OpenCritic catalog sweep
     python -m app match             Match games to Steam/Metacritic IDs
+    python -m app match --days 180  Match only games released in last 180 days
     python -m app steam             Sync Steam user scores
+    python -m app steam --days 30   Sync Steam scores for games released in last 30 days
     python -m app metacritic        Sync Metacritic scores (skips recently synced games)
     python -m app metacritic --recent  Sync only games released in last 90 days
     python -m app disparity         Calculate disparity snapshots
@@ -23,7 +25,7 @@ Usage:
 import argparse
 import asyncio
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from app.database import async_session_maker
 from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get_sync_status
@@ -85,59 +87,71 @@ async def cmd_steam(args):
     from app.services.steam import SteamService
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import select
+    from datetime import date as date_type, timedelta
 
     async with async_session_maker() as db:
-        service = SteamService()
-
         # Get all games with Steam app IDs
         query = select(Game).where(Game.steam_app_id.isnot(None))
+        mode = "with Steam IDs"
+        if args.days is not None:
+            cutoff_date = date_type.today() - timedelta(days=args.days)
+            query = query.where(
+                Game.release_date.isnot(None),
+                Game.release_date >= cutoff_date,
+            )
+            mode = f"released in last {args.days} days with Steam IDs"
+        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
         result = await db.execute(query)
         games = result.scalars().all()
 
-        print(f"Found {len(games)} games with Steam IDs")
+        print(f"Found {len(games)} games {mode}")
 
         if args.limit:
             games = games[:args.limit]
             print(f"Processing first {args.limit} games")
 
         synced = 0
+        processed = 0
         failed = 0
 
-        for game in games:
-            try:
-                print(f"Fetching Steam score for: {game.title}...")
-                score_data = await service.get_user_score(game.steam_app_id)
+        async with SteamService() as service:
+            for game in games:
+                processed += 1
+                try:
+                    print(f"Fetching Steam score for: {game.title}...")
+                    score_data = await service.get_user_score(game.steam_app_id)
 
-                if score_data:
-                    user_score = UserScore(
-                        game_id=game.id,
-                        source=UserScoreSource.STEAM,
-                        score=score_data["score"],
-                        score_raw=score_data["score_raw"],
-                        sample_size=score_data["sample_size"],
-                        positive_count=score_data["positive_count"],
-                        negative_count=score_data["negative_count"],
-                        review_score_desc=score_data["review_score_desc"],
-                        scraped_at=score_data["scraped_at"],
-                    )
-                    db.add(user_score)
-                    synced += 1
-                    print(f"  Score: {score_data['score']} ({score_data['review_score_desc']})")
+                    if score_data:
+                        user_score = UserScore(
+                            game_id=game.id,
+                            source=UserScoreSource.STEAM,
+                            score=score_data["score"],
+                            score_raw=score_data["score_raw"],
+                            sample_size=score_data["sample_size"],
+                            positive_count=score_data["positive_count"],
+                            negative_count=score_data["negative_count"],
+                            review_score_desc=score_data["review_score_desc"],
+                            scraped_at=score_data["scraped_at"],
+                        )
+                        db.add(user_score)
+                        synced += 1
+                        print(f"  Score: {score_data['score']} ({score_data['review_score_desc']})")
 
-                    # Update denormalized columns on Game
-                    game.steam_user_score = score_data["score"]
-                    game.steam_sample_size = score_data["sample_size"]
+                        # Update denormalized columns on Game
+                        game.steam_user_score = score_data["score"]
+                        game.steam_sample_size = score_data["sample_size"]
 
-                # Commit every 10 games
-                if synced % 10 == 0:
+                except Exception as e:
+                    print(f"  Error: {e}")
+                    failed += 1
+
+                # Commit every 25 games processed
+                if processed % 25 == 0:
                     await db.commit()
-
-            except Exception as e:
-                print(f"  Error: {e}")
-                failed += 1
+                    print(f"  Processed {processed}/{len(games)} games...")
 
         await db.commit()
-        print(f"\nSteam sync complete: {synced} synced, {failed} failed")
+        print(f"\nSteam sync complete: {synced} synced, {failed} failed, {processed} processed")
 
 
 async def cmd_metacritic(args):
@@ -183,6 +197,21 @@ async def cmd_metacritic(args):
             print(f"User scores collected: {user_scores_count:,}")
             return
 
+        # Reuse "needs sync" logic across modes.
+        games_with_user_score = (
+            select(UserScore.game_id)
+            .where(UserScore.source == UserScoreSource.METACRITIC)
+            .distinct()
+            .scalar_subquery()
+        )
+        needs_sync_condition = or_(
+            Game.metacritic_score.is_(None),
+            and_(
+                Game.metacritic_score.isnot(None),
+                Game.id.notin_(games_with_user_score),
+            ),
+        )
+
         # Get games with Metacritic slugs
         if args.backfill_counts:
             # Only re-scrape games missing metacritic_sample_size
@@ -197,14 +226,15 @@ async def cmd_metacritic(args):
             query = select(Game).where(Game.metacritic_slug.isnot(None))
             mode = 'total'
         elif args.recent is not None:
-            # Only process games released in the last N days
+            # Only process recent games that still need Metacritic data.
             days = args.recent
             cutoff_date = date_type.today() - timedelta(days=days)
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
                 Game.release_date >= cutoff_date,
+                needs_sync_condition,
             )
-            mode = f'released in last {days} days'
+            mode = f'released in last {days} days and needing'
         elif args.new_only is not None:
             # Only process recently released games that have never been synced from Metacritic
             days = args.new_only
@@ -217,21 +247,9 @@ async def cmd_metacritic(args):
             mode = f'new (released in last {days} days, never synced)'
         else:
             # Sync games that either: have no metascore yet, OR have a metascore but no user score
-            games_with_user_score = (
-                select(UserScore.game_id)
-                .where(UserScore.source == UserScoreSource.METACRITIC)
-                .distinct()
-                .scalar_subquery()
-            )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                or_(
-                    Game.metacritic_score.is_(None),
-                    and_(
-                        Game.metacritic_score.isnot(None),
-                        Game.id.notin_(games_with_user_score),
-                    ),
-                ),
+                needs_sync_condition,
             )
 
             # Apply stale-days filter: skip games synced recently
@@ -502,7 +520,7 @@ async def cmd_match(args):
         print("Matching games to Steam/Metacritic")
         print(f"{'='*50}\n")
 
-        stats = await orchestrator.match_games_to_steam(limit=args.limit)
+        stats = await orchestrator.match_games_to_steam(limit=args.limit, days=args.days)
 
         print(f"\nMatching complete!")
         print(f"  Total games: {stats['total']}")
@@ -854,6 +872,7 @@ async def cmd_news_backfill(args):
 
     from app.models.models import Game, NewsArticle
     from app.services.news_matcher import NewsMatcher
+    from app.cache import delete_cached, close_redis
 
     async with async_session_maker() as db:
         # Load all game titles
@@ -862,25 +881,83 @@ async def cmd_news_backfill(args):
         matcher = NewsMatcher(games)
         print(f"Loaded {len(games)} game titles for matching")
 
-        # Get all unlinked articles
-        articles_result = await db.execute(
-            select(NewsArticle).where(NewsArticle.game_id.is_(None))
-        )
+        # Build article query
+        query = select(NewsArticle)
+        if not args.all:
+            query = query.where(NewsArticle.game_id.is_(None))
+
+        if args.days is not None:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+            query = query.where(
+                NewsArticle.published_at.isnot(None),
+                NewsArticle.published_at >= cutoff,
+            )
+
+        query = query.order_by(NewsArticle.published_at.desc().nulls_last())
+
+        if args.limit:
+            query = query.limit(args.limit)
+
+        articles_result = await db.execute(query)
         articles = articles_result.scalars().all()
-        print(f"Found {len(articles)} unlinked articles to process")
+        mode = "all articles" if args.all else "unlinked articles"
+        print(f"Found {len(articles)} {mode} to process")
 
-        matched = 0
+        linked_new = 0
+        relinked = 0
+        unchanged = 0
+        unmatched = 0
+        pending_changes = 0
+
+        if args.relink and not args.all:
+            print("Note: --relink has no effect without --all")
+
         for i, article in enumerate(articles):
-            game_id = matcher.match(article.title, article.description)
-            if game_id:
-                article.game_id = game_id
-                matched += 1
-            if (i + 1) % 100 == 0:
-                await db.commit()
-                print(f"  Processed {i + 1}/{len(articles)}, matched {matched} so far...")
+            matched_game_id = matcher.match(article.title, article.description)
+            if not matched_game_id:
+                unmatched += 1
+            elif article.game_id is None:
+                linked_new += 1
+                if not args.dry_run:
+                    article.game_id = matched_game_id
+                    pending_changes += 1
+            elif article.game_id != matched_game_id:
+                if args.all and args.relink:
+                    relinked += 1
+                    if not args.dry_run:
+                        article.game_id = matched_game_id
+                        pending_changes += 1
+                else:
+                    unchanged += 1
+            else:
+                unchanged += 1
 
-        await db.commit()
-        print(f"\nBackfill complete: {matched}/{len(articles)} articles linked to games")
+            if (i + 1) % 100 == 0:
+                if pending_changes and not args.dry_run:
+                    await db.commit()
+                    pending_changes = 0
+                print(
+                    f"  Processed {i + 1}/{len(articles)} "
+                    f"(new links: {linked_new}, relinked: {relinked})"
+                )
+
+        if pending_changes and not args.dry_run:
+            await db.commit()
+
+        changed = linked_new + relinked
+        if changed > 0 and not args.dry_run:
+            deleted_keys = await delete_cached("news:*")
+            print(f"Cleared {deleted_keys} cached news entries")
+            await close_redis()
+
+        print("\nBackfill complete:")
+        print(f"  Processed: {len(articles)}")
+        print(f"  Newly linked: {linked_new}")
+        print(f"  Relinked: {relinked}")
+        print(f"  Unchanged: {unchanged}")
+        print(f"  Unmatched: {unmatched}")
+        if args.dry_run:
+            print("  Dry run only: no database changes were committed")
 
 
 def main():
@@ -902,10 +979,12 @@ def main():
     # Match command
     match_parser = subparsers.add_parser("match", help="Match games to Steam/Metacritic IDs")
     match_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    match_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
     # Steam command
     steam_parser = subparsers.add_parser("steam", help="Sync Steam user scores")
     steam_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    steam_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
     # Metacritic command
     metacritic_parser = subparsers.add_parser("metacritic", help="Sync Metacritic scores (user + metascore)")
@@ -913,7 +992,7 @@ def main():
     metacritic_parser.add_argument("--force", action="store_true", help="Re-sync all games, even already synced ones")
     metacritic_parser.add_argument("--backfill-counts", action="store_true", help="Only re-scrape games missing user rating counts")
     metacritic_parser.add_argument("--status", action="store_true", help="Show sync progress status")
-    metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days (default: 90)")
+    metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days that still need Metacritic sync (default: 90)")
     metacritic_parser.add_argument("--new-only", type=int, nargs="?", const=60, default=None, help="Only process games released in last N days that have never been synced (default: 60)")
     metacritic_parser.add_argument("--stale-days", type=int, default=30, help="Skip games synced within the last N days (default: 30, use 0 to disable)")
 
@@ -947,7 +1026,12 @@ def main():
     news_parser.add_argument("--clear", action="store_true", help="Clear all news articles")
 
     # News backfill command
-    subparsers.add_parser("news-backfill", help="Link existing news articles to games by title matching")
+    news_backfill_parser = subparsers.add_parser("news-backfill", help="Link existing news articles to games by title matching")
+    news_backfill_parser.add_argument("--all", action="store_true", help="Process all articles (default: only unlinked)")
+    news_backfill_parser.add_argument("--relink", action="store_true", help="With --all, update existing game links when a better match is found")
+    news_backfill_parser.add_argument("--days", type=int, help="Only process articles from the last N days")
+    news_backfill_parser.add_argument("--limit", type=int, help="Limit number of articles to process")
+    news_backfill_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to DB")
 
     args = parser.parse_args()
 

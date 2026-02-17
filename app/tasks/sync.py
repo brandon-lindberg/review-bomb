@@ -306,7 +306,6 @@ async def _sync_steam_scores():
         await db.refresh(sync_log)
 
         try:
-            service = SteamService()
             records_processed = 0
             records_created = 0
             records_failed = 0
@@ -318,38 +317,39 @@ async def _sync_steam_scores():
 
             print(f"Syncing Steam scores for {len(games)} games...")
 
-            for game in games:
-                try:
-                    score_data = await service.get_user_score(game.steam_app_id)
-                    if score_data:
-                        user_score = UserScore(
-                            game_id=game.id,
-                            source=UserScoreSource.STEAM,
-                            score=score_data["score"],
-                            score_raw=score_data["score_raw"],
-                            sample_size=score_data["sample_size"],
-                            positive_count=score_data["positive_count"],
-                            negative_count=score_data["negative_count"],
-                            review_score_desc=score_data["review_score_desc"],
-                            scraped_at=score_data["scraped_at"],
-                        )
-                        db.add(user_score)
-                        records_created += 1
+            async with SteamService() as service:
+                for game in games:
+                    try:
+                        score_data = await service.get_user_score(game.steam_app_id)
+                        if score_data:
+                            user_score = UserScore(
+                                game_id=game.id,
+                                source=UserScoreSource.STEAM,
+                                score=score_data["score"],
+                                score_raw=score_data["score_raw"],
+                                sample_size=score_data["sample_size"],
+                                positive_count=score_data["positive_count"],
+                                negative_count=score_data["negative_count"],
+                                review_score_desc=score_data["review_score_desc"],
+                                scraped_at=score_data["scraped_at"],
+                            )
+                            db.add(user_score)
+                            records_created += 1
 
-                        # Update denormalized columns on Game
-                        game.steam_user_score = score_data["score"]
-                        game.steam_sample_size = score_data["sample_size"]
+                            # Update denormalized columns on Game
+                            game.steam_user_score = score_data["score"]
+                            game.steam_sample_size = score_data["sample_size"]
 
-                    records_processed += 1
+                        records_processed += 1
 
-                    # Commit every 50 games
-                    if records_processed % 50 == 0:
-                        await db.commit()
-                        print(f"Processed {records_processed} games...")
+                        # Commit every 50 games
+                        if records_processed % 50 == 0:
+                            await db.commit()
+                            print(f"Processed {records_processed} games...")
 
-                except Exception as e:
-                    print(f"Error fetching Steam score for {game.title}: {e}")
-                    records_failed += 1
+                    except Exception as e:
+                        print(f"Error fetching Steam score for {game.title}: {e}")
+                        records_failed += 1
 
             await db.commit()
 
@@ -537,6 +537,7 @@ async def _match_games_to_platforms():
                 game.metacritic_slug = match_result["metacritic_slug"]
 
         await db.commit()
+        await matcher.steam_service.aclose()
         print(f"Matched {matched} games to Steam")
 
 

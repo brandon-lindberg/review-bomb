@@ -50,6 +50,33 @@ class SteamService:
             api_key: Optional Steam Web API key for extended access
         """
         self.api_key = api_key
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        await self._get_client()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.aclose()
+
+    async def aclose(self):
+        """Close underlying HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily create and reuse a single AsyncClient."""
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=30.0,
+                headers=DEFAULT_HEADERS,
+                cookies=DEFAULT_COOKIES,
+                follow_redirects=True,
+            )
+        return self._client
 
     async def _request(
         self,
@@ -62,42 +89,39 @@ class SteamService:
             # Small delay to avoid triggering anti-bot measures
             await asyncio.sleep(0.5)
 
-            async with httpx.AsyncClient(
-                timeout=30.0,
-                headers=DEFAULT_HEADERS,
-                cookies=DEFAULT_COOKIES,
-                follow_redirects=True,
-            ) as client:
-                for attempt in range(max_retries):
-                    try:
-                        response = await client.get(url, params=params)
-                        response.raise_for_status()
-                        return response.json()
-                    except httpx.HTTPStatusError as e:
-                        if e.response.status_code == 403:
-                            # Access denied - try with longer delay
-                            if attempt < max_retries - 1:
-                                wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
-                                print(f"  Access denied, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
-                                await asyncio.sleep(wait_time)
-                                continue
-                        elif e.response.status_code == 429:
-                            # Rate limited - wait longer
-                            if attempt < max_retries - 1:
-                                wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
-                                print(f"  Rate limited, waiting {wait_time}s...")
-                                await asyncio.sleep(wait_time)
-                                continue
-                        print(f"HTTP error {e.response.status_code}: {e.response.text}")
-                        return None
-                    except httpx.RequestError as e:
+            for attempt in range(max_retries):
+                try:
+                    client = await self._get_client()
+                    response = await client.get(url, params=params)
+                    response.raise_for_status()
+                    return response.json()
+                except httpx.HTTPStatusError as e:
+                    if e.response.status_code == 403:
+                        # Access denied - try with longer delay
                         if attempt < max_retries - 1:
-                            print(f"  Request error, retrying...")
-                            await asyncio.sleep(1)
+                            wait_time = (attempt + 1) * 2  # 2, 4, 6 seconds
+                            print(f"  Access denied, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
+                            await asyncio.sleep(wait_time)
                             continue
-                        print(f"Request error: {e}")
-                        return None
-                return None
+                    elif e.response.status_code == 429:
+                        # Rate limited - wait longer
+                        if attempt < max_retries - 1:
+                            wait_time = (attempt + 1) * 5  # 5, 10, 15 seconds
+                            print(f"  Rate limited, waiting {wait_time}s...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                    print(f"HTTP error {e.response.status_code}: {e.response.text}")
+                    return None
+                except httpx.RequestError as e:
+                    if "closed" in str(e).lower():
+                        await self.aclose()
+                    if attempt < max_retries - 1:
+                        print(f"  Request error, retrying...")
+                        await asyncio.sleep(1)
+                        continue
+                    print(f"Request error: {e}")
+                    return None
+            return None
 
     async def get_app_details(self, app_id: int) -> Optional[Dict[str, Any]]:
         """
