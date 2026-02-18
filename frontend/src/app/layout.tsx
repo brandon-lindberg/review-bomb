@@ -5,6 +5,7 @@ import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
+import { getSiteUrl } from "@/lib/site-url";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -16,7 +17,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://reviewdisparity.com";
+const siteUrl = getSiteUrl();
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -43,7 +44,7 @@ export const metadata: Metadata = {
     title: "ReviewDisparity - Game Critic vs User Score Tracker",
     description:
       "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
-    url: siteUrl,
+    url: "/",
     images: [
       {
         url: "/logo.png",
@@ -65,7 +66,7 @@ export const metadata: Metadata = {
     follow: true,
   },
   alternates: {
-    canonical: siteUrl,
+    canonical: "/",
   },
 };
 

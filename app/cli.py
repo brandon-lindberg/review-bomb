@@ -88,6 +88,21 @@ async def cmd_steam(args):
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import select, and_, or_
     from datetime import timedelta
+    from difflib import SequenceMatcher
+    import re
+
+    def normalize_title_for_match(title: str) -> str:
+        normalized = (title or "").lower()
+        normalized = re.sub(r"[`'’]", "", normalized)
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def title_similarity(a: str, b: str) -> float:
+        return SequenceMatcher(
+            None,
+            normalize_title_for_match(a),
+            normalize_title_for_match(b),
+        ).ratio()
 
     async with async_session_maker() as db:
         new_game_grace_days = 14
@@ -97,6 +112,7 @@ async def cmd_steam(args):
         if args.days is not None:
             now = datetime.now(timezone.utc)
             cutoff_date = (now - timedelta(days=args.days)).date()
+            today = now.date()
             new_game_window_days = min(args.days, new_game_grace_days)
             created_cutoff_date = (now - timedelta(days=new_game_window_days)).date()
             created_cutoff_dt = datetime.combine(
@@ -109,13 +125,17 @@ async def cmd_steam(args):
                     and_(
                         Game.release_date.isnot(None),
                         Game.release_date >= cutoff_date,
+                        Game.release_date <= today,
                     ),
-                    Game.created_at >= created_cutoff_dt,
+                    and_(
+                        Game.created_at >= created_cutoff_dt,
+                        or_(Game.release_date.is_(None), Game.release_date <= today),
+                    ),
                 )
             )
             mode = (
                 f"released in last {args.days} days or added in last "
-                f"{new_game_window_days} days with Steam IDs"
+                f"{new_game_window_days} days (excluding future release dates) with Steam IDs"
             )
         if args.days is not None:
             query = query.order_by(
@@ -137,13 +157,62 @@ async def cmd_steam(args):
         synced = 0
         processed = 0
         failed = 0
+        no_score = 0
+        skipped_upcoming = 0
+        skipped_invalid_app = 0
+        skipped_mismatch = 0
 
         async with SteamService() as service:
             for game in games:
                 processed += 1
                 try:
-                    print(f"Fetching Steam score for: {game.title}...")
-                    score_data = await service.get_user_score(game.steam_app_id)
+                    app_id = game.steam_app_id
+                    print(f"Fetching Steam score for: {game.title} (app_id={app_id})...")
+
+                    app_details = await service.get_app_details(app_id)
+                    if not app_details:
+                        print("  Skip: app_id not found via Steam appdetails")
+                        skipped_invalid_app += 1
+
+                        candidates = await service.search_games(game.title)
+                        if candidates:
+                            top = ", ".join(
+                                f"{c['steam_app_id']}:{c['name']}" for c in candidates[:3]
+                            )
+                            print(f"  Candidate app IDs: {top}")
+                        continue
+
+                    steam_title = (app_details.get("name") or "").strip()
+                    release_info = app_details.get("release_date") or {}
+                    release_raw = release_info.get("date") or "unknown"
+
+                    # Cross-reference mapped app title before pulling score.
+                    if steam_title:
+                        similarity = title_similarity(game.title, steam_title)
+                        if similarity < 0.55:
+                            print(
+                                f"  Skip: likely wrong app mapping "
+                                f"(similarity={similarity:.2f}, steam_title='{steam_title}')"
+                            )
+                            skipped_mismatch += 1
+
+                            candidates = await service.search_games(game.title)
+                            if candidates:
+                                top = ", ".join(
+                                    f"{c['steam_app_id']}:{c['name']}" for c in candidates[:3]
+                                )
+                                print(f"  Candidate app IDs: {top}")
+                            continue
+
+                    if release_info.get("coming_soon"):
+                        print(
+                            f"  Skip: Steam marks app as coming soon "
+                            f"(steam_title='{steam_title}', release='{release_raw}')"
+                        )
+                        skipped_upcoming += 1
+                        continue
+
+                    score_data = await service.get_user_score(app_id)
 
                     if score_data:
                         user_score = UserScore(
@@ -164,6 +233,12 @@ async def cmd_steam(args):
                         # Update denormalized columns on Game
                         game.steam_user_score = score_data["score"]
                         game.steam_sample_size = score_data["sample_size"]
+                    else:
+                        no_score += 1
+                        print(
+                            f"  No score data returned "
+                            f"(steam_title='{steam_title}', release='{release_raw}')"
+                        )
 
                 except Exception as e:
                     print(f"  Error: {e}")
@@ -175,7 +250,12 @@ async def cmd_steam(args):
                     print(f"  Processed {processed}/{len(games)} games...")
 
         await db.commit()
-        print(f"\nSteam sync complete: {synced} synced, {failed} failed, {processed} processed")
+        print(
+            "\nSteam sync complete: "
+            f"{synced} synced, {no_score} no score, {skipped_upcoming} upcoming skipped, "
+            f"{skipped_invalid_app} invalid app IDs, {skipped_mismatch} mapping mismatches, "
+            f"{failed} failed, {processed} processed"
+        )
 
 
 async def cmd_metacritic(args):

@@ -1,11 +1,12 @@
 import type { MetadataRoute } from "next";
+import { getSiteUrl } from "@/lib/site-url";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://reviewdisparity.com";
+const siteUrl = getSiteUrl();
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
-    { url: siteUrl, changeFrequency: "daily", priority: 1.0 },
+    { url: `${siteUrl}/`, changeFrequency: "daily", priority: 1.0 },
     { url: `${siteUrl}/games`, changeFrequency: "daily", priority: 0.9 },
     { url: `${siteUrl}/journalists`, changeFrequency: "daily", priority: 0.9 },
     { url: `${siteUrl}/outlets`, changeFrequency: "daily", priority: 0.9 },

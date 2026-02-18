@@ -3,10 +3,11 @@ import { getStats, getRecentReviews, getGames, getNews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
 import { NewsCard } from "@/components/NewsCard";
+import { getSiteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://reviewdisparity.com";
+const siteUrl = getSiteUrl();
 
 export default async function Home() {
   let stats = null;
@@ -29,7 +30,7 @@ export default async function Home() {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "ReviewDisparity",
-    url: siteUrl,
+    url: `${siteUrl}/`,
     description:
       "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
     potentialAction: {

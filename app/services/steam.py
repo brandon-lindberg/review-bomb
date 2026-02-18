@@ -5,9 +5,11 @@ Fetches user review data from Steam Web API.
 """
 
 import asyncio
+import re
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from decimal import Decimal
+from html import unescape
 
 import httpx
 from aiolimiter import AsyncLimiter
@@ -83,6 +85,7 @@ class SteamService:
         url: str,
         params: Optional[Dict[str, Any]] = None,
         max_retries: int = 3,
+        log_http_error: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Make a rate-limited request to Steam API with retry logic."""
         async with rate_limiter:
@@ -96,6 +99,13 @@ class SteamService:
                     response.raise_for_status()
                     return response.json()
                 except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code
+                    response_text = (e.response.text or "").strip()[:200]
+                    if not response_text:
+                        response_text = "<empty>"
+                    server = e.response.headers.get("server")
+                    cf_ray = e.response.headers.get("cf-ray")
+
                     if e.response.status_code == 403:
                         # Access denied - try with longer delay
                         if attempt < max_retries - 1:
@@ -110,7 +120,11 @@ class SteamService:
                             print(f"  Rate limited, waiting {wait_time}s...")
                             await asyncio.sleep(wait_time)
                             continue
-                    print(f"HTTP error {e.response.status_code}: {e.response.text}")
+                    if log_http_error:
+                        print(
+                            f"HTTP error {status_code} for {url} params={params} "
+                            f"(server={server}, cf-ray={cf_ray}): {response_text}"
+                        )
                     return None
                 except httpx.RequestError as e:
                     if "closed" in str(e).lower():
@@ -159,21 +173,101 @@ class SteamService:
         Returns:
             Review summary including positive/negative counts and review score
         """
-        # Note: Steam appreviews endpoint is NOT under /api path
-        data = await self._request(
-            f"https://store.steampowered.com/appreviews/{app_id}",
-            params={
+        # Note: Steam appreviews endpoint is NOT under /api path.
+        # Try multiple parameter shapes because Steam occasionally changes behavior
+        # for summary-only queries.
+        request_variants = [
+            {
                 "json": "1",
                 "language": "all",
                 "purchase_type": "all",
-                "num_per_page": "0",  # We only need the summary
+                "num_per_page": "0",  # Historical summary-only shape
             },
-        )
+            {
+                "json": "1",
+                "filter": "summary",
+                "language": "all",
+                "purchase_type": "all",
+                "num_per_page": "1",
+            },
+            {
+                "json": "1",
+                "language": "all",
+                "purchase_type": "all",
+                "num_per_page": "1",
+            },
+        ]
 
-        if not data or not data.get("success"):
-            return None
+        for params in request_variants:
+            data = await self._request(
+                f"https://store.steampowered.com/appreviews/{app_id}",
+                params=params,
+                log_http_error=False,
+            )
+            if not data:
+                continue
+            if data.get("success") and data.get("query_summary") is not None:
+                return data.get("query_summary")
 
-        return data.get("query_summary")
+        # Fallback when appreviews endpoint is failing (observed intermittent 500s).
+        print(f"  appreviews unavailable for app_id={app_id}, trying app page fallback")
+        html_summary = await self._get_review_summary_from_store_page(app_id)
+        if html_summary:
+            print(f"  Fallback: parsed review summary from Steam app page for app_id={app_id}")
+            return html_summary
+
+        return None
+
+    @staticmethod
+    def _parse_review_summary_from_html(html: str) -> Optional[Dict[str, Any]]:
+        """Extract review summary from Steam store page HTML."""
+        text = unescape(html or "")
+        patterns = [
+            r"(\d{1,3})% of the ([\d,]+) user reviews for this game are positive",
+            r"(\d{1,3})% of the ([\d,]+) user reviews in your language are positive",
+            r"(\d{1,3})% of the ([\d,]+) user reviews [^\"<]* are positive",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if not match:
+                continue
+
+            positive_pct = int(match.group(1))
+            total_reviews = int(match.group(2).replace(",", ""))
+            if total_reviews <= 0:
+                continue
+
+            total_positive = int(round((positive_pct / 100) * total_reviews))
+            total_negative = max(total_reviews - total_positive, 0)
+            review_desc = ScoreNormalizer.get_steam_review_description(
+                Decimal(str(positive_pct))
+            )
+
+            return {
+                "total_reviews": total_reviews,
+                "total_positive": total_positive,
+                "total_negative": total_negative,
+                "review_score_desc": review_desc,
+            }
+
+        return None
+
+    async def _get_review_summary_from_store_page(self, app_id: int) -> Optional[Dict[str, Any]]:
+        """Fallback summary scraping from Steam app page when appreviews API fails."""
+        async with rate_limiter:
+            await asyncio.sleep(0.5)
+            try:
+                client = await self._get_client()
+                response = await client.get(
+                    f"https://store.steampowered.com/app/{app_id}/",
+                    params={"l": "english", "cc": "us"},
+                )
+                response.raise_for_status()
+                return self._parse_review_summary_from_html(response.text)
+            except Exception as e:
+                print(f"  Fallback app page fetch failed for app_id={app_id}: {e}")
+                return None
 
     async def get_user_score(self, app_id: int) -> Optional[Dict[str, Any]]:
         """

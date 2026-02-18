@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import dramatiq
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, or_
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import async_session_maker
@@ -309,9 +309,13 @@ async def _sync_steam_scores():
             records_processed = 0
             records_created = 0
             records_failed = 0
+            today = datetime.now(timezone.utc).date()
 
-            # Get all games with Steam app IDs
-            query = select(Game).where(Game.steam_app_id.isnot(None))
+            # Get games with Steam app IDs, excluding known future release dates.
+            query = select(Game).where(
+                Game.steam_app_id.isnot(None),
+                or_(Game.release_date.is_(None), Game.release_date <= today),
+            )
             result = await db.execute(query)
             games = result.scalars().all()
 
