@@ -187,15 +187,21 @@ async def game_leaderboard(
         )
     )
 
+    combined_disparity_expr = func.coalesce(
+        (Game.disparity_steam + Game.disparity_metacritic) / 2,
+        Game.disparity_steam,
+        Game.disparity_metacritic,
+    )
+
     # Sort using pre-computed disparities
     if sort == "recent":
         query = query.order_by(
             desc(func.coalesce(Game.release_date, func.date(Game.created_at)))
         )
     elif sort == "highest":
-        query = query.order_by(desc(func.abs(func.coalesce(Game.disparity_steam, Game.disparity_metacritic))))
+        query = query.order_by(desc(func.abs(combined_disparity_expr)))
     else:
-        query = query.order_by(asc(func.abs(func.coalesce(Game.disparity_steam, Game.disparity_metacritic))))
+        query = query.order_by(asc(func.abs(combined_disparity_expr)))
 
     # Get total count
     count_query = (
@@ -222,7 +228,7 @@ async def game_leaderboard(
     start_rank = (page - 1) * per_page + 1
     for i, game in enumerate(games):
         # Calculate combined disparity (average if both exist)
-        if game.disparity_steam and game.disparity_metacritic:
+        if game.disparity_steam is not None and game.disparity_metacritic is not None:
             combined = (float(game.disparity_steam) + float(game.disparity_metacritic)) / 2
             disparity = Decimal(str(round(combined, 2)))
         else:

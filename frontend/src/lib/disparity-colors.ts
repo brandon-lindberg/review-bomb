@@ -84,3 +84,14 @@ export function formatDisparity(value: number | null | undefined): string {
   const num = Number(value);
   return `${num > 0 ? "+" : ""}${num.toFixed(1)}`;
 }
+
+// Prefer combined disparity when both sources are available.
+export function getDisplayDisparity(
+  steamDisparity: number | null | undefined,
+  metacriticDisparity: number | null | undefined
+): number | null {
+  if (steamDisparity != null && metacriticDisparity != null) {
+    return (Number(steamDisparity) + Number(metacriticDisparity)) / 2;
+  }
+  return steamDisparity ?? metacriticDisparity ?? null;
+}

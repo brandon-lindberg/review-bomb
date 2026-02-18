@@ -5,6 +5,7 @@ import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
+import { getDisplayDisparity } from "@/lib/disparity-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       : game.metacritic_user_score != null
         ? Number(game.metacritic_user_score).toFixed(0)
         : null;
-    const disparity = game.disparity_steam ?? game.disparity_metacritic;
+    const disparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(0)}` : null;
 
     let description = `${game.title} critic vs user review scores.`;
@@ -112,7 +113,8 @@ export default async function GameDetailPage({ params }: PageProps) {
 
           <ScoreDisplay
             criticScore={game.avg_critic_score}
-            userScore={game.steam_user_score || game.metacritic_user_score}
+            steamUserScore={game.steam_user_score}
+            metacriticUserScore={game.metacritic_user_score}
             size="lg"
           />
         </div>
@@ -157,9 +159,7 @@ export default async function GameDetailPage({ params }: PageProps) {
           <DisparityScoreCards
             steamDisparity={game.disparity_steam}
             metacriticDisparity={game.disparity_metacritic}
-            combinedDisparity={game.disparity_steam != null && game.disparity_metacritic != null
-              ? (Number(game.disparity_steam) + Number(game.disparity_metacritic)) / 2
-              : game.disparity_steam ?? game.disparity_metacritic}
+            combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
             steamUserScore={game.steam_user_score}
             metacriticUserScore={game.metacritic_user_score}
             criticScore={game.avg_critic_score}

@@ -6,6 +6,7 @@ import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { SortSelect } from "@/components/SortSelect";
 import { YearFilter } from "@/components/YearFilter";
 import { SearchInput } from "@/components/SearchInput";
+import { getDisplayDisparity } from "@/lib/disparity-colors";
 
 export const dynamic = "force-dynamic";
 
@@ -89,7 +90,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
                   href={`/games/${game.id}`}
                   className="block p-4 hover:bg-gray-50 transition-colors"
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div className="flex-1">
                       <h2 className="text-lg font-medium text-gray-900">
                         {game.title}
@@ -108,13 +109,16 @@ export default async function GamesPage({ searchParams }: PageProps) {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
+                    <div className="flex items-center justify-between sm:justify-end gap-4 sm:gap-6">
                       <ScoreDisplay
                         criticScore={game.avg_critic_score}
-                        userScore={game.steam_user_score || game.metacritic_user_score}
+                        steamUserScore={game.steam_user_score}
+                        metacriticUserScore={game.metacritic_user_score}
                         size="sm"
                       />
-                      <DisparityBadge disparity={game.disparity_steam ?? game.disparity_metacritic} />
+                      <DisparityBadge
+                        disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
+                      />
                     </div>
                   </div>
                 </Link>

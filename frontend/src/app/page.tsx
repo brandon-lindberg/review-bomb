@@ -3,6 +3,7 @@ import { getStats, getRecentReviews, getGames, getNews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
 import { NewsCard } from "@/components/NewsCard";
+import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { getSiteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +94,7 @@ export default async function Home() {
             </div>
             <div className="space-y-3">
               {recentReviews.map((review) => {
-                const disparity = review.disparity_steam ?? review.disparity_metacritic ?? null;
+                const disparity = getDisplayDisparity(review.disparity_steam, review.disparity_metacritic);
                 const unreleasedNow = isUnreleasedNow(review.game_release_date);
                 const isPreReleaseReview = (review.review_timing === "early") || unreleasedNow;
                 const launchDateLabel = review.game_release_date
@@ -205,16 +206,18 @@ export default async function Home() {
                     </p>
                     <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
                       Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
-                      {game.steam_user_score != null
-                        ? Number(game.steam_user_score).toFixed(0)
-                        : game.metacritic_user_score != null
-                          ? Number(game.metacritic_user_score).toFixed(0)
-                          : "N/A"}
+                      {game.steam_user_score != null && game.metacritic_user_score != null
+                        ? `Steam ${Number(game.steam_user_score).toFixed(0)} • Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                        : game.steam_user_score != null
+                          ? `Steam ${Number(game.steam_user_score).toFixed(0)}`
+                          : game.metacritic_user_score != null
+                            ? `Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                            : "N/A"}
                     </p>
                   </div>
                   {(game.disparity_steam != null || game.disparity_metacritic != null) && (
                     <DisparityBadge
-                      disparity={game.disparity_steam ?? game.disparity_metacritic ?? 0}
+                      disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
                       size="sm"
                     />
                   )}

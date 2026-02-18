@@ -66,6 +66,12 @@ async def list_games(
     if search:
         query = query.where(Game.title.ilike(f"%{search}%"))
 
+    combined_disparity_expr = func.coalesce(
+        (Game.disparity_steam + Game.disparity_metacritic) / 2,
+        Game.disparity_steam,
+        Game.disparity_metacritic,
+    )
+
     # Apply sorting using denormalized columns
     if sort_by == "release_date":
         # Keep newly discovered games visible even when OpenCritic release_date is missing.
@@ -73,7 +79,7 @@ async def list_games(
     elif sort_by == "title":
         order_col = Game.title
     else:  # disparity
-        order_col = func.abs(Game.disparity_steam)
+        order_col = func.abs(combined_disparity_expr)
 
     if sort_order == "desc":
         query = query.order_by(desc(order_col).nulls_last())
