@@ -15,6 +15,7 @@ from app.database import get_db
 from app.models.models import Journalist, Review, Outlet, Game, UserScore
 from app.schemas.schemas import (
     JournalistSummary,
+    JournalistLatestReview,
     JournalistDetail,
     JournalistStats,
     JournalistOutletBreakdown,
@@ -108,6 +109,65 @@ async def list_journalists(
     result = await db.execute(query)
     journalists = result.scalars().all()
 
+    # Load one latest scored review per journalist for the current page.
+    latest_review_lookup: dict[int, JournalistLatestReview] = {}
+    journalist_ids = [journalist.id for journalist in journalists]
+    if journalist_ids:
+        ranked_reviews = (
+            select(
+                Review.id.label("review_id"),
+                Review.journalist_id.label("journalist_id"),
+                Review.game_id.label("game_id"),
+                Review.outlet_id.label("outlet_id"),
+                Review.snippet.label("snippet"),
+                Review.score_normalized.label("score_normalized"),
+                Review.published_at.label("published_at"),
+                func.row_number().over(
+                    partition_by=Review.journalist_id,
+                    order_by=(Review.published_at.desc(), Review.id.desc()),
+                ).label("rn"),
+            )
+            .where(
+                Review.journalist_id.in_(journalist_ids),
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+                Review.published_at.isnot(None),
+            )
+            .subquery()
+        )
+
+        latest_reviews_query = (
+            select(
+                ranked_reviews.c.journalist_id,
+                ranked_reviews.c.review_id,
+                ranked_reviews.c.game_id,
+                ranked_reviews.c.snippet,
+                ranked_reviews.c.score_normalized,
+                ranked_reviews.c.published_at,
+                Game.title.label("game_title"),
+                Game.release_date.label("game_release_date"),
+                Outlet.name.label("outlet_name"),
+            )
+            .join(Game, ranked_reviews.c.game_id == Game.id)
+            .outerjoin(Outlet, ranked_reviews.c.outlet_id == Outlet.id)
+            .where(ranked_reviews.c.rn == 1)
+        )
+        latest_reviews_result = await db.execute(latest_reviews_query)
+
+        for row in latest_reviews_result:
+            review_date = row.published_at.date() if row.published_at and hasattr(row.published_at, 'date') else row.published_at
+            latest_review_lookup[row.journalist_id] = JournalistLatestReview(
+                review_id=row.review_id,
+                game_id=row.game_id,
+                game_title=row.game_title,
+                game_release_date=row.game_release_date,
+                outlet_name=row.outlet_name,
+                snippet=row.snippet,
+                score_normalized=row.score_normalized,
+                published_at=row.published_at,
+                review_timing=calculate_review_timing(review_date, row.game_release_date),
+            )
+
     items = []
     for journalist in journalists:
         items.append(
@@ -119,6 +179,7 @@ async def list_journalists(
                 opencritic_id=journalist.opencritic_id,
                 review_count=journalist.review_count_scored or 0,
                 avg_disparity=journalist.avg_disparity,
+                latest_review=latest_review_lookup.get(journalist.id),
             )
         )
 

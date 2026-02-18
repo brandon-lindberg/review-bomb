@@ -99,6 +99,19 @@ class JournalistCreate(JournalistBase):
     opencritic_id: Optional[int] = None
 
 
+class JournalistLatestReview(BaseModel):
+    """Most recent scored review summary for journalist list pages."""
+    review_id: int
+    game_id: int
+    game_title: str
+    game_release_date: Optional[date] = None
+    outlet_name: Optional[str] = None
+    snippet: Optional[str] = None
+    score_normalized: Optional[Decimal] = None
+    published_at: Optional[datetime] = None
+    review_timing: str = "unknown"  # "early" | "launch_window" | "late" | "unknown"
+
+
 class JournalistSummary(JournalistBase):
     """Summary journalist info for lists."""
     model_config = ConfigDict(from_attributes=True)
@@ -107,6 +120,7 @@ class JournalistSummary(JournalistBase):
     opencritic_id: Optional[int] = None
     review_count: int = 0
     avg_disparity: Optional[Decimal] = None
+    latest_review: Optional[JournalistLatestReview] = None
 
 
 class JournalistStats(BaseModel):

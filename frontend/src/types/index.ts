@@ -17,6 +17,19 @@ export interface Journalist {
   opencritic_id: number | null;
   review_count: number;
   avg_disparity: number | null;
+  latest_review?: JournalistLatestReview | null;
+}
+
+export interface JournalistLatestReview {
+  review_id: number;
+  game_id: number;
+  game_title: string;
+  game_release_date: string | null;
+  outlet_name: string | null;
+  snippet: string | null;
+  score_normalized: number | null;
+  published_at: string | null;
+  review_timing: ReviewTiming;
 }
 
 export interface JournalistStats {

@@ -9,6 +9,13 @@ export const dynamic = "force-dynamic";
 
 const siteUrl = getSiteUrl();
 
+function isUnreleasedNow(gameReleaseDate: string | null): boolean {
+  if (!gameReleaseDate) return false;
+  const releaseDate = new Date(`${gameReleaseDate}T00:00:00`);
+  if (Number.isNaN(releaseDate.getTime())) return false;
+  return releaseDate.getTime() > Date.now();
+}
+
 export default async function Home() {
   let stats = null;
   let recentReviews = null;
@@ -87,6 +94,15 @@ export default async function Home() {
             <div className="space-y-3">
               {recentReviews.map((review) => {
                 const disparity = review.disparity_steam ?? review.disparity_metacritic ?? null;
+                const unreleasedNow = isUnreleasedNow(review.game_release_date);
+                const isPreReleaseReview = (review.review_timing === "early") || unreleasedNow;
+                const launchDateLabel = review.game_release_date
+                  ? new Date(`${review.game_release_date}T00:00:00`).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : null;
                 return (
                   <div
                     key={review.id}
@@ -94,14 +110,21 @@ export default async function Home() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <Link
-                          href={`/games/${review.game_id}`}
-                          className="font-medium hover:underline block truncate"
-                          style={{ color: "var(--foreground)" }}
-                          title={review.game_title ?? undefined}
-                        >
-                          {review.game_title}
-                        </Link>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Link
+                            href={`/games/${review.game_id}`}
+                            className="font-medium hover:underline block truncate flex-1"
+                            style={{ color: "var(--foreground)" }}
+                            title={review.game_title ?? undefined}
+                          >
+                            {review.game_title}
+                          </Link>
+                          {isPreReleaseReview && (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium bg-amber-100 text-amber-800 shrink-0">
+                              Pre-release Review
+                            </span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2 text-sm min-w-0 overflow-hidden" style={{ color: "var(--foreground-muted)" }}>
                           <Link
                             href={`/journalists/${review.journalist_id}`}
@@ -126,6 +149,12 @@ export default async function Home() {
                             : "Unknown date"}
                           {" • "}
                           Score: {review.score_normalized != null ? Number(review.score_normalized).toFixed(0) : "N/A"}
+                          {unreleasedNow && launchDateLabel && (
+                            <>
+                              {" • "}
+                              Launches {launchDateLabel}
+                            </>
+                          )}
                         </p>
                       </div>
                       {disparity !== null && (
