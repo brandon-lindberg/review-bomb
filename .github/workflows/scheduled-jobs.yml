@@ -49,6 +49,7 @@ on:
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
   REDIS_URL: ${{ secrets.REDIS_URL }}
+  RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
   ENVIRONMENT: production
 
 jobs:
@@ -64,6 +65,12 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+      - name: Validate OpenCritic API key
+        run: |
+          if [ -z "${RAPIDAPI_KEY}" ]; then
+            echo "::error::RAPIDAPI_KEY secret is missing."
+            exit 1
+          fi
       - run: pip install -r requirements.txt
       - run: python -m app sync
         timeout-minutes: 90

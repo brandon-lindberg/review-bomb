@@ -22,6 +22,10 @@ settings = get_settings()
 rate_limiter = AsyncLimiter(100, 1)
 
 
+class OpenCriticAuthError(RuntimeError):
+    """Raised when OpenCritic API credentials are missing or invalid."""
+
+
 class OpenCriticService:
     """Service for interacting with the OpenCritic API."""
 
@@ -29,8 +33,14 @@ class OpenCriticService:
     IMAGE_CDN_URL = "https://img.opencritic.com"
 
     def __init__(self):
+        api_key = (settings.rapidapi_key or "").strip()
+        if not api_key:
+            raise OpenCriticAuthError(
+                "RAPIDAPI_KEY is not configured. Set the environment secret before running sync."
+            )
+
         self.headers = {
-            "X-RapidAPI-Key": settings.rapidapi_key or "",
+            "X-RapidAPI-Key": api_key,
             "X-RapidAPI-Host": settings.opencritic_api_host,
         }
 
@@ -64,6 +74,11 @@ class OpenCriticService:
                         return response.json()
                     except httpx.HTTPStatusError as e:
                         status_code = e.response.status_code
+                        if status_code in {401, 403}:
+                            raise OpenCriticAuthError(
+                                f"OpenCritic API authentication failed ({status_code}). "
+                                "Check RAPIDAPI_KEY and RapidAPI subscription status."
+                            ) from e
                         if status_code in retryable_status_codes and attempt < max_retries - 1:
                             wait_time = (2 ** attempt) + 1  # 2, 3, 5 seconds
                             print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
