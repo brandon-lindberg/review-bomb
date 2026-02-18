@@ -47,6 +47,7 @@ class SyncOrchestrator:
     GAMES_PER_REQUEST = 20  # OpenCritic RapidAPI currently returns max 20 per page
     DEFAULT_STALE_PAGES_BEFORE_STOP = 5  # For fast incremental tail-scan runs
     DEFAULT_TAIL_SCAN_PAGES = 60  # Always scan this many tail pages before stale-stop
+    RECENT_ID_RECON_WINDOW = 300  # Reconcile /game/{id} for recent IDs missing from /game list
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
 
     # State keys for persistence
@@ -181,7 +182,11 @@ class SyncOrchestrator:
             set_={
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
-                "release_date": stmt.excluded.release_date,
+                # Keep existing date when OpenCritic omits it temporarily.
+                "release_date": func.coalesce(
+                    stmt.excluded.release_date,
+                    Game.release_date,
+                ),
                 "top_critic_score": stmt.excluded.top_critic_score,
                 "percent_recommended": stmt.excluded.percent_recommended,
                 "tier": stmt.excluded.tier,
@@ -322,6 +327,189 @@ class SyncOrchestrator:
             game_obj.avg_critic_score = None
             game_obj.critic_review_count = 0
 
+    async def _reconcile_recent_id_window(self, synced_ids: Set[int]) -> Dict[str, int]:
+        """
+        Reconcile recent OpenCritic IDs via direct /game/{id} calls.
+
+        OpenCritic's paginated /game listing can omit some titles even though
+        /game/{id} and search endpoints return them. This catches those gaps.
+        """
+        if not synced_ids:
+            return {"discovered": 0, "games_synced": 0, "reviews_synced": 0}
+
+        max_seen_id = max(synced_ids)
+        start_id = max(1, max_seen_id - self.RECENT_ID_RECON_WINDOW)
+        print(
+            f"Reconciling direct OpenCritic IDs {start_id}-{max_seen_id} "
+            f"for out-of-list games..."
+        )
+
+        stats = {
+            "discovered": 0,
+            "games_synced": 0,
+            "reviews_synced": 0,
+        }
+
+        for opencritic_game_id in range(start_id, max_seen_id + 1):
+            if opencritic_game_id in synced_ids:
+                continue
+
+            game_data = await self.service.get_game(opencritic_game_id)
+            self._request_count += 1
+            if not game_data or not game_data.get("id"):
+                continue
+
+            stats["discovered"] += 1
+            print(
+                f"Discovered out-of-list game: {game_data.get('name')} "
+                f"(OC ID: {opencritic_game_id})"
+            )
+
+            # Handle deprecated merged IDs the same way as the main sync loop.
+            if opencritic_game_id in self.GAME_MERGES:
+                canonical_oc_id = self.GAME_MERGES[opencritic_game_id]
+                canonical_result = await self.db.execute(
+                    select(Game.id).where(Game.opencritic_id == canonical_oc_id)
+                )
+                canonical_game_id = canonical_result.scalar_one_or_none()
+                if canonical_game_id:
+                    reviews_synced = await self._sync_game_reviews(
+                        opencritic_game_id, canonical_game_id
+                    )
+                    await self._update_game_critic_aggregates(canonical_game_id)
+                    await self._add_synced_game_id(opencritic_game_id)
+                    synced_ids.add(opencritic_game_id)
+                    stats["reviews_synced"] += reviews_synced
+                    print(f"  Redirected {reviews_synced} reviews to canonical game")
+                    continue
+
+            internal_game_id = await self._upsert_game(game_data)
+            if not internal_game_id:
+                continue
+
+            reviews_synced = await self._sync_game_reviews(
+                opencritic_game_id, internal_game_id
+            )
+            await self._update_game_critic_aggregates(internal_game_id)
+
+            game_obj = await self.db.get(Game, internal_game_id)
+            if game_obj:
+                game_obj.last_review_sync_at = datetime.now(timezone.utc)
+
+            await self._add_synced_game_id(opencritic_game_id)
+            synced_ids.add(opencritic_game_id)
+
+            stats["games_synced"] += 1
+            stats["reviews_synced"] += reviews_synced
+            print(f"  Synced {reviews_synced} reviews")
+
+        return stats
+
+    async def _refresh_recent_unreleased_games(
+        self, synced_ids: Set[int]
+    ) -> Dict[str, int]:
+        """
+        Recheck recently discovered games with unknown/future release dates.
+
+        Some titles are discovered pre-release (or with missing release date),
+        then later get metadata corrections. These IDs may already be marked
+        synced, so refresh them explicitly.
+        """
+        stats = {
+            "games_checked": 0,
+            "games_updated": 0,
+            "release_dates_updated": 0,
+            "reviews_synced": 0,
+        }
+        if not synced_ids:
+            return stats
+
+        max_seen_id = max(synced_ids)
+        start_id = max(1, max_seen_id - self.RECENT_ID_RECON_WINDOW)
+        today = datetime.now(timezone.utc).date()
+
+        candidates_result = await self.db.execute(
+            select(Game).where(
+                Game.opencritic_id.isnot(None),
+                Game.opencritic_id >= start_id,
+                Game.opencritic_id <= max_seen_id,
+                or_(
+                    Game.release_date.is_(None),
+                    Game.release_date > today,
+                ),
+            )
+            .order_by(Game.opencritic_id.asc())
+        )
+        candidates = candidates_result.scalars().all()
+        if not candidates:
+            return stats
+
+        print(
+            f"Refreshing {len(candidates)} recent games with unknown/future "
+            "release dates..."
+        )
+
+        for game in candidates:
+            opencritic_game_id = game.opencritic_id
+            if not opencritic_game_id:
+                continue
+
+            stats["games_checked"] += 1
+            old_release_date = game.release_date
+            metadata_updated = False
+
+            game_data = await self.service.get_game(opencritic_game_id)
+            self._request_count += 1
+            if game_data:
+                transformed = OpenCriticService.transform_game(game_data)
+
+                if transformed.get("title") and transformed["title"] != game.title:
+                    game.title = transformed["title"]
+                    metadata_updated = True
+
+                if (
+                    transformed.get("description") is not None
+                    and transformed["description"] != game.description
+                ):
+                    game.description = transformed["description"]
+                    metadata_updated = True
+
+                new_release_date = transformed.get("release_date")
+                if new_release_date is not None and new_release_date != game.release_date:
+                    game.release_date = new_release_date
+                    metadata_updated = True
+                    stats["release_dates_updated"] += 1
+
+                for field in (
+                    "top_critic_score",
+                    "percent_recommended",
+                    "tier",
+                    "image_url",
+                ):
+                    new_value = transformed.get(field)
+                    if new_value is not None and new_value != getattr(game, field):
+                        setattr(game, field, new_value)
+                        metadata_updated = True
+
+            reviews_synced = await self._sync_game_reviews(opencritic_game_id, game.id)
+            await self._update_game_critic_aggregates(game.id)
+            stats["reviews_synced"] += reviews_synced
+
+            if reviews_synced > 0:
+                game.last_review_sync_at = datetime.now(timezone.utc)
+
+            if metadata_updated:
+                stats["games_updated"] += 1
+                if old_release_date != game.release_date:
+                    print(
+                        f"  Release date updated: {game.title} "
+                        f"({old_release_date} -> {game.release_date})"
+                    )
+
+            await self.db.commit()
+
+        return stats
+
     async def run_daily_sync(
         self,
         continuous: bool = True,
@@ -340,7 +528,8 @@ class SyncOrchestrator:
 
         Returns stats about what was synced.
         """
-        incremental_tail_scan = continuous and not full_scan and stale_pages_before_stop > 0
+        tail_scan_mode = continuous and not full_scan
+        use_stale_stop = tail_scan_mode and stale_pages_before_stop > 0
         print(
             "Starting sync "
             f"(continuous={continuous}, full_scan={full_scan}, "
@@ -360,6 +549,9 @@ class SyncOrchestrator:
         stats = {
             "games_synced": 0,
             "reviews_synced": 0,
+            "id_reconcile_discovered": 0,
+            "release_dates_updated": 0,
+            "unreleased_games_rechecked": 0,
             "journalists_discovered": 0,
             "outlets_discovered": 0,
             "requests_used": 0,
@@ -381,15 +573,15 @@ class SyncOrchestrator:
             min_pages_before_stale = 0
 
             # OpenCritic `sort=date` is oldest-first, so new games appear near
-            # the end of pagination. Incremental sync starts near the tail.
-            if incremental_tail_scan:
+            # the end of pagination. Non-full scans start near the tail.
+            if tail_scan_mode:
                 estimated_total = max(last_skip, len(synced_ids))
                 backtrack_pages = max(
                     self.DEFAULT_TAIL_SCAN_PAGES,
                     stale_pages_before_stop,
                 )
                 next_skip = max(0, estimated_total - (backtrack_pages * self.GAMES_PER_REQUEST))
-                min_pages_before_stale = backtrack_pages
+                min_pages_before_stale = backtrack_pages if use_stale_stop else 0
                 print(
                     f"Scanning near catalog tail (start skip={next_skip}, "
                     f"estimated total={estimated_total}, tail pages={backtrack_pages})"
@@ -428,7 +620,7 @@ class SyncOrchestrator:
                             f"Fetched {api_count} games, {new_games_in_batch} new to sync "
                             f"(skip={next_skip - api_count})"
                         )
-                    elif incremental_tail_scan:
+                    elif use_stale_stop:
                         if pages_fetched >= min_pages_before_stale:
                             stale_pages_seen += 1
                             print(
@@ -447,6 +639,11 @@ class SyncOrchestrator:
                                 f"Fetched {api_count} games, 0 new to sync "
                                 f"(warming tail window {pages_fetched}/{min_pages_before_stale})"
                             )
+                    else:
+                        print(
+                            f"Fetched {api_count} games, 0 new to sync "
+                            f"(skip={next_skip - api_count})"
+                        )
 
                     if new_games_in_batch > 0:
                         stale_pages_seen = 0
@@ -514,6 +711,17 @@ class SyncOrchestrator:
                         await self._set_games_queue(games_queue)
                         print(f"Progress: {stats['games_synced']} games synced, {stats['reviews_synced']} reviews")
 
+            if continuous:
+                reconcile_stats = await self._reconcile_recent_id_window(synced_ids)
+                stats["id_reconcile_discovered"] += reconcile_stats["discovered"]
+                stats["games_synced"] += reconcile_stats["games_synced"]
+                stats["reviews_synced"] += reconcile_stats["reviews_synced"]
+
+                recheck_stats = await self._refresh_recent_unreleased_games(synced_ids)
+                stats["unreleased_games_rechecked"] += recheck_stats["games_checked"]
+                stats["release_dates_updated"] += recheck_stats["release_dates_updated"]
+                stats["reviews_synced"] += recheck_stats["reviews_synced"]
+
             # Clear persisted queue on clean completion so next run starts fresh.
             await self._set_games_queue([])
 
@@ -535,6 +743,15 @@ class SyncOrchestrator:
             print(f"\nSync complete:")
             print(f"  Games synced: {stats['games_synced']}")
             print(f"  Reviews synced: {stats['reviews_synced']}")
+            print(
+                "  Out-of-list games discovered via ID reconciliation: "
+                f"{stats['id_reconcile_discovered']}"
+            )
+            print(
+                "  Recent unknown/future-date games rechecked: "
+                f"{stats['unreleased_games_rechecked']}"
+            )
+            print(f"  Release dates updated: {stats['release_dates_updated']}")
             print(f"  New journalists: {stats['journalists_discovered']}")
             print(f"  New outlets: {stats['outlets_discovered']}")
             print(f"  API requests used: {stats['requests_used']}")
@@ -616,11 +833,24 @@ class SyncOrchestrator:
             if all_games:
                 query = select(Game).where(Game.opencritic_id.isnot(None))
             else:
-                cutoff_date = (datetime.now(timezone.utc) - timedelta(days=days)).date()
+                now = datetime.now(timezone.utc)
+                cutoff_date = (now - timedelta(days=days)).date()
+                created_window_days = max(days, self.MATCH_NEW_GAME_GRACE_DAYS)
+                created_cutoff_date = (now - timedelta(days=created_window_days)).date()
+                created_cutoff_dt = datetime.combine(
+                    created_cutoff_date,
+                    datetime.min.time(),
+                    tzinfo=timezone.utc,
+                )
                 query = select(Game).where(
                     Game.opencritic_id.isnot(None),
-                    Game.release_date.isnot(None),
-                    Game.release_date >= cutoff_date,
+                    or_(
+                        and_(
+                            Game.release_date.isnot(None),
+                            Game.release_date >= cutoff_date,
+                        ),
+                        Game.created_at >= created_cutoff_dt,
+                    ),
                 )
 
             query = query.order_by(Game.release_date.desc())
@@ -656,9 +886,17 @@ class SyncOrchestrator:
                     self._request_count += 1
                     if game_data:
                         transformed = OpenCriticService.transform_game(game_data)
+                        if transformed.get("title"):
+                            game.title = transformed["title"]
+                        if transformed.get("description") is not None:
+                            game.description = transformed["description"]
+                        if transformed.get("release_date") is not None:
+                            game.release_date = transformed["release_date"]
                         game.top_critic_score = transformed.get("top_critic_score")
                         game.percent_recommended = transformed.get("percent_recommended")
                         game.tier = transformed.get("tier")
+                        if transformed.get("image_url"):
+                            game.image_url = transformed["image_url"]
 
                     # Re-fetch all reviews (upsert handles deduplication)
                     reviews_synced = await self._sync_game_reviews(
@@ -732,12 +970,16 @@ class SyncOrchestrator:
         if days is not None:
             now = datetime.now(timezone.utc)
             cutoff_date = (now - timedelta(days=days)).date()
-            new_game_window_days = min(days, self.MATCH_NEW_GAME_GRACE_DAYS)
-            created_cutoff_date = (now - timedelta(days=new_game_window_days)).date()
+            created_cutoff_date = (now - timedelta(days=self.MATCH_NEW_GAME_GRACE_DAYS)).date()
             created_cutoff_dt = datetime.combine(
                 created_cutoff_date,
                 datetime.min.time(),
                 tzinfo=timezone.utc,
+            )
+            max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
+            recent_opencritic_condition = and_(
+                Game.opencritic_id.isnot(None),
+                Game.opencritic_id >= (max_opencritic_id_subq - self.RECENT_ID_RECON_WINDOW),
             )
             query = query.where(
                 or_(
@@ -746,11 +988,13 @@ class SyncOrchestrator:
                         Game.release_date >= cutoff_date,
                     ),
                     Game.created_at >= created_cutoff_dt,
+                    recent_opencritic_condition,
                 )
             )
             mode = (
-                f"released in last {days} days or added in last "
-                f"{new_game_window_days} days without Steam IDs"
+                f"released in last {days} days, or added in last "
+                f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or in recent OpenCritic ID window "
+                "without Steam IDs"
             )
         if days is not None:
             query = query.order_by(

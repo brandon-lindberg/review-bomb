@@ -189,7 +189,9 @@ async def game_leaderboard(
 
     # Sort using pre-computed disparities
     if sort == "recent":
-        query = query.order_by(desc(Game.release_date).nulls_last())
+        query = query.order_by(
+            desc(func.coalesce(Game.release_date, func.date(Game.created_at)))
+        )
     elif sort == "highest":
         query = query.order_by(desc(func.abs(func.coalesce(Game.disparity_steam, Game.disparity_metacritic))))
     else:

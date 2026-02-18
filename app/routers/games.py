@@ -68,7 +68,8 @@ async def list_games(
 
     # Apply sorting using denormalized columns
     if sort_by == "release_date":
-        order_col = Game.release_date
+        # Keep newly discovered games visible even when OpenCritic release_date is missing.
+        order_col = func.coalesce(Game.release_date, func.date(Game.created_at))
     elif sort_by == "title":
         order_col = Game.title
     else:  # disparity

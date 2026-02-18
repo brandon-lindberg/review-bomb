@@ -86,7 +86,7 @@ async def cmd_steam(args):
     """Handle Steam sync command."""
     from app.services.steam import SteamService
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select, and_, or_
+    from sqlalchemy import select, and_, or_, func
     from datetime import timedelta
     from difflib import SequenceMatcher
     import re
@@ -105,7 +105,8 @@ async def cmd_steam(args):
         ).ratio()
 
     async with async_session_maker() as db:
-        new_game_grace_days = 14
+        min_recent_add_window_days = 14
+        recent_opencritic_id_window = 300
         # Get all games with Steam app IDs
         query = select(Game).where(Game.steam_app_id.isnot(None))
         mode = "with Steam IDs"
@@ -113,12 +114,16 @@ async def cmd_steam(args):
             now = datetime.now(timezone.utc)
             cutoff_date = (now - timedelta(days=args.days)).date()
             today = now.date()
-            new_game_window_days = min(args.days, new_game_grace_days)
-            created_cutoff_date = (now - timedelta(days=new_game_window_days)).date()
+            created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
             created_cutoff_dt = datetime.combine(
                 created_cutoff_date,
                 datetime.min.time(),
                 tzinfo=timezone.utc,
+            )
+            max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
+            recent_opencritic_condition = and_(
+                Game.opencritic_id.isnot(None),
+                Game.opencritic_id >= (max_opencritic_id_subq - recent_opencritic_id_window),
             )
             query = query.where(
                 or_(
@@ -131,11 +136,16 @@ async def cmd_steam(args):
                         Game.created_at >= created_cutoff_dt,
                         or_(Game.release_date.is_(None), Game.release_date <= today),
                     ),
+                    and_(
+                        recent_opencritic_condition,
+                        or_(Game.release_date.is_(None), Game.release_date <= today),
+                    ),
                 )
             )
             mode = (
-                f"released in last {args.days} days or added in last "
-                f"{new_game_window_days} days (excluding future release dates) with Steam IDs"
+                f"released in last {args.days} days, or added in last "
+                f"{min_recent_add_window_days} days, or in recent OpenCritic ID window "
+                "(excluding future release dates) with Steam IDs"
             )
         if args.days is not None:
             query = query.order_by(
@@ -267,6 +277,9 @@ async def cmd_metacritic(args):
     from sqlalchemy import select, func, delete, or_, and_
     from datetime import timedelta, date as date_type
 
+    min_recent_add_window_days = 14
+    recent_opencritic_id_window = 300
+
     async with async_session_maker() as db:
         # Handle --status flag
         if args.status:
@@ -317,6 +330,11 @@ async def cmd_metacritic(args):
                 Game.id.notin_(games_with_user_score),
             ),
         )
+        max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
+        recent_opencritic_condition = and_(
+            Game.opencritic_id.isnot(None),
+            Game.opencritic_id >= (max_opencritic_id_subq - recent_opencritic_id_window),
+        )
 
         # Get games with Metacritic slugs
         if args.backfill_counts:
@@ -343,23 +361,57 @@ async def cmd_metacritic(args):
         elif args.recent is not None:
             # Only process recent games that still need Metacritic data.
             days = args.recent
-            cutoff_date = date_type.today() - timedelta(days=days)
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=days)).date()
+            created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
+            created_cutoff_dt = datetime.combine(
+                created_cutoff_date,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                Game.release_date >= cutoff_date,
                 needs_sync_condition,
+                or_(
+                    and_(
+                        Game.release_date.isnot(None),
+                        Game.release_date >= cutoff_date,
+                    ),
+                    Game.created_at >= created_cutoff_dt,
+                    recent_opencritic_condition,
+                ),
             )
-            mode = f'released in last {days} days and needing'
+            mode = (
+                f'released in last {days} days, or added in last '
+                f'{min_recent_add_window_days} days, or in recent OpenCritic ID window and needing'
+            )
         elif args.new_only is not None:
             # Only process recently released games that have never been synced from Metacritic
             days = args.new_only
-            cutoff_date = date_type.today() - timedelta(days=days)
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=days)).date()
+            created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
+            created_cutoff_dt = datetime.combine(
+                created_cutoff_date,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
                 Game.metacritic_synced_at.is_(None),
-                Game.release_date >= cutoff_date,
+                or_(
+                    and_(
+                        Game.release_date.isnot(None),
+                        Game.release_date >= cutoff_date,
+                    ),
+                    Game.created_at >= created_cutoff_dt,
+                    recent_opencritic_condition,
+                ),
             )
-            mode = f'new (released in last {days} days, never synced)'
+            mode = (
+                f'new (released in last {days} days, or added in last '
+                f'{min_recent_add_window_days} days, or in recent OpenCritic ID window, never synced)'
+            )
         else:
             # Sync games that either: have no metascore yet, OR have a metascore but no user score
             query = select(Game).where(

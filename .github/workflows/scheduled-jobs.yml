@@ -2,30 +2,23 @@ name: Scheduled Jobs
 
 on:
   schedule:
-    # OpenCritic sync - once a day
+    # Core ingestion (daily)
     - cron: '30 5 * * *'
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
-    # News relink backfill (last 14 days) - Tue/Fri at 03:30 UTC
-    - cron: '30 3 * * 2,5'
+    # News relink backfill (last 14 days) - weekly Tuesday
+    - cron: '30 3 * * 2'
     # Disparity (journalists + outlets) - every 12 hours
     - cron: '0 */12 * * *'
     # Disparity (games) - every 12 hours, staggered 30 minutes later
     - cron: '30 */12 * * *'
-    # Metacritic recent 45 days - once a day at 6 AM UTC
+    # Metacritic recent - daily
     - cron: '0 6 * * *'
-    # Metacritic new/unsynced games - once a day at 6 PM UTC
-    - cron: '0 18 * * *'
-    # Metacritic user-count backfill (last 45 days) - once a day
-    - cron: '0 9 * * *'
-    # Match recent games to Steam IDs - once a day
+    # Metacritic user-count backfill (last 45 days) - weekly Wednesday
+    - cron: '0 9 * * 3'
+    # Match + Steam refresh - daily
     - cron: '10 7 * * *'
-    # Refresh Steam user scores for recent games - once a day
     - cron: '40 7 * * *'
-    # Match broader 180-day window - monthly (1st day)
-    - cron: '0 8 1 * *'
-    # Steam scores for broader 180-day window - monthly (1st day)
-    - cron: '30 8 1 * *'
   workflow_dispatch:
     inputs:
       job:
@@ -34,6 +27,7 @@ on:
         type: choice
         options:
           - sync
+          - sync-full
           - news
           - news-backfill
           - disparity-people
@@ -41,10 +35,13 @@ on:
           - metacritic-recent
           - metacritic-new
           - metacritic-counts-backfill
+          - metacritic-catchup
           - match-30d
           - steam-30d
+          - match-all
           - match-180d
           - steam-180d
+          - steam-all
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -56,6 +53,9 @@ jobs:
   sync:
     name: Sync OpenCritic Games
     runs-on: ubuntu-latest
+    concurrency:
+      group: opencritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '30 5 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sync')
@@ -72,8 +72,32 @@ jobs:
             exit 1
           fi
       - run: pip install -r requirements.txt
-      - run: python -m app sync
+      - run: python -u -m app sync --stale-pages 0
         timeout-minutes: 90
+
+  sync-full:
+    name: Sync OpenCritic Games (Full Scan)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: opencritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sync-full'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Validate OpenCritic API key
+        run: |
+          if [ -z "${RAPIDAPI_KEY}" ]; then
+            echo "::error::RAPIDAPI_KEY secret is missing."
+            exit 1
+          fi
+      - run: pip install -r requirements.txt
+      - run: python -u -m app sync --full-scan
+        timeout-minutes: 240
 
   news:
     name: Sync News Feeds
@@ -95,7 +119,7 @@ jobs:
     name: Backfill News Game Links (14 Days)
     runs-on: ubuntu-latest
     if: >
-      github.event.schedule == '30 3 * * 2,5' ||
+      github.event.schedule == '30 3 * * 2' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'news-backfill')
     steps:
       - uses: actions/checkout@v4
@@ -157,7 +181,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -u -m app metacritic --recent 45
+      - run: python -u -m app metacritic --recent 45 --limit 300
         timeout-minutes: 120
 
   metacritic-new:
@@ -167,8 +191,7 @@ jobs:
       group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '0 18 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-new')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-new'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -178,7 +201,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -u -m app metacritic --new-only
+      - run: python -u -m app metacritic --new-only --limit 200
         timeout-minutes: 120
 
   metacritic-counts-backfill:
@@ -188,7 +211,7 @@ jobs:
       group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '0 9 * * *' ||
+      github.event.schedule == '0 9 * * 3' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-counts-backfill')
     steps:
       - uses: actions/checkout@v4
@@ -199,12 +222,35 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -u -m app metacritic --backfill-counts --recent 45
+      - run: python -u -m app metacritic --backfill-counts --recent 45 --limit 300
         timeout-minutes: 120
+
+  metacritic-catchup:
+    name: Sync Metacritic (Global Catch-up)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-catchup'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium --with-deps
+      - run: python -u -m app metacritic --stale-days 7 --limit 400
+        timeout-minutes: 240
 
   match-30d:
     name: Match Games (Last 30 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: steam-match-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '10 7 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-30d')
@@ -215,12 +261,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
-      - run: python -m app match --days 30
+      - run: python -m app match --days 30 --limit 300
         timeout-minutes: 120
 
   steam-30d:
     name: Sync Steam Scores (Last 30 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: steam-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '40 7 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-30d')
@@ -231,15 +280,35 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       - run: pip install -r requirements.txt
-      - run: python -m app steam --days 30
+      - run: python -m app steam --days 30 --limit 500
         timeout-minutes: 120
+
+  match-all:
+    name: Match Games (All Unresolved)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: steam-match-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-all'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app match --limit 500
+        timeout-minutes: 240
 
   match-180d:
     name: Match Games (Last 180 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: steam-match-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
-      github.event.schedule == '0 8 1 * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-180d')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-180d'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -253,9 +322,11 @@ jobs:
   steam-180d:
     name: Sync Steam Scores (Last 180 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: steam-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
-      github.event.schedule == '30 8 1 * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-180d')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-180d'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -265,3 +336,21 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m app steam --days 180
         timeout-minutes: 240
+
+  steam-all:
+    name: Sync Steam Scores (Global Catch-up)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: steam-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: >
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-all'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m app steam --limit 1000
+        timeout-minutes: 360

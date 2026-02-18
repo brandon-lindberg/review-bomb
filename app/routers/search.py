@@ -1,7 +1,7 @@
 """Search API endpoints - uses denormalized columns for speed."""
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select, func
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -79,7 +79,7 @@ async def search(
     game_query = (
         select(Game)
         .where(func.lower(Game.title).like(search_term))
-        .order_by(Game.release_date.desc().nulls_last())
+        .order_by(desc(func.coalesce(Game.release_date, func.date(Game.created_at))))
         .limit(limit)
     )
     game_result = await db.execute(game_query)
