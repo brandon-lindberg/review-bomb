@@ -260,6 +260,8 @@ async def cmd_steam(args):
 
 async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
+    import asyncio
+    import time
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import select, func, delete, or_, and_
@@ -390,12 +392,18 @@ async def cmd_metacritic(args):
         skipped = 0
         failed = 0
         processed = 0
+        total_games = len(games)
+        per_game_timeout_seconds = 120
 
         async with MetacriticService() as service:
-            for game in games:
+            for index, game in enumerate(games, start=1):
+                started_at = time.monotonic()
                 try:
-                    print(f"Fetching Metacritic scores for: {game.title}...")
-                    score_data = await service.get_scores(game.metacritic_slug)
+                    print(f"[{index}/{total_games}] Fetching Metacritic scores for: {game.title}...")
+                    score_data = await asyncio.wait_for(
+                        service.get_scores(game.metacritic_slug),
+                        timeout=per_game_timeout_seconds,
+                    )
 
                     if not score_data:
                         print(f"  No data returned from Metacritic")
@@ -490,18 +498,31 @@ async def cmd_metacritic(args):
                     # Mark this game as synced regardless of whether data changed
                     game.metacritic_synced_at = datetime.now(timezone.utc)
 
-                    # Commit every 10 games processed
-                    processed += 1
-                    if processed % 10 == 0:
-                        await db.commit()
-
                     # Small delay to be respectful
-                    import asyncio
                     await asyncio.sleep(1)
 
+                    elapsed = time.monotonic() - started_at
+                    print(f"  Completed in {elapsed:.1f}s")
+                except asyncio.TimeoutError:
+                    elapsed = time.monotonic() - started_at
+                    print(
+                        f"  Error: timed out after {elapsed:.1f}s "
+                        f"(limit {per_game_timeout_seconds}s)"
+                    )
+                    failed += 1
                 except Exception as e:
                     print(f"  Error: {e}")
                     failed += 1
+                finally:
+                    # Commit progress in chunks so long runs do not appear stalled.
+                    processed += 1
+                    if processed % 10 == 0 or processed == total_games:
+                        await db.commit()
+                        print(
+                            f"Progress: {processed}/{total_games} processed "
+                            f"({synced_user} user, {synced_meta} metascore, "
+                            f"{skipped} unchanged, {failed} failed)"
+                        )
 
         await db.commit()
         print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")

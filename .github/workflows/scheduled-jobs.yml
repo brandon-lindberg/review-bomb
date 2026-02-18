@@ -142,6 +142,9 @@ jobs:
   metacritic-recent:
     name: Sync Metacritic (Last 45 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '0 6 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-recent')
@@ -154,12 +157,15 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -m app metacritic --recent 45
+      - run: python -u -m app metacritic --recent 45
         timeout-minutes: 120
 
   metacritic-new:
     name: Sync Metacritic (New Games)
     runs-on: ubuntu-latest
+    concurrency:
+      group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '0 18 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-new')
@@ -172,12 +178,15 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -m app metacritic --new-only
+      - run: python -u -m app metacritic --new-only
         timeout-minutes: 120
 
   metacritic-counts-backfill:
     name: Backfill Metacritic User Counts (Last 45 Days)
     runs-on: ubuntu-latest
+    concurrency:
+      group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
     if: >
       github.event.schedule == '0 9 * * *' ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-counts-backfill')
@@ -190,7 +199,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Install Playwright browsers
         run: python -m playwright install chromium --with-deps
-      - run: python -m app metacritic --backfill-counts --recent 45
+      - run: python -u -m app metacritic --backfill-counts --recent 45
         timeout-minutes: 120
 
   match-30d:

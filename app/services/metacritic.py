@@ -160,6 +160,7 @@ class MetacriticService:
         for attempt in range(max_retries):
             try:
                 page = await self._get_page()
+                context = page.context
 
                 try:
                     # Navigate to game page
@@ -404,7 +405,10 @@ class MetacriticService:
                     return None
 
                 finally:
-                    await page.close()
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass
 
             except PlaywrightTimeout:
                 print(f"Timeout scraping {url}, attempt {attempt + 1}/{max_retries}")
@@ -483,6 +487,7 @@ class MetacriticService:
 
         try:
             page = await self._get_page()
+            context = page.context
 
             try:
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=30000)
@@ -506,7 +511,10 @@ class MetacriticService:
                 return None
 
             finally:
-                await page.close()
+                try:
+                    await context.close()
+                except Exception:
+                    pass
 
         except Exception as e:
             print(f"Error searching for {title}: {e}")
