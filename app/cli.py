@@ -86,10 +86,12 @@ async def cmd_steam(args):
     """Handle Steam sync command."""
     from app.services.steam import SteamService
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select, and_, or_, func
+    from sqlalchemy import select, and_, or_, func, delete
     from datetime import timedelta
     from difflib import SequenceMatcher
     import re
+
+    mapping_similarity_min = 0.65
 
     def normalize_title_for_match(title: str) -> str:
         normalized = (title or "").lower()
@@ -172,6 +174,8 @@ async def cmd_steam(args):
         skipped_upcoming = 0
         skipped_invalid_app = 0
         skipped_mismatch = 0
+        cleared_mismatch = 0
+        cleared_steam_score_rows = 0
 
         async with SteamService() as service:
             for game in games:
@@ -200,12 +204,25 @@ async def cmd_steam(args):
                     # Cross-reference mapped app title before pulling score.
                     if steam_title:
                         similarity = title_similarity(game.title, steam_title)
-                        if similarity < 0.55:
+                        if similarity < mapping_similarity_min:
                             print(
                                 f"  Skip: likely wrong app mapping "
                                 f"(similarity={similarity:.2f}, steam_title='{steam_title}')"
                             )
                             skipped_mismatch += 1
+                            game.steam_app_id = None
+                            game.steam_user_score = None
+                            game.steam_sample_size = None
+                            cleared_mismatch += 1
+                            deleted_scores = await db.execute(
+                                delete(UserScore).where(
+                                    UserScore.game_id == game.id,
+                                    UserScore.source == UserScoreSource.STEAM,
+                                )
+                            )
+                            if deleted_scores.rowcount:
+                                cleared_steam_score_rows += deleted_scores.rowcount
+                            print("  Cleared stored steam_app_id for rematch")
 
                             candidates = await service.search_games(game.title)
                             if candidates:
@@ -264,7 +281,8 @@ async def cmd_steam(args):
         print(
             "\nSteam sync complete: "
             f"{synced} synced, {no_score} no score, {skipped_upcoming} upcoming skipped, "
-            f"{skipped_invalid_app} invalid app IDs, {skipped_mismatch} mapping mismatches, "
+            f"{skipped_invalid_app} invalid app IDs, {skipped_mismatch} mapping mismatches "
+            f"({cleared_mismatch} cleared, {cleared_steam_score_rows} score rows deleted), "
             f"{failed} failed, {processed} processed"
         )
 

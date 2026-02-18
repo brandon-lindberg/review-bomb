@@ -89,6 +89,40 @@ class GameMatcher:
 
         return candidates
 
+    @classmethod
+    def build_similarity_titles(cls, title: str) -> List[str]:
+        """
+        Build title variants for similarity scoring.
+
+        Unlike search queries, this intentionally avoids left/right subtitle
+        splits. Otherwise a title like "Game: Subtitle" can incorrectly score
+        as a perfect match against unrelated "Game" entries.
+        """
+        candidates: List[str] = []
+
+        def add(value: Optional[str]) -> None:
+            if not value:
+                return
+            v = value.strip()
+            if v and v not in candidates:
+                candidates.append(v)
+
+        add(title)
+
+        # Symbol normalization fallbacks.
+        if re.search(r"\bdelta\b", title, flags=re.IGNORECASE):
+            add(re.sub(r"\bdelta\b", "Δ", title, flags=re.IGNORECASE))
+        if "Δ" in title:
+            add(title.replace("Δ", "Delta"))
+
+        # Strip common chapter/episode suffixes.
+        stripped = title
+        for pattern in cls.SEARCH_SUFFIX_PATTERNS:
+            stripped = re.sub(pattern, "", stripped).strip()
+        add(stripped)
+
+        return candidates
+
     def __init__(
         self,
         steam_service: Optional[SteamService] = None,
@@ -199,7 +233,7 @@ class GameMatcher:
         if not search_results:
             return None
 
-        comparison_titles = self.build_search_queries(title)
+        comparison_titles = self.build_similarity_titles(title)
 
         # Find best match
         best_match: Optional[int] = None
