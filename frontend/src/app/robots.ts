@@ -16,7 +16,19 @@ export default function robots(): MetadataRoute.Robots {
         disallow: "/",
       },
       {
+        userAgent: "Google-Extended",
+        disallow: "/",
+      },
+      {
         userAgent: "ChatGPT-User",
+        disallow: "/",
+      },
+      {
+        userAgent: "Amazonbot",
+        disallow: "/",
+      },
+      {
+        userAgent: "Applebot-Extended",
         disallow: "/",
       },
       {
