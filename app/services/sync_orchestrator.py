@@ -409,11 +409,11 @@ class SyncOrchestrator:
         self, synced_ids: Set[int]
     ) -> Dict[str, int]:
         """
-        Recheck recently discovered games with unknown/future release dates.
+        Recheck all games with unknown/future release dates.
 
         Some titles are discovered pre-release (or with missing release date),
-        then later get metadata corrections. These IDs may already be marked
-        synced, so refresh them explicitly.
+        then later get metadata corrections. Refresh them explicitly so release
+        dates are corrected as titles ship.
         """
         stats = {
             "games_checked": 0,
@@ -424,28 +424,28 @@ class SyncOrchestrator:
         if not synced_ids:
             return stats
 
-        max_seen_id = max(synced_ids)
-        start_id = max(1, max_seen_id - self.RECENT_ID_RECON_WINDOW)
         today = datetime.now(timezone.utc).date()
 
         candidates_result = await self.db.execute(
             select(Game).where(
                 Game.opencritic_id.isnot(None),
-                Game.opencritic_id >= start_id,
-                Game.opencritic_id <= max_seen_id,
                 or_(
                     Game.release_date.is_(None),
                     Game.release_date > today,
                 ),
             )
-            .order_by(Game.opencritic_id.asc())
+            .order_by(
+                Game.release_date.asc().nulls_first(),
+                Game.opencritic_id.desc().nulls_last(),
+                Game.id.desc(),
+            )
         )
         candidates = candidates_result.scalars().all()
         if not candidates:
             return stats
 
         print(
-            f"Refreshing {len(candidates)} recent games with unknown/future "
+            f"Refreshing {len(candidates)} games with unknown/future "
             "release dates..."
         )
 
@@ -748,7 +748,7 @@ class SyncOrchestrator:
                 f"{stats['id_reconcile_discovered']}"
             )
             print(
-                "  Recent unknown/future-date games rechecked: "
+                "  Unknown/future-date games rechecked: "
                 f"{stats['unreleased_games_rechecked']}"
             )
             print(f"  Release dates updated: {stats['release_dates_updated']}")
@@ -969,6 +969,7 @@ class SyncOrchestrator:
         mode = "without Steam IDs"
         if days is not None:
             now = datetime.now(timezone.utc)
+            today = now.date()
             cutoff_date = (now - timedelta(days=days)).date()
             created_cutoff_date = (now - timedelta(days=self.MATCH_NEW_GAME_GRACE_DAYS)).date()
             created_cutoff_dt = datetime.combine(
@@ -981,6 +982,21 @@ class SyncOrchestrator:
                 Game.opencritic_id.isnot(None),
                 Game.opencritic_id >= (max_opencritic_id_subq - self.RECENT_ID_RECON_WINDOW),
             )
+            published_review_game_ids = (
+                select(Review.game_id)
+                .where(
+                    Review.score_normalized.isnot(None),
+                    Review.score_normalized > 0,
+                    Review.published_at.isnot(None),
+                    Review.published_at <= now,
+                )
+                .distinct()
+                .scalar_subquery()
+            )
+            release_date_reconcile_condition = and_(
+                or_(Game.release_date.is_(None), Game.release_date > today),
+                Game.id.in_(published_review_game_ids),
+            )
             query = query.where(
                 or_(
                     and_(
@@ -989,12 +1005,13 @@ class SyncOrchestrator:
                     ),
                     Game.created_at >= created_cutoff_dt,
                     recent_opencritic_condition,
+                    release_date_reconcile_condition,
                 )
             )
             mode = (
                 f"released in last {days} days, or added in last "
-                f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or in recent OpenCritic ID window "
-                "without Steam IDs"
+                f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or in recent OpenCritic ID window, "
+                "or release-date reconciliation needed without Steam IDs"
             )
         if days is not None:
             query = query.order_by(

@@ -155,14 +155,15 @@ async def cmd_steam(args):
             )
         else:
             query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+        if args.limit:
+            query = query.limit(args.limit)
         result = await db.execute(query)
         games = result.scalars().all()
 
         print(f"Found {len(games)} games {mode}")
 
         if args.limit:
-            games = games[:args.limit]
-            print(f"Processing first {args.limit} games")
+            print(f"Processing up to {args.limit} games")
 
         synced = 0
         processed = 0
@@ -273,7 +274,7 @@ async def cmd_metacritic(args):
     import asyncio
     import time
     from app.services.metacritic import MetacriticService
-    from app.models.models import Game, UserScore, UserScoreSource
+    from app.models.models import Game, UserScore, UserScoreSource, Review
     from sqlalchemy import select, func, delete, or_, and_
     from datetime import timedelta, date as date_type
 
@@ -316,6 +317,9 @@ async def cmd_metacritic(args):
             print(f"User scores collected: {user_scores_count:,}")
             return
 
+        now = datetime.now(timezone.utc)
+        today = now.date()
+
         # Reuse "needs sync" logic across modes.
         games_with_user_score = (
             select(UserScore.game_id)
@@ -334,6 +338,21 @@ async def cmd_metacritic(args):
         recent_opencritic_condition = and_(
             Game.opencritic_id.isnot(None),
             Game.opencritic_id >= (max_opencritic_id_subq - recent_opencritic_id_window),
+        )
+        published_review_game_ids = (
+            select(Review.game_id)
+            .where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+                Review.published_at.isnot(None),
+                Review.published_at <= now,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        release_date_reconcile_condition = and_(
+            or_(Game.release_date.is_(None), Game.release_date > today),
+            Game.id.in_(published_review_game_ids),
         )
 
         # Get games with Metacritic slugs
@@ -361,7 +380,6 @@ async def cmd_metacritic(args):
         elif args.recent is not None:
             # Only process recent games that still need Metacritic data.
             days = args.recent
-            now = datetime.now(timezone.utc)
             cutoff_date = (now - timedelta(days=days)).date()
             created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
             created_cutoff_dt = datetime.combine(
@@ -371,7 +389,7 @@ async def cmd_metacritic(args):
             )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                needs_sync_condition,
+                or_(needs_sync_condition, release_date_reconcile_condition),
                 or_(
                     and_(
                         Game.release_date.isnot(None),
@@ -379,16 +397,17 @@ async def cmd_metacritic(args):
                     ),
                     Game.created_at >= created_cutoff_dt,
                     recent_opencritic_condition,
+                    release_date_reconcile_condition,
                 ),
             )
             mode = (
                 f'released in last {days} days, or added in last '
-                f'{min_recent_add_window_days} days, or in recent OpenCritic ID window and needing'
+                f'{min_recent_add_window_days} days, or in recent OpenCritic ID window, '
+                'or release-date reconciliation needed'
             )
         elif args.new_only is not None:
             # Only process recently released games that have never been synced from Metacritic
             days = args.new_only
-            now = datetime.now(timezone.utc)
             cutoff_date = (now - timedelta(days=days)).date()
             created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
             created_cutoff_dt = datetime.combine(
@@ -416,28 +435,42 @@ async def cmd_metacritic(args):
             # Sync games that either: have no metascore yet, OR have a metascore but no user score
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                needs_sync_condition,
+                or_(needs_sync_condition, release_date_reconcile_condition),
             )
 
             # Apply stale-days filter: skip games synced recently
             stale_days = args.stale_days
             if stale_days > 0:
-                stale_cutoff = datetime.now(timezone.utc) - timedelta(days=stale_days)
+                stale_cutoff = now - timedelta(days=stale_days)
                 query = query.where(
                     or_(
+                        release_date_reconcile_condition,
                         Game.metacritic_synced_at.is_(None),
                         Game.metacritic_synced_at < stale_cutoff,
                     )
                 )
 
             mode = 'needing'
+        if args.recent is not None or args.new_only is not None:
+            query = query.order_by(
+                Game.created_at.desc().nulls_last(),
+                Game.release_date.desc().nulls_last(),
+                Game.id.desc(),
+            )
+        else:
+            query = query.order_by(
+                Game.metacritic_synced_at.asc().nulls_first(),
+                Game.created_at.desc().nulls_last(),
+                Game.id.desc(),
+            )
+        if args.limit:
+            query = query.limit(args.limit)
         result = await db.execute(query)
         games = result.scalars().all()
         print(f"Found {len(games)} games {mode} Metacritic sync")
 
         if args.limit:
-            games = games[:args.limit]
-            print(f"Processing first {args.limit} games")
+            print(f"Processing up to {args.limit} games")
 
         synced_user = 0
         synced_meta = 0
@@ -543,6 +576,20 @@ async def cmd_metacritic(args):
                                 print(f"  Metascore: {old_val} -> {score_data['metascore']}")
                             else:
                                 print(f"  Metascore: {score_data['metascore']} (unchanged)")
+
+                        # Fill missing/placeholder release_date from Metacritic when available.
+                        mc_release_date = score_data.get("release_date")
+                        if mc_release_date is not None:
+                            today = datetime.now(timezone.utc).date()
+                            should_update_release_date = (
+                                game.release_date is None
+                                or (game.release_date > today and mc_release_date <= today)
+                            )
+                            if should_update_release_date and game.release_date != mc_release_date:
+                                old_release = game.release_date
+                                game.release_date = mc_release_date
+                                updated_anything = True
+                                print(f"  Release Date: {old_release} -> {mc_release_date}")
 
                         if not updated_anything:
                             skipped += 1

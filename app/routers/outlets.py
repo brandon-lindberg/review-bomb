@@ -221,7 +221,7 @@ async def get_outlet(
             early_review_count += 1
         elif timing == "launch_window":
             launch_window_review_count += 1
-        else:
+        elif timing == "late":
             late_review_count += 1
 
         if timing != "launch_window":

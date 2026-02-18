@@ -167,17 +167,21 @@ export function JournalistReviewsSection({ journalistId }: JournalistReviewsSect
                             ? "bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-300"
                             : review.review_timing === "launch_window"
                             ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                            : review.review_timing === "late"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                            : "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
                         }`}
                         title={review.game_release_date
                           ? `Game released: ${new Date(review.game_release_date).toLocaleDateString()}${
                               review.review_timing === "early" ? " (before release)" :
-                              review.review_timing === "launch_window" ? " (within 60 days)" : " (more than 60 days ago)"
+                              review.review_timing === "launch_window" ? " (within 60 days)" :
+                              review.review_timing === "late" ? " (more than 60 days ago)" : ""
                             }`
                           : "Release date unknown"}
                       >
                         {review.review_timing === "early" ? "Early Review" :
-                         review.review_timing === "launch_window" ? "Launch Window" : "Late Review"}
+                         review.review_timing === "launch_window" ? "Launch Window" :
+                         review.review_timing === "late" ? "Late Review" : "Release Date Unknown"}
                       </span>
                     </div>
                   </div>

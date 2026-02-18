@@ -175,6 +175,7 @@ class MetacriticService:
                         "user_sample_size": None,
                         "metascore": None,
                         "critic_count": None,
+                        "release_date": None,
                         "scraped_at": datetime.now(timezone.utc),
                     }
 
@@ -398,8 +399,72 @@ class MetacriticService:
                         except (ValueError, TypeError):
                             pass
 
+                    # === RELEASE DATE ===
+                    # Prefer structured data (JSON-LD), then fall back to page text.
+                    release_date_js = await page.evaluate('''() => {
+                        function parseDateString(s) {
+                            if (!s || typeof s !== 'string') return null;
+                            const iso = s.match(/^(\\d{4}-\\d{2}-\\d{2})/);
+                            if (iso) return iso[1];
+                            const d = new Date(s);
+                            if (!Number.isNaN(d.getTime())) {
+                                const yyyy = d.getUTCFullYear();
+                                const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+                                const dd = String(d.getUTCDate()).padStart(2, '0');
+                                return `${yyyy}-${mm}-${dd}`;
+                            }
+                            return null;
+                        }
+
+                        const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+                        for (const script of ldScripts) {
+                            try {
+                                const raw = script.textContent || '';
+                                const parsed = JSON.parse(raw);
+                                const entries = Array.isArray(parsed) ? parsed : [parsed];
+                                for (const entry of entries) {
+                                    if (!entry || typeof entry !== 'object') continue;
+                                    const candidate =
+                                        entry.datePublished ||
+                                        entry.dateCreated ||
+                                        entry.releaseDate;
+                                    const normalized = parseDateString(candidate);
+                                    if (normalized) return normalized;
+                                }
+                            } catch (_err) {
+                                // Ignore malformed JSON-LD blocks.
+                            }
+                        }
+
+                        const bodyText = document.body?.innerText || '';
+                        let match = bodyText.match(/Initial Release Date:\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})/i);
+                        if (match) {
+                            const normalized = parseDateString(match[1]);
+                            if (normalized) return normalized;
+                        }
+                        match = bodyText.match(/Released On:\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})/i);
+                        if (match) {
+                            const normalized = parseDateString(match[1]);
+                            if (normalized) return normalized;
+                        }
+
+                        return null;
+                    }''')
+
+                    if release_date_js:
+                        try:
+                            result["release_date"] = datetime.strptime(
+                                release_date_js, "%Y-%m-%d"
+                            ).date()
+                        except ValueError:
+                            pass
+
                     # Return result if we got at least one score
-                    if result["user_score"] is not None or result["metascore"] is not None:
+                    if (
+                        result["user_score"] is not None
+                        or result["metascore"] is not None
+                        or result["release_date"] is not None
+                    ):
                         return result
 
                     return None

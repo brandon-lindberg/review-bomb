@@ -288,7 +288,7 @@ async def get_journalist(
             early_review_count += 1
         elif timing == "launch_window":
             launch_window_review_count += 1
-        else:  # late or unknown
+        elif timing == "late":
             late_review_count += 1
 
         is_launch_window = timing == "launch_window"
