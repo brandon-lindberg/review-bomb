@@ -1,6 +1,6 @@
 """Journalists API endpoints."""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from decimal import Decimal
 
@@ -70,11 +70,13 @@ async def list_journalists(
     db: AsyncSession = Depends(get_db),
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
-    # Use denormalized columns for fast queries.
+    now = datetime.now(timezone.utc)
+
     # For disparity sorting, enforce leaderboard anti-gaming thresholds.
+    # For non-disparity sorts, include all journalists with at least one scored review.
     filters = [
         Journalist.review_count_scored.isnot(None),
-        Journalist.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
+        Journalist.review_count_scored > 0,
     ]
     if sort_by == "disparity":
         filters.extend([
@@ -82,8 +84,30 @@ async def list_journalists(
             Journalist.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
             func.coalesce(Journalist.score_std_dev, 0) >= MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT,
         ])
-
-    query = select(Journalist).where(*filters)
+    latest_review_subquery = None
+    if sort_by == "latest_review":
+        # Use same recency criteria as home /stats/recent-reviews endpoint.
+        latest_review_subquery = (
+            select(
+                Review.journalist_id.label("journalist_id"),
+                func.max(Review.published_at).label("latest_review_at"),
+            )
+            .where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+                Review.published_at.isnot(None),
+                Review.published_at <= now,
+            )
+            .group_by(Review.journalist_id)
+            .subquery()
+        )
+        query = (
+            select(Journalist)
+            .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
+            .where(*filters)
+        )
+    else:
+        query = select(Journalist).where(*filters)
 
     # Filter by search term if provided
     if search:
@@ -95,7 +119,7 @@ async def list_journalists(
     elif sort_by == "name":
         order_col = Journalist.name
     elif sort_by == "latest_review":
-        order_col = Journalist.last_review_at
+        order_col = latest_review_subquery.c.latest_review_at
     else:  # review_count
         order_col = Journalist.review_count_scored
 
@@ -105,7 +129,15 @@ async def list_journalists(
         query = query.order_by(asc(order_col).nulls_last())
 
     # Get total count
-    count_query = select(func.count()).select_from(Journalist).where(*filters)
+    if sort_by == "latest_review":
+        count_query = (
+            select(func.count())
+            .select_from(Journalist)
+            .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
+            .where(*filters)
+        )
+    else:
+        count_query = select(func.count()).select_from(Journalist).where(*filters)
     if search:
         count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)
@@ -140,6 +172,7 @@ async def list_journalists(
                 Review.score_normalized.isnot(None),
                 Review.score_normalized > 0,
                 Review.published_at.isnot(None),
+                Review.published_at <= now,
             )
             .subquery()
         )
