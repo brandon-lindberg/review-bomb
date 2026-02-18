@@ -32,6 +32,9 @@ LAUNCH_WINDOW_DAYS = 60  # Reviews within 60 days of game release count for laun
 # Minimum user reviews required for a game to count in disparity (per source)
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
+# Leaderboard-style minimums for disparity sorting in the journalists list
+MIN_REVIEWS_FOR_DISPARITY_SORT = 10
+MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT = 10
 
 
 def calculate_review_timing(review_date, game_release_date) -> str:
@@ -67,11 +70,20 @@ async def list_journalists(
     db: AsyncSession = Depends(get_db),
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
-    # Use denormalized columns for fast queries
-    query = (
-        select(Journalist)
-        .where(Journalist.review_count_scored.isnot(None), Journalist.review_count_scored > 0)
-    )
+    # Use denormalized columns for fast queries.
+    # For disparity sorting, enforce leaderboard anti-gaming thresholds.
+    filters = [
+        Journalist.review_count_scored.isnot(None),
+        Journalist.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
+    ]
+    if sort_by == "disparity":
+        filters.extend([
+            Journalist.avg_disparity.isnot(None),
+            Journalist.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
+            func.coalesce(Journalist.score_std_dev, 0) >= MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT,
+        ])
+
+    query = select(Journalist).where(*filters)
 
     # Filter by search term if provided
     if search:
@@ -93,11 +105,7 @@ async def list_journalists(
         query = query.order_by(asc(order_col).nulls_last())
 
     # Get total count
-    count_query = (
-        select(func.count())
-        .select_from(Journalist)
-        .where(Journalist.review_count_scored.isnot(None), Journalist.review_count_scored > 0)
-    )
+    count_query = select(func.count()).select_from(Journalist).where(*filters)
     if search:
         count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)

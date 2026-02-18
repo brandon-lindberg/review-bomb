@@ -30,6 +30,9 @@ LAUNCH_WINDOW_DAYS = 60
 # Minimum user reviews required for disparity calculation (per source)
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
+# Leaderboard-style minimums for disparity sorting in the outlets list
+MIN_REVIEWS_FOR_DISPARITY_SORT = 10
+MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT = 10
 
 
 def calculate_review_timing(review_date, game_release_date) -> str:
@@ -65,11 +68,20 @@ async def list_outlets(
     db: AsyncSession = Depends(get_db),
 ):
     """List all outlets with pagination, sorting, and search (uses denormalized columns)."""
-    # Use denormalized columns for fast queries
-    query = (
-        select(Outlet)
-        .where(Outlet.review_count_scored.isnot(None), Outlet.review_count_scored > 0)
-    )
+    # Use denormalized columns for fast queries.
+    # For disparity sorting, enforce leaderboard anti-gaming thresholds.
+    filters = [
+        Outlet.review_count_scored.isnot(None),
+        Outlet.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
+    ]
+    if sort_by == "disparity":
+        filters.extend([
+            Outlet.avg_disparity.isnot(None),
+            Outlet.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
+            func.coalesce(Outlet.score_std_dev, 0) >= MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT,
+        ])
+
+    query = select(Outlet).where(*filters)
 
     # Filter by search term if provided
     if search:
@@ -91,11 +103,7 @@ async def list_outlets(
         query = query.order_by(asc(order_col).nulls_last())
 
     # Get total count
-    count_query = (
-        select(func.count())
-        .select_from(Outlet)
-        .where(Outlet.review_count_scored.isnot(None), Outlet.review_count_scored > 0)
-    )
+    count_query = select(func.count()).select_from(Outlet).where(*filters)
     if search:
         count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
     total_result = await db.execute(count_query)
