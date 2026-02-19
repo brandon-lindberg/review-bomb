@@ -28,7 +28,7 @@ export default async function Home() {
       getStats(),
       getRecentReviews(5),
       getGames(1, 5, "release_date", "desc"),
-      getNews(1, 4).catch(() => null),
+      getNews(1, 5).catch(() => null),
     ]);
   } catch (error) {
     console.error("Error fetching data:", error);
