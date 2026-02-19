@@ -7,6 +7,8 @@ import { DisparityBadge } from "@/components/DisparityBadge";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
+import { ShareButtons } from "@/components/ShareButtons";
+import { getSiteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +69,13 @@ export default async function JournalistDetailPage({
     notFound();
   }
 
+  const shareUrl = `${getSiteUrl()}/journalists/${id}`;
+  const shareDisparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
+  const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
+  const shareTextParts = [`${journalist.name} on Review Disparity`];
+  if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${journalist.review_count} reviews`);
+  const shareText = shareTextParts.join(" — ");
+
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Person",
@@ -81,7 +90,10 @@ export default async function JournalistDetailPage({
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
       {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow p-6" style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
+          <ShareButtons url={shareUrl} text={shareText} />
+        </div>
         <div className="flex flex-col md:flex-row md:items-start gap-6">
           <div className="flex-shrink-0">
             {journalist.image_url ? (

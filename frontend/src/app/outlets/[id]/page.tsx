@@ -7,6 +7,8 @@ import { DisparityScoreCards } from "@/components/DisparityScores";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
+import { ShareButtons } from "@/components/ShareButtons";
+import { getSiteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -65,6 +67,13 @@ export default async function OutletDetailPage({ params }: PageProps) {
     notFound();
   }
 
+  const shareUrl = `${getSiteUrl()}/outlets/${id}`;
+  const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
+  const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
+  const shareTextParts = [`${outlet.name} on Review Disparity`];
+  if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${outlet.review_count ?? 0} reviews`);
+  const shareText = shareTextParts.join(" — ");
+
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -78,7 +87,10 @@ export default async function OutletDetailPage({ params }: PageProps) {
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
       {/* Header */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-white rounded-lg shadow p-6" style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
+          <ShareButtons url={shareUrl} text={shareText} />
+        </div>
         <div className="flex flex-col md:flex-row md:items-start gap-6">
           <div className="flex-shrink-0">
             {outlet.logo_url ? (

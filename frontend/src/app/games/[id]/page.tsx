@@ -6,6 +6,8 @@ import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
+import { ShareButtons } from "@/components/ShareButtons";
+import { getSiteUrl } from "@/lib/site-url";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +95,15 @@ export default async function GameDetailPage({ params }: PageProps) {
     }),
   };
 
+  const shareUrl = `${getSiteUrl()}/games/${id}`;
+  const shareDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
+  const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
+  const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
+  const shareTextParts = [`${game.title} on Review Disparity`];
+  if (shareCriticScore) shareTextParts.push(`Critics: ${shareCriticScore}`);
+  if (shareDisparityStr) shareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const shareText = shareTextParts.join(" — ");
+
   return (
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
@@ -106,6 +117,9 @@ export default async function GameDetailPage({ params }: PageProps) {
                 Released: {new Date(game.release_date).toLocaleDateString()}
               </p>
             )}
+            <div className="mt-3">
+              <ShareButtons url={shareUrl} text={shareText} />
+            </div>
             {game.description && (
               <p className="mt-4 text-gray-600">{game.description}</p>
             )}
