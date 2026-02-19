@@ -21,6 +21,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const { id } = await params;
   const { page: pageParam } = await searchParams;
   const page = parseInt(pageParam || "1");
+  const siteUrl = getSiteUrl();
 
   try {
     const outlet = await getOutlet(parseInt(id));
@@ -44,13 +45,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         type: "website",
         images: outlet.logo_url
           ? [{ url: outlet.logo_url, alt: outlet.name }]
-          : [{ url: "/logo.png", width: 900, height: 715, alt: "ReviewDisparity Logo" }],
+          : [{ url: `${siteUrl}/logo.png`, width: 900, height: 715, alt: "ReviewDisparity Logo" }],
       },
       twitter: {
         card: "summary",
         title: outlet.name,
         description,
-        images: [outlet.logo_url ?? "/logo.png"],
+        images: [outlet.logo_url ?? `${siteUrl}/logo.png`],
       },
     };
   } catch {

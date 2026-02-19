@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     url: "/",
     images: [
       {
-        url: "/logo.png",
+        url: `${siteUrl}/logo.png`,
         width: 900,
         height: 715,
         alt: "ReviewDisparity Logo",
@@ -59,7 +59,7 @@ export const metadata: Metadata = {
     title: "ReviewDisparity - Game Critic vs User Score Tracker",
     description:
       "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
-    images: ["/logo.png"],
+    images: [`${siteUrl}/logo.png`],
   },
   robots: {
     index: true,

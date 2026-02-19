@@ -18,6 +18,7 @@ interface PageProps {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
+  const siteUrl = getSiteUrl();
   try {
     const game = await getGame(parseInt(id));
     const criticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
@@ -45,13 +46,13 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         type: "article",
         images: game.image_url
           ? [{ url: game.image_url, alt: game.title }]
-          : [{ url: "/logo.png", width: 900, height: 715, alt: "ReviewDisparity Logo" }],
+          : [{ url: `${siteUrl}/logo.png`, width: 900, height: 715, alt: "ReviewDisparity Logo" }],
       },
       twitter: {
         card: game.image_url ? "summary_large_image" : "summary",
         title: game.title,
         description,
-        images: [game.image_url ?? "/logo.png"],
+        images: [game.image_url ?? `${siteUrl}/logo.png`],
       },
     };
   } catch {
