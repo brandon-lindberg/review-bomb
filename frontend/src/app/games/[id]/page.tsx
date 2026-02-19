@@ -99,8 +99,17 @@ export default async function GameDetailPage({ params }: PageProps) {
   const shareDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
+  const hasBothUserScores = game.steam_user_score != null && game.metacritic_user_score != null;
   const shareTextParts = [`${game.title} on Review Disparity`];
   if (shareCriticScore) shareTextParts.push(`Critics: ${shareCriticScore}`);
+  if (hasBothUserScores) {
+    shareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
+    shareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  } else if (game.steam_user_score != null) {
+    shareTextParts.push(`Users: ${Number(game.steam_user_score).toFixed(0)}`);
+  } else if (game.metacritic_user_score != null) {
+    shareTextParts.push(`Users: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  }
   if (shareDisparityStr) shareTextParts.push(`Disparity: ${shareDisparityStr}`);
   const shareText = shareTextParts.join(" — ");
 
