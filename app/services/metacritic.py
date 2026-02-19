@@ -7,8 +7,9 @@ Note: Use responsibly and respect robots.txt and rate limits.
 
 import asyncio
 import re
+import unicodedata
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from decimal import Decimal
 
 from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeout
@@ -109,6 +110,83 @@ class MetacriticService:
         return f"https://www.metacritic.com/game/{slug}"
 
     @staticmethod
+    def normalize_slug(value: str) -> str:
+        """
+        Normalize a title/slug into a Metacritic-safe slug.
+
+        Args:
+            value: Raw title or slug
+
+        Returns:
+            Normalized ASCII slug (e.g., "god-of-war-ragnarok")
+        """
+        slug = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+        slug = slug.lower()
+
+        # Drop apostrophes instead of turning them into separators.
+        slug = re.sub(r"[’'`]", "", slug)
+
+        # Convert all remaining non-alphanumerics to hyphens.
+        slug = re.sub(r"[^a-z0-9]+", "-", slug)
+
+        # Collapse repeated separators.
+        slug = re.sub(r"-+", "-", slug)
+
+        # Remove leading/trailing separators.
+        return slug.strip("-")
+
+    @staticmethod
+    def _expand_symbol_tokens(value: str) -> str:
+        """
+        Expand symbols that Metacritic sometimes spells out in slugs.
+
+        Examples:
+            "1+2" -> "1 plus 2"
+            "A&B" -> "A and B"
+        """
+        return (
+            value.replace("+", " plus ")
+            .replace("&", " and ")
+            .replace("@", " at ")
+        )
+
+    @staticmethod
+    def _drop_connector_tokens(value: str) -> str:
+        """
+        Build a fallback variant with connector words removed.
+
+        This helps if canonical slugs omit words like "plus"/"and"/"at".
+        """
+        slug = re.sub(r"-(plus|and|at)-", "-", value)
+        slug = re.sub(r"-+", "-", slug)
+        return slug.strip("-")
+
+    @classmethod
+    def build_slug_candidates(cls, value: str) -> List[str]:
+        """
+        Build likely slug variants for Metacritic lookups.
+
+        This handles patterns where punctuation is represented as words
+        in canonical slugs (for example "+ -> plus").
+        """
+        candidates: List[str] = []
+
+        def add(candidate: str) -> None:
+            c = (candidate or "").strip().strip("/")
+            if c and c not in candidates:
+                candidates.append(c)
+
+        expanded = cls.normalize_slug(cls._expand_symbol_tokens(value))
+        normalized = cls.normalize_slug(value)
+
+        add(expanded)
+        add(normalized)
+        add(cls._drop_connector_tokens(expanded))
+        add(cls._drop_connector_tokens(normalized))
+
+        return candidates
+
+    @staticmethod
     def slugify(title: str) -> str:
         """
         Convert game title to Metacritic slug format.
@@ -119,27 +197,15 @@ class MetacriticService:
         Returns:
             Slug format (e.g., "the-witcher-3-wild-hunt")
         """
-        # Lowercase
-        slug = title.lower()
-
-        # Replace special characters
-        slug = re.sub(r"[':!?.,]", "", slug)
-
-        # Replace spaces and other separators with hyphens
-        slug = re.sub(r"[\s_]+", "-", slug)
-
-        # Remove multiple consecutive hyphens
-        slug = re.sub(r"-+", "-", slug)
-
-        # Remove leading/trailing hyphens
-        slug = slug.strip("-")
-
-        return slug
+        return MetacriticService.normalize_slug(
+            MetacriticService._expand_symbol_tokens(title)
+        )
 
     async def get_scores(
         self,
         slug: str,
         max_retries: int = 3,
+        title: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Scrape both user score and metascore (critic aggregate) from Metacritic.
@@ -151,11 +217,56 @@ class MetacriticService:
         Returns:
             Dictionary with both user score and metascore data
         """
-        # Build URL if only slug provided
+        # For bare slugs, try multiple normalized variants before giving up.
         if not slug.startswith("http"):
-            url = self.build_game_url(slug)
-        else:
-            url = slug
+            attempted: List[str] = []
+            for candidate in self.build_slug_candidates(slug):
+                if candidate in attempted:
+                    continue
+                attempted.append(candidate)
+                if candidate != slug:
+                    print(f"Trying Metacritic slug variant: {slug} -> {candidate}")
+                score_data = await self.get_scores(
+                    self.build_game_url(candidate),
+                    max_retries=max_retries,
+                )
+                if score_data:
+                    score_data["resolved_slug"] = candidate
+                    if candidate != slug:
+                        print(f"Resolved Metacritic slug: {slug} -> {candidate}")
+                    return score_data
+
+            # If the stored slug is stale/incorrect, use title-derived candidates as fallback.
+            if title:
+                for candidate in self.build_slug_candidates(title):
+                    if candidate in attempted:
+                        continue
+                    print(f"Trying title-derived Metacritic slug: {title} -> {candidate}")
+                    score_data = await self.get_scores(
+                        self.build_game_url(candidate),
+                        max_retries=max_retries,
+                    )
+                    if score_data:
+                        score_data["resolved_slug"] = candidate
+                        print(f"Resolved Metacritic slug via title: {slug} -> {candidate}")
+                        return score_data
+
+                # Last resort: use Metacritic search endpoint and trust the first game result.
+                searched_slug = await self.search_game(title)
+                if searched_slug and searched_slug not in attempted:
+                    print(f"Trying Metacritic search match: {title} -> {searched_slug}")
+                    score_data = await self.get_scores(
+                        self.build_game_url(searched_slug),
+                        max_retries=max_retries,
+                    )
+                    if score_data:
+                        score_data["resolved_slug"] = searched_slug
+                        print(f"Resolved Metacritic slug via search: {slug} -> {searched_slug}")
+                        return score_data
+
+            return None
+
+        url = slug
 
         for attempt in range(max_retries):
             try:

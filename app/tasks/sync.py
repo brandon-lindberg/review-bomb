@@ -421,8 +421,16 @@ async def _sync_metacritic_scores():
                 for game in games:
                     try:
                         # Use get_scores() to get both user score and metascore
-                        score_data = await service.get_scores(game.metacritic_slug)
+                        score_data = await service.get_scores(
+                            game.metacritic_slug,
+                            title=game.title,
+                        )
                         if score_data:
+                            resolved_slug = score_data.get("resolved_slug")
+                            if resolved_slug and resolved_slug != game.metacritic_slug:
+                                print(f"Resolved Metacritic slug for {game.title}: {game.metacritic_slug} -> {resolved_slug}")
+                                game.metacritic_slug = resolved_slug
+
                             # Save user score to UserScore table
                             if score_data.get("user_score") is not None:
                                 user_score = UserScore(

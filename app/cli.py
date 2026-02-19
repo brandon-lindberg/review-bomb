@@ -515,8 +515,9 @@ async def cmd_metacritic(args):
                 started_at = time.monotonic()
                 try:
                     print(f"[{index}/{total_games}] Fetching Metacritic scores for: {game.title}...")
+
                     score_data = await asyncio.wait_for(
-                        service.get_scores(game.metacritic_slug),
+                        service.get_scores(game.metacritic_slug, title=game.title),
                         timeout=per_game_timeout_seconds,
                     )
 
@@ -525,6 +526,11 @@ async def cmd_metacritic(args):
 
                     if score_data:
                         updated_anything = False
+                        resolved_slug = score_data.get("resolved_slug")
+                        if resolved_slug and resolved_slug != game.metacritic_slug:
+                            print(f"  Slug resolved: {game.metacritic_slug} -> {resolved_slug}")
+                            game.metacritic_slug = resolved_slug
+                            updated_anything = True
 
                         # Check and update user score/sample size only if changed
                         if score_data.get("user_score") is not None:
