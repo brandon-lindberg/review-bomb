@@ -43,8 +43,16 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         description,
         url: `/games/${id}`,
         type: "article",
+        images: game.image_url
+          ? [{ url: game.image_url, alt: game.title }]
+          : [{ url: "/logo.png", width: 900, height: 715, alt: "ReviewDisparity Logo" }],
       },
-      twitter: { card: "summary", title: game.title, description },
+      twitter: {
+        card: game.image_url ? "summary_large_image" : "summary",
+        title: game.title,
+        description,
+        images: [game.image_url ?? "/logo.png"],
+      },
     };
   } catch {
     return { title: "Game Details" };

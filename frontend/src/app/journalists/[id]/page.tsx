@@ -42,9 +42,16 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         description,
         url: `/journalists/${id}`,
         type: "profile",
-        ...(journalist.image_url && { images: [{ url: journalist.image_url }] }),
+        images: journalist.image_url
+          ? [{ url: journalist.image_url, alt: journalist.name }]
+          : [{ url: "/logo.png", width: 900, height: 715, alt: "ReviewDisparity Logo" }],
       },
-      twitter: { card: "summary", title: journalist.name, description },
+      twitter: {
+        card: "summary",
+        title: journalist.name,
+        description,
+        images: [journalist.image_url ?? "/logo.png"],
+      },
     };
   } catch {
     return { title: "Journalist Details" };

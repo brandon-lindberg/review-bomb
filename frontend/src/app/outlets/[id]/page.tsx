@@ -42,9 +42,16 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         description,
         url: `/outlets/${id}`,
         type: "website",
-        ...(outlet.logo_url && { images: [{ url: outlet.logo_url }] }),
+        images: outlet.logo_url
+          ? [{ url: outlet.logo_url, alt: outlet.name }]
+          : [{ url: "/logo.png", width: 900, height: 715, alt: "ReviewDisparity Logo" }],
       },
-      twitter: { card: "summary", title: outlet.name, description },
+      twitter: {
+        card: "summary",
+        title: outlet.name,
+        description,
+        images: [outlet.logo_url ?? "/logo.png"],
+      },
     };
   } catch {
     return { title: "Outlet Details" };
