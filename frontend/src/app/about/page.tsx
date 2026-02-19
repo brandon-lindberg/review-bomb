@@ -142,8 +142,13 @@ export default function AboutPage() {
         <h2 className="text-2xl font-semibold mb-4" style={{ color: "var(--foreground)" }}>
           The Formula
         </h2>
+
+        {/* Step 1: Per-review disparity */}
+        <h3 className="text-sm font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--foreground-muted)" }}>
+          Step 1 — Per-review disparity
+        </h3>
         <div
-          className="p-6 rounded-lg text-center mb-6 font-mono text-lg"
+          className="p-5 rounded-lg text-center mb-2 font-mono text-lg"
           style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
         >
           <span style={{ color: "var(--color-rust)" }}>Disparity</span>
@@ -152,10 +157,62 @@ export default function AboutPage() {
           <span style={{ color: "var(--foreground-muted)" }}> − </span>
           <span style={{ color: "var(--color-sage)" }}>User Score</span>
         </div>
-        <p style={{ color: "var(--foreground-muted)" }}>
-          We calculate disparity for each review by subtracting the user score from the critic score.
-          For journalists and outlets, we average all their individual review disparities to get an
-          overall disparity score.
+        <p className="text-sm mb-8" style={{ color: "var(--foreground-muted)" }}>
+          Calculated separately for each user score source (Steam and Metacritic) on every review.
+        </p>
+
+        {/* Step 2: Combined disparity */}
+        <h3 className="text-sm font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--foreground-muted)" }}>
+          Step 2 — Combined disparity (when both sources exist)
+        </h3>
+        <div
+          className="p-5 rounded-lg text-center mb-2 font-mono text-lg"
+          style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+        >
+          <span style={{ color: "var(--color-rust)" }}>Combined</span>
+          <span style={{ color: "var(--foreground-muted)" }}> = </span>
+          <span style={{ color: "var(--foreground-muted)" }}>(</span>
+          <span style={{ color: "#708160" }}>Steam Disparity</span>
+          <span style={{ color: "var(--foreground-muted)" }}> + </span>
+          <span style={{ color: "#DD7631" }}>MC Disparity</span>
+          <span style={{ color: "var(--foreground-muted)" }}>) ÷ 2</span>
+        </div>
+        <p className="text-sm mb-2" style={{ color: "var(--foreground-muted)" }}>
+          The simple average of Steam and Metacritic disparities. If only one source is available, that source is used directly as the combined score.
+        </p>
+        <div
+          className="p-4 rounded-lg text-sm font-mono"
+          style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)", color: "var(--foreground-muted)" }}
+        >
+          <div className="mb-1">
+            <span style={{ color: "#708160" }}>Steam Disparity</span>
+            <span> = Critic Score − Steam User Score</span>
+          </div>
+          <div className="mb-1">
+            <span style={{ color: "#DD7631" }}>MC Disparity</span>
+            <span> = Critic Score − Metacritic User Score</span>
+          </div>
+          <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+            <span style={{ color: "var(--color-rust)" }}>Combined</span>
+            <span> = (Steam Disparity + MC Disparity) ÷ 2</span>
+          </div>
+        </div>
+
+        {/* Step 3: Journalist/outlet average */}
+        <h3 className="text-sm font-semibold uppercase tracking-wide mb-2 mt-8" style={{ color: "var(--foreground-muted)" }}>
+          Step 3 — Journalist &amp; outlet averages
+        </h3>
+        <div
+          className="p-5 rounded-lg text-center mb-2 font-mono text-lg"
+          style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+        >
+          <span style={{ color: "var(--color-rust)" }}>Avg Disparity</span>
+          <span style={{ color: "var(--foreground-muted)" }}> = mean of all </span>
+          <span style={{ color: "var(--color-rust)" }}>launch window</span>
+          <span style={{ color: "var(--foreground-muted)" }}> review disparities</span>
+        </div>
+        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+          For journalists and outlets, we average the combined disparity across all their qualifying launch window reviews (published within 60 days of release). Steam and Metacritic averages are calculated independently, then the combined score is the average of those two source averages.
         </p>
       </section>
 
@@ -551,11 +608,15 @@ export default function AboutPage() {
               </div>
               <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>Combined Disparity</h3>
             </div>
-            <p className="text-sm ml-11" style={{ color: "var(--foreground-muted)" }}>
-              <span className="font-mono">Critic Score − Average(Steam, Metacritic)</span><br/>
-              When both sources are available, we also show a combined disparity using the average
-              of Steam and Metacritic user scores. This provides an overall view across platforms.
+            <p className="text-sm ml-11 mb-3" style={{ color: "var(--foreground-muted)" }}>
+              When both sources are available, combined disparity is the simple average of the two source disparities. If only one source exists, that source is used directly.
             </p>
+            <div className="ml-11 p-3 rounded font-mono text-xs space-y-1" style={{ backgroundColor: "var(--background)", border: "1px solid var(--border)", color: "var(--foreground-muted)" }}>
+              <div><span style={{ color: "var(--color-rust)" }}>Combined</span> = (<span style={{ color: "#708160" }}>Steam Disparity</span> + <span style={{ color: "#DD7631" }}>MC Disparity</span>) ÷ 2</div>
+              <div className="pt-1" style={{ borderTop: "1px solid var(--border)", color: "var(--foreground-muted)", opacity: 0.7 }}>
+                fallback: whichever single source is available
+              </div>
+            </div>
           </div>
         </div>
 
