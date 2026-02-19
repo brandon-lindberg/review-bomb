@@ -8,6 +8,7 @@ Note: Use responsibly and respect robots.txt and rate limits.
 import asyncio
 import re
 import unicodedata
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 from decimal import Decimal
@@ -21,6 +22,24 @@ class MetacriticService:
     """Service for scraping user scores from Metacritic."""
 
     BASE_URL = "https://www.metacritic.com"
+    TITLE_STOPWORDS = {
+        "a",
+        "an",
+        "and",
+        "at",
+        "digital",
+        "edition",
+        "for",
+        "in",
+        "of",
+        "on",
+        "plus",
+        "switch",
+        "nintendo",
+        "the",
+        "to",
+        "with",
+    }
 
     def __init__(self, headless: bool = True):
         """
@@ -201,6 +220,74 @@ class MetacriticService:
             MetacriticService._expand_symbol_tokens(title)
         )
 
+    @classmethod
+    def _normalize_title_for_compare(cls, value: str) -> str:
+        """Normalize a title for fuzzy comparison."""
+        expanded = cls._expand_symbol_tokens(value or "")
+        normalized = unicodedata.normalize("NFKD", expanded).encode("ascii", "ignore").decode("ascii")
+        normalized = normalized.lower()
+        normalized = re.sub(r"[`'’]", "", normalized)
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        normalized = re.sub(r"\s+", " ", normalized)
+        return normalized.strip()
+
+    @classmethod
+    def _core_title_tokens(cls, value: str) -> List[str]:
+        """Extract core title tokens, filtering generic connector/platform words."""
+        tokens = cls._normalize_title_for_compare(value).split()
+        return [t for t in tokens if len(t) >= 3 and t not in cls.TITLE_STOPWORDS]
+
+    @classmethod
+    def _title_similarity(cls, left: str, right: str) -> float:
+        """Calculate fuzzy similarity between two titles."""
+        return SequenceMatcher(
+            None,
+            cls._normalize_title_for_compare(left),
+            cls._normalize_title_for_compare(right),
+        ).ratio()
+
+    @classmethod
+    def _title_match_score(cls, expected_title: str, candidate_title: str) -> float:
+        """
+        Score how well a candidate title matches an expected title.
+
+        Returns a score in [0, 1].
+        """
+        similarity = cls._title_similarity(expected_title, candidate_title)
+        expected_tokens = set(cls._core_title_tokens(expected_title))
+        candidate_tokens = set(cls._core_title_tokens(candidate_title))
+        overlap = (
+            len(expected_tokens & candidate_tokens) / len(expected_tokens)
+            if expected_tokens else 0.0
+        )
+        return max(similarity, overlap)
+
+    @classmethod
+    def _titles_look_related(
+        cls,
+        expected_title: str,
+        candidate_title: Optional[str],
+    ) -> bool:
+        """
+        Determine whether two titles likely refer to the same game.
+
+        Guards against catastrophic mismatches from broad search results.
+        """
+        if not candidate_title:
+            return False
+
+        similarity = cls._title_similarity(expected_title, candidate_title)
+        expected_tokens = set(cls._core_title_tokens(expected_title))
+        candidate_tokens = set(cls._core_title_tokens(candidate_title))
+        overlap = (
+            len(expected_tokens & candidate_tokens) / len(expected_tokens)
+            if expected_tokens else 0.0
+        )
+        shared_distinctive = any(len(t) >= 4 for t in (expected_tokens & candidate_tokens))
+
+        # Strong fuzzy match OR meaningful token overlap with at least one distinctive shared token.
+        return similarity >= 0.82 or (overlap >= 0.5 and shared_distinctive)
+
     async def get_scores(
         self,
         slug: str,
@@ -279,6 +366,29 @@ class MetacriticService:
 
                     # Wait for page to fully render dynamic content
                     await asyncio.sleep(3)
+
+                    page_game_title = await page.evaluate('''() => {
+                        const clean = (v) => (v || '').replace(/\\s+/g, ' ').trim();
+                        const fromH1 = clean(document.querySelector('h1')?.textContent);
+                        if (fromH1) return fromH1;
+
+                        const fromOg = clean(
+                            document.querySelector('meta[property="og:title"]')?.getAttribute('content')
+                        );
+                        if (fromOg) return fromOg.replace(/\\s*\\|\\s*Metacritic.*$/i, '').trim();
+
+                        const fromTitle = clean(document.title);
+                        if (fromTitle) {
+                            return fromTitle.replace(/\\s*\\|\\s*Metacritic.*$/i, '').trim();
+                        }
+                        return null;
+                    }''')
+                    if title and page_game_title and not self._titles_look_related(title, page_game_title):
+                        print(
+                            f"Rejecting Metacritic page due title mismatch: "
+                            f"expected '{title}' got '{page_game_title}' ({url})"
+                        )
+                        return None
 
                     result = {
                         "user_score": None,
@@ -690,18 +800,35 @@ class MetacriticService:
                 # Wait for search results
                 await page.wait_for_selector('.c-pageSiteSearch-results', timeout=10000)
 
-                # Get first result link
-                first_result = await page.query_selector(
+                # Rank game results by title similarity and only accept safe matches.
+                result_nodes = await page.query_selector_all(
                     '.c-pageSiteSearch-results a[href*="/game/"]'
                 )
+                best_slug = None
+                best_score = 0.0
 
-                if first_result:
-                    href = await first_result.get_attribute("href")
-                    if href:
-                        # Extract slug from URL like /game/the-witcher-3-wild-hunt
-                        match = re.search(r"/game/([^/]+)", href)
-                        if match:
-                            return match.group(1)
+                for node in result_nodes[:20]:
+                    href = await node.get_attribute("href")
+                    if not href:
+                        continue
+                    match = re.search(r"/game/([^/?#]+)", href)
+                    if not match:
+                        continue
+
+                    slug = match.group(1)
+                    candidate_title = (await node.text_content()) or ""
+                    if not self._titles_look_related(title, candidate_title):
+                        continue
+
+                    score = self._title_match_score(title, candidate_title)
+                    if score > best_score:
+                        best_score = score
+                        best_slug = slug
+
+                if best_slug:
+                    return best_slug
+
+                print(f"No safe Metacritic search match for '{title}'")
 
                 return None
 
