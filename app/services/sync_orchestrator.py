@@ -14,11 +14,11 @@ Features:
 
 import asyncio
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, case
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -68,6 +68,34 @@ class SyncOrchestrator:
         self.db = db
         self.service = OpenCriticService()
         self._request_count = 0  # For stats tracking only
+
+    @staticmethod
+    def _should_replace_release_date(
+        existing_release_date: Optional[date],
+        candidate_release_date: Optional[date],
+        today: Optional[date] = None,
+    ) -> bool:
+        """
+        Decide whether an incoming release date should replace the existing one.
+
+        Guardrail: once a game has a known released date (<= today), do not allow
+        OpenCritic to overwrite it with a future date, which can happen when the
+        upstream API temporarily serves placeholder/fallback dates.
+        """
+        if candidate_release_date is None:
+            return False
+        if existing_release_date is None:
+            return True
+        if candidate_release_date == existing_release_date:
+            return False
+
+        if today is None:
+            today = datetime.now(timezone.utc).date()
+
+        if existing_release_date <= today and candidate_release_date > today:
+            return False
+
+        return True
 
     async def _get_state(self, key: str, default: str = "") -> str:
         """Get a sync state value."""
@@ -177,15 +205,27 @@ class SyncOrchestrator:
         """Insert/update game and return internal ID."""
         transformed = OpenCriticService.transform_game(game_data)
         stmt = insert(Game).values(**transformed)
+        today = datetime.now(timezone.utc).date()
+        incoming_release_date = stmt.excluded.release_date
+        preserve_existing_released_date = and_(
+            Game.release_date.isnot(None),
+            Game.release_date <= today,
+            incoming_release_date.isnot(None),
+            incoming_release_date > today,
+        )
         stmt = stmt.on_conflict_do_update(
             index_elements=["opencritic_id"],
             set_={
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
-                # Keep existing date when OpenCritic omits it temporarily.
-                "release_date": func.coalesce(
-                    stmt.excluded.release_date,
-                    Game.release_date,
+                # Keep existing date when OpenCritic omits it temporarily,
+                # and prevent future placeholder dates from replacing known released dates.
+                "release_date": case(
+                    (preserve_existing_released_date, Game.release_date),
+                    else_=func.coalesce(
+                        incoming_release_date,
+                        Game.release_date,
+                    ),
                 ),
                 "top_critic_score": stmt.excluded.top_critic_score,
                 "percent_recommended": stmt.excluded.percent_recommended,
@@ -475,7 +515,11 @@ class SyncOrchestrator:
                     metadata_updated = True
 
                 new_release_date = transformed.get("release_date")
-                if new_release_date is not None and new_release_date != game.release_date:
+                if self._should_replace_release_date(
+                    game.release_date,
+                    new_release_date,
+                    today=today,
+                ):
                     game.release_date = new_release_date
                     metadata_updated = True
                     stats["release_dates_updated"] += 1
@@ -886,11 +930,16 @@ class SyncOrchestrator:
                     self._request_count += 1
                     if game_data:
                         transformed = OpenCriticService.transform_game(game_data)
+                        today = datetime.now(timezone.utc).date()
                         if transformed.get("title"):
                             game.title = transformed["title"]
                         if transformed.get("description") is not None:
                             game.description = transformed["description"]
-                        if transformed.get("release_date") is not None:
+                        if self._should_replace_release_date(
+                            game.release_date,
+                            transformed.get("release_date"),
+                            today=today,
+                        ):
                             game.release_date = transformed["release_date"]
                         game.top_critic_score = transformed.get("top_critic_score")
                         game.percent_recommended = transformed.get("percent_recommended")

@@ -293,7 +293,7 @@ async def cmd_metacritic(args):
     import time
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource, Review
-    from sqlalchemy import select, func, delete, or_, and_
+    from sqlalchemy import select, func, delete, or_, and_, case
     from datetime import timedelta, date as date_type
 
     min_recent_add_window_days = 14
@@ -469,7 +469,18 @@ async def cmd_metacritic(args):
                 )
 
             mode = 'needing'
-        if args.recent is not None or args.new_only is not None:
+        release_reconcile_priority = case(
+            (release_date_reconcile_condition, 0),
+            else_=1,
+        )
+        if args.recent is not None:
+            query = query.order_by(
+                release_reconcile_priority.asc(),
+                Game.created_at.desc().nulls_last(),
+                Game.release_date.desc().nulls_last(),
+                Game.id.desc(),
+            )
+        elif args.new_only is not None:
             query = query.order_by(
                 Game.created_at.desc().nulls_last(),
                 Game.release_date.desc().nulls_last(),
@@ -477,6 +488,7 @@ async def cmd_metacritic(args):
             )
         else:
             query = query.order_by(
+                release_reconcile_priority.asc(),
                 Game.metacritic_synced_at.asc().nulls_first(),
                 Game.created_at.desc().nulls_last(),
                 Game.id.desc(),
@@ -602,6 +614,11 @@ async def cmd_metacritic(args):
                             should_update_release_date = (
                                 game.release_date is None
                                 or (game.release_date > today and mc_release_date <= today)
+                                or (
+                                    game.release_date is not None
+                                    and game.release_date > today
+                                    and mc_release_date < game.release_date
+                                )
                             )
                             if should_update_release_date and game.release_date != mc_release_date:
                                 old_release = game.release_date

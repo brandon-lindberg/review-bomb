@@ -421,13 +421,27 @@ class MetacriticService:
                             try {
                                 const raw = script.textContent || '';
                                 const parsed = JSON.parse(raw);
-                                const entries = Array.isArray(parsed) ? parsed : [parsed];
-                                for (const entry of entries) {
-                                    if (!entry || typeof entry !== 'object') continue;
+                                const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
+
+                                while (queue.length > 0) {
+                                    const entry = queue.shift();
+                                    if (!entry) continue;
+                                    if (Array.isArray(entry)) {
+                                        queue.push(...entry);
+                                        continue;
+                                    }
+                                    if (typeof entry !== 'object') continue;
+
+                                    // Metacritic often stores item data under @graph.
+                                    if (Array.isArray(entry['@graph'])) {
+                                        queue.push(...entry['@graph']);
+                                    }
+
+                                    // Prefer explicit releaseDate before generic publish/create dates.
                                     const candidate =
+                                        entry.releaseDate ||
                                         entry.datePublished ||
-                                        entry.dateCreated ||
-                                        entry.releaseDate;
+                                        entry.dateCreated;
                                     const normalized = parseDateString(candidate);
                                     if (normalized) return normalized;
                                 }
@@ -437,12 +451,17 @@ class MetacriticService:
                         }
 
                         const bodyText = document.body?.innerText || '';
-                        let match = bodyText.match(/Initial Release Date:\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})/i);
+                        let match = bodyText.match(
+                            /(?:Initial\\s+)?Release(?:d)?(?:\\s+On)?(?:\\s+Date)?\\s*:\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4}|\\d{1,2}\\/\\d{1,2}\\/\\d{4})/i
+                        );
                         if (match) {
                             const normalized = parseDateString(match[1]);
                             if (normalized) return normalized;
                         }
-                        match = bodyText.match(/Released On:\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4})/i);
+                        // Some pages render label/value across lines without a colon.
+                        match = bodyText.match(
+                            /(?:Initial\\s+)?Release(?:d)?(?:\\s+On)?(?:\\s+Date)?\\s*\\n\\s*([A-Za-z]{3,9}\\s+\\d{1,2},\\s+\\d{4}|\\d{1,2}\\/\\d{1,2}\\/\\d{4})/i
+                        );
                         if (match) {
                             const normalized = parseDateString(match[1]);
                             if (normalized) return normalized;
