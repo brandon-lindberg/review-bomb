@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from decimal import Decimal
+from collections import defaultdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import select, func, desc, asc
@@ -58,6 +59,118 @@ def calculate_review_timing(review_date, game_release_date) -> str:
         return "launch_window"
     else:
         return "late"
+
+
+def _average(values: list[float]) -> Optional[Decimal]:
+    """Return Decimal average rounded to 2 decimals."""
+    if not values:
+        return None
+    return Decimal(str(round(sum(values) / len(values), 2)))
+
+
+def _combine_source_averages(
+    steam_avg: Optional[Decimal],
+    metacritic_avg: Optional[Decimal],
+) -> Optional[Decimal]:
+    """Average available source averages."""
+    combined_values = [v for v in [steam_avg, metacritic_avg] if v is not None]
+    if not combined_values:
+        return None
+    return Decimal(
+        str(round(sum(float(v) for v in combined_values) / len(combined_values), 2))
+    )
+
+
+async def _calculate_display_disparities_for_journalists(
+    db: AsyncSession,
+    journalist_ids: list[int],
+) -> dict[int, Optional[Decimal]]:
+    """
+    Calculate the list-page disparity metric using the same rules as journalist detail.
+
+    Primary metric: launch-window combined disparity.
+    Fallback metric: overall combined disparity when no launch-window data exists.
+    """
+    if not journalist_ids:
+        return {}
+
+    review_rows_result = await db.execute(
+        select(
+            Review.journalist_id,
+            Review.game_id,
+            Review.score_normalized,
+            Review.published_at,
+            Game.release_date,
+        )
+        .join(Game, Review.game_id == Game.id)
+        .where(
+            Review.journalist_id.in_(journalist_ids),
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
+    )
+    review_rows = review_rows_result.all()
+    if not review_rows:
+        return {}
+
+    game_ids = list({row.game_id for row in review_rows})
+    user_score_lookup: dict[tuple[int, str], dict[str, Optional[Decimal]]] = {}
+    if game_ids:
+        user_scores_result = await db.execute(
+            select(UserScore)
+            .where(UserScore.game_id.in_(game_ids))
+            .order_by(desc(UserScore.scraped_at))
+        )
+        for us in user_scores_result.scalars().all():
+            key = (us.game_id, us.source.value)
+            if key not in user_score_lookup:
+                user_score_lookup[key] = {
+                    "score": us.score,
+                    "sample_size": us.sample_size,
+                }
+
+    launch_steam: dict[int, list[float]] = defaultdict(list)
+    launch_mc: dict[int, list[float]] = defaultdict(list)
+    overall_steam: dict[int, list[float]] = defaultdict(list)
+    overall_mc: dict[int, list[float]] = defaultdict(list)
+
+    for row in review_rows:
+        journalist_id = row.journalist_id
+        steam_data = user_score_lookup.get((row.game_id, "steam"))
+        metacritic_data = user_score_lookup.get((row.game_id, "metacritic"))
+
+        review_date = row.published_at.date() if row.published_at and hasattr(row.published_at, "date") else row.published_at
+        timing = calculate_review_timing(review_date, row.release_date)
+        is_launch_window = timing == "launch_window"
+
+        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
+            disparity = float(row.score_normalized - steam_data["score"])
+            overall_steam[journalist_id].append(disparity)
+            if is_launch_window:
+                launch_steam[journalist_id].append(disparity)
+
+        if metacritic_data and metacritic_data["score"] and (
+            metacritic_data["sample_size"] is None
+            or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
+        ):
+            disparity = float(row.score_normalized - metacritic_data["score"])
+            overall_mc[journalist_id].append(disparity)
+            if is_launch_window:
+                launch_mc[journalist_id].append(disparity)
+
+    disparities: dict[int, Optional[Decimal]] = {}
+    for journalist_id in journalist_ids:
+        launch_steam_avg = _average(launch_steam.get(journalist_id, []))
+        launch_mc_avg = _average(launch_mc.get(journalist_id, []))
+        launch_combined = _combine_source_averages(launch_steam_avg, launch_mc_avg)
+
+        overall_steam_avg = _average(overall_steam.get(journalist_id, []))
+        overall_mc_avg = _average(overall_mc.get(journalist_id, []))
+        overall_combined = _combine_source_averages(overall_steam_avg, overall_mc_avg)
+
+        disparities[journalist_id] = launch_combined if launch_combined is not None else overall_combined
+
+    return disparities
 
 
 @router.get("", response_model=PaginatedResponse[JournalistSummary])
@@ -152,6 +265,13 @@ async def list_journalists(
     # Load one latest scored review per journalist for the current page.
     latest_review_lookup: dict[int, JournalistLatestReview] = {}
     journalist_ids = [journalist.id for journalist in journalists]
+    display_disparity_lookup: dict[int, Optional[Decimal]] = {}
+    if journalist_ids:
+        display_disparity_lookup = await _calculate_display_disparities_for_journalists(
+            db,
+            journalist_ids,
+        )
+
     if journalist_ids:
         ranked_reviews = (
             select(
@@ -219,7 +339,7 @@ async def list_journalists(
                 bio=journalist.bio,
                 opencritic_id=journalist.opencritic_id,
                 review_count=journalist.review_count_scored or 0,
-                avg_disparity=journalist.avg_disparity,
+                avg_disparity=display_disparity_lookup.get(journalist.id, journalist.avg_disparity),
                 latest_review=latest_review_lookup.get(journalist.id),
             )
         )
