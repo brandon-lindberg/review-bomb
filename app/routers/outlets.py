@@ -81,7 +81,10 @@ async def list_outlets(
             func.coalesce(Outlet.score_std_dev, 0) >= MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT,
         ])
 
-    query = select(Outlet).where(*filters)
+    query = select(
+        Outlet,
+        func.count().over().label("total_count"),
+    ).where(*filters)
 
     # Filter by search term if provided
     if search:
@@ -102,18 +105,18 @@ async def list_outlets(
     else:
         query = query.order_by(asc(order_col).nulls_last())
 
-    # Get total count
-    count_query = select(func.count()).select_from(Outlet).where(*filters)
-    if search:
-        count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
-
-    # Apply pagination
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    outlets = result.scalars().all()
+    rows = result.all()
+    outlets = [row[0] for row in rows]
+    total = rows[0].total_count if rows else 0
+
+    if not rows and page > 1:
+        count_query = select(func.count()).select_from(Outlet).where(*filters)
+        if search:
+            count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
+        total = (await db.execute(count_query)).scalar() or 0
 
     items = [
         OutletWithStats(

@@ -39,24 +39,25 @@ async def list_games(
     db: AsyncSession = Depends(get_db),
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
-    # Simple query using pre-calculated columns - no JOINs needed!
-    query = (
-        select(Game)
-        .where(
-            Game.avg_critic_score.isnot(None),
-            # Must have at least one valid user score
-            or_(
-                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                and_(
-                    Game.metacritic_user_score.isnot(None),
-                    or_(
-                        Game.metacritic_sample_size.is_(None),
-                        Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
-                    )
-                ),
-            )
-        )
-    )
+    filters = [
+        Game.avg_critic_score.isnot(None),
+        # Must have at least one valid user score
+        or_(
+            Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+            and_(
+                Game.metacritic_user_score.isnot(None),
+                or_(
+                    Game.metacritic_sample_size.is_(None),
+                    Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                )
+            ),
+        ),
+    ]
+
+    query = select(
+        Game,
+        func.count().over().label("total_count"),
+    ).where(*filters)
 
     # Filter by year if provided
     if year:
@@ -74,48 +75,43 @@ async def list_games(
 
     # Apply sorting using denormalized columns
     if sort_by == "release_date":
-        # Keep newly discovered games visible even when OpenCritic release_date is missing.
-        order_col = func.coalesce(Game.release_date, func.date(Game.created_at))
-    elif sort_by == "title":
-        order_col = Game.title
-    else:  # disparity
-        order_col = func.abs(combined_disparity_expr)
-
-    if sort_order == "desc":
-        query = query.order_by(desc(order_col).nulls_last())
-    else:
-        query = query.order_by(asc(order_col).nulls_last())
-
-    # Get total count (simple count query)
-    count_query = (
-        select(func.count())
-        .select_from(Game)
-        .where(
-            Game.avg_critic_score.isnot(None),
-            or_(
-                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-                and_(
-                    Game.metacritic_user_score.isnot(None),
-                    or_(
-                        Game.metacritic_sample_size.is_(None),
-                        Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
-                    )
-                ),
+        # Keep newly discovered games visible even when release_date is missing by
+        # using created_at as a tiebreaker/fallback without non-immutable casts.
+        if sort_order == "desc":
+            query = query.order_by(
+                desc(Game.release_date).nulls_last(),
+                desc(Game.created_at).nulls_last(),
             )
-        )
-    )
-    if year:
-        count_query = count_query.where(extract("year", Game.release_date) == year)
-    if search:
-        count_query = count_query.where(Game.title.ilike(f"%{search}%"))
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
+        else:
+            query = query.order_by(
+                asc(Game.release_date).nulls_last(),
+                asc(Game.created_at).nulls_last(),
+            )
+    else:
+        if sort_by == "title":
+            order_col = Game.title
+        else:  # disparity
+            order_col = func.abs(combined_disparity_expr)
 
-    # Apply pagination
+        if sort_order == "desc":
+            query = query.order_by(desc(order_col).nulls_last())
+        else:
+            query = query.order_by(asc(order_col).nulls_last())
+
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    games = result.scalars().all()
+    rows = result.all()
+    games = [row[0] for row in rows]
+    total = rows[0].total_count if rows else 0
+
+    if not rows and page > 1:
+        count_query = select(func.count()).select_from(Game).where(*filters)
+        if year:
+            count_query = count_query.where(extract("year", Game.release_date) == year)
+        if search:
+            count_query = count_query.where(Game.title.ilike(f"%{search}%"))
+        total = (await db.execute(count_query)).scalar() or 0
 
     items = []
     for game in games:
