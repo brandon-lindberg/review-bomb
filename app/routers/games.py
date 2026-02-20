@@ -5,7 +5,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, func, desc, asc, extract, or_, and_
+from sqlalchemy import select, func, desc, asc, extract, or_, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -67,10 +67,35 @@ async def list_games(
     if search:
         query = query.where(Game.title.ilike(f"%{search}%"))
 
+    # Use the same validity rules as the API response fields/UI badge so sort order
+    # matches what users actually see on the page.
+    steam_disparity_display_expr = case(
+        (
+            and_(
+                Game.steam_sample_size.isnot(None),
+                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+            ),
+            Game.disparity_steam,
+        ),
+        else_=None,
+    )
+    metacritic_disparity_display_expr = case(
+        (
+            and_(
+                Game.metacritic_user_score.isnot(None),
+                or_(
+                    Game.metacritic_sample_size.is_(None),
+                    Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                ),
+            ),
+            Game.disparity_metacritic,
+        ),
+        else_=None,
+    )
     combined_disparity_expr = func.coalesce(
-        (Game.disparity_steam + Game.disparity_metacritic) / 2,
-        Game.disparity_steam,
-        Game.disparity_metacritic,
+        (steam_disparity_display_expr + metacritic_disparity_display_expr) / 2,
+        steam_disparity_display_expr,
+        metacritic_disparity_display_expr,
     )
 
     # Apply sorting using denormalized columns
@@ -94,9 +119,25 @@ async def list_games(
             order_col = func.abs(combined_disparity_expr)
 
         if sort_order == "desc":
-            query = query.order_by(desc(order_col).nulls_last())
+            if sort_by == "disparity":
+                query = query.order_by(
+                    desc(order_col).nulls_last(),
+                    desc(combined_disparity_expr).nulls_last(),
+                    desc(Game.release_date).nulls_last(),
+                    asc(Game.id),
+                )
+            else:
+                query = query.order_by(desc(order_col).nulls_last())
         else:
-            query = query.order_by(asc(order_col).nulls_last())
+            if sort_by == "disparity":
+                query = query.order_by(
+                    asc(order_col).nulls_last(),
+                    asc(combined_disparity_expr).nulls_last(),
+                    desc(Game.release_date).nulls_last(),
+                    asc(Game.id),
+                )
+            else:
+                query = query.order_by(asc(order_col).nulls_last())
 
     query = query.offset((page - 1) * per_page).limit(per_page)
 
