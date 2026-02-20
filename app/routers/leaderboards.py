@@ -44,9 +44,9 @@ async def journalist_leaderboard(
     if sort == "recent":
         query = query.order_by(desc(Journalist.last_review_at).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(Journalist.avg_disparity))
+        query = query.order_by(desc(func.abs(Journalist.avg_disparity)))
     else:
-        query = query.order_by(asc(Journalist.avg_disparity))
+        query = query.order_by(asc(func.abs(Journalist.avg_disparity)))
 
     # Get total count
     count_query = (
@@ -113,9 +113,9 @@ async def outlet_leaderboard(
     if sort == "recent":
         query = query.order_by(desc(Outlet.last_review_at).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(Outlet.avg_disparity))
+        query = query.order_by(desc(func.abs(Outlet.avg_disparity)))
     else:
-        query = query.order_by(asc(Outlet.avg_disparity))
+        query = query.order_by(asc(func.abs(Outlet.avg_disparity)))
 
     # Get total count
     count_query = (

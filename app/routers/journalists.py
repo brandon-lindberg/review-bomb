@@ -197,80 +197,124 @@ async def list_journalists(
             Journalist.review_count_scored >= MIN_REVIEWS_FOR_DISPARITY_SORT,
             func.coalesce(Journalist.score_std_dev, 0) >= MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT,
         ])
+    journalists: list[Journalist] = []
     latest_review_subquery = None
-    if sort_by == "latest_review":
-        # Use same recency criteria as home /stats/recent-reviews endpoint.
-        latest_review_subquery = (
-            select(
-                Review.journalist_id.label("journalist_id"),
-                func.max(Review.published_at).label("latest_review_at"),
-            )
-            .where(
-                Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
-                Review.published_at.isnot(None),
-                Review.published_at <= now,
-            )
-            .group_by(Review.journalist_id)
-            .subquery()
-        )
-        query = (
-            select(Journalist)
-            .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
-            .where(*filters)
-        )
-    else:
-        query = select(Journalist).where(*filters)
+    display_disparity_lookup: dict[int, Optional[Decimal]] = {}
 
-    # Filter by search term if provided
-    if search:
-        query = query.where(Journalist.name.ilike(f"%{search}%"))
-
-    # Apply sorting using denormalized columns
     if sort_by == "disparity":
-        order_col = Journalist.avg_disparity
-    elif sort_by == "name":
-        order_col = Journalist.name
-    elif sort_by == "latest_review":
-        order_col = latest_review_subquery.c.latest_review_at
-    else:  # review_count
-        order_col = Journalist.review_count_scored
+        # Disparity sorting should follow the displayed metric and use distance from zero.
+        # "Highest" = largest absolute disparity, "Lowest" = closest to zero.
+        id_query = select(Journalist.id).where(*filters)
+        if search:
+            id_query = id_query.where(Journalist.name.ilike(f"%{search}%"))
 
-    if sort_order == "desc":
-        query = query.order_by(desc(order_col).nulls_last())
-    else:
-        query = query.order_by(asc(order_col).nulls_last())
+        id_result = await db.execute(id_query)
+        all_ids = [row[0] for row in id_result]
 
-    # Get total count
-    if sort_by == "latest_review":
-        count_query = (
-            select(func.count())
-            .select_from(Journalist)
-            .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
-            .where(*filters)
+        if all_ids:
+            display_disparity_lookup = await _calculate_display_disparities_for_journalists(
+                db,
+                all_ids,
+            )
+
+        sortable: list[tuple[int, Decimal]] = [
+            (journalist_id, disparity)
+            for journalist_id, disparity in display_disparity_lookup.items()
+            if disparity is not None
+        ]
+        sortable.sort(
+            key=lambda item: (abs(float(item[1])), float(item[1]), item[0]),
+            reverse=(sort_order == "desc"),
         )
+
+        sorted_ids = [journalist_id for journalist_id, _ in sortable]
+        total = len(sorted_ids)
+
+        start = (page - 1) * per_page
+        end = start + per_page
+        paged_ids = sorted_ids[start:end]
+
+        if paged_ids:
+            result = await db.execute(select(Journalist).where(Journalist.id.in_(paged_ids)))
+            journalist_by_id = {journalist.id: journalist for journalist in result.scalars().all()}
+            journalists = [
+                journalist_by_id[journalist_id]
+                for journalist_id in paged_ids
+                if journalist_id in journalist_by_id
+            ]
     else:
-        count_query = select(func.count()).select_from(Journalist).where(*filters)
-    if search:
-        count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
-    total_result = await db.execute(count_query)
-    total = total_result.scalar() or 0
+        if sort_by == "latest_review":
+            # Use same recency criteria as home /stats/recent-reviews endpoint.
+            latest_review_subquery = (
+                select(
+                    Review.journalist_id.label("journalist_id"),
+                    func.max(Review.published_at).label("latest_review_at"),
+                )
+                .where(
+                    Review.score_normalized.isnot(None),
+                    Review.score_normalized > 0,
+                    Review.published_at.isnot(None),
+                    Review.published_at <= now,
+                )
+                .group_by(Review.journalist_id)
+                .subquery()
+            )
+            query = (
+                select(Journalist)
+                .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
+                .where(*filters)
+            )
+        else:
+            query = select(Journalist).where(*filters)
 
-    # Apply pagination
-    query = query.offset((page - 1) * per_page).limit(per_page)
+        # Filter by search term if provided
+        if search:
+            query = query.where(Journalist.name.ilike(f"%{search}%"))
 
-    result = await db.execute(query)
-    journalists = result.scalars().all()
+        # Apply sorting using denormalized columns
+        if sort_by == "name":
+            order_col = Journalist.name
+        elif sort_by == "latest_review":
+            order_col = latest_review_subquery.c.latest_review_at
+        else:  # review_count
+            order_col = Journalist.review_count_scored
+
+        if sort_order == "desc":
+            query = query.order_by(desc(order_col).nulls_last())
+        else:
+            query = query.order_by(asc(order_col).nulls_last())
+
+        # Get total count
+        if sort_by == "latest_review":
+            count_query = (
+                select(func.count())
+                .select_from(Journalist)
+                .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
+                .where(*filters)
+            )
+        else:
+            count_query = select(func.count()).select_from(Journalist).where(*filters)
+        if search:
+            count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
+        total_result = await db.execute(count_query)
+        total = total_result.scalar() or 0
+
+        # Apply pagination
+        query = query.offset((page - 1) * per_page).limit(per_page)
+
+        result = await db.execute(query)
+        journalists = result.scalars().all()
+
+        journalist_ids = [journalist.id for journalist in journalists]
+        if journalist_ids:
+            display_disparity_lookup = await _calculate_display_disparities_for_journalists(
+                db,
+                journalist_ids,
+            )
 
     # Load one latest scored review per journalist for the current page.
     latest_review_lookup: dict[int, JournalistLatestReview] = {}
     journalist_ids = [journalist.id for journalist in journalists]
-    display_disparity_lookup: dict[int, Optional[Decimal]] = {}
-    if journalist_ids:
-        display_disparity_lookup = await _calculate_display_disparities_for_journalists(
-            db,
-            journalist_ids,
-        )
 
     if journalist_ids:
         ranked_reviews = (

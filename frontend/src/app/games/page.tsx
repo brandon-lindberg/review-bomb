@@ -33,27 +33,35 @@ interface PageProps {
   searchParams: Promise<{
     page?: string;
     sort?: string;
+    order?: string;
     year?: string;
     search?: string;
   }>;
 }
 
 const sortOptions = [
-  { value: "release_date", label: "Release Date" },
-  { value: "disparity", label: "Disparity" },
-  { value: "title", label: "Title" },
+  { value: "release_date-desc", label: "Release Date" },
+  { value: "disparity-desc", label: "Highest Disparity" },
+  { value: "disparity-asc", label: "Lowest Disparity" },
+  { value: "title-desc", label: "Title" },
 ];
 
 export default async function GamesPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
   const sortBy = params.sort || "release_date";
+  const sortOrder = params.order || "desc";
   const year = params.year ? parseInt(params.year) : undefined;
   const search = params.search || "";
+  const sortSelectValue = `${sortBy}-${sortOrder}`;
+  const sortQuery =
+    sortBy !== "release_date" || sortOrder !== "desc"
+      ? `&sort=${sortBy}&order=${sortOrder}`
+      : "";
 
   let games = null;
   try {
-    games = await getGames(page, 20, sortBy, "desc", year, search || undefined);
+    games = await getGames(page, 20, sortBy, sortOrder, year, search || undefined);
   } catch (error) {
     console.error("Error fetching games:", error);
   }
@@ -74,8 +82,9 @@ export default async function GamesPage({ searchParams }: PageProps) {
           <YearFilter years={years} defaultValue={year} />
           <SortSelect
             options={sortOptions}
-            defaultValue={sortBy}
+            defaultValue={sortSelectValue}
             paramName="sort"
+            paramName2="order"
           />
         </div>
       </div>
@@ -131,7 +140,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
             <div className="flex justify-center gap-2">
               {page > 1 && (
                 <Link
-                  href={`/games?page=${page - 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  href={`/games?page=${page - 1}${sortQuery}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
@@ -143,7 +152,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               </span>
               {page < games.total_pages && (
                 <Link
-                  href={`/games?page=${page + 1}${sortBy !== "release_date" ? `&sort=${sortBy}` : ""}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
+                  href={`/games?page=${page + 1}${sortQuery}${year ? `&year=${year}` : ""}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
                   prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >

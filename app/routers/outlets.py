@@ -89,7 +89,7 @@ async def list_outlets(
 
     # Apply sorting using denormalized columns
     if sort_by == "disparity":
-        order_col = Outlet.avg_disparity
+        order_col = func.abs(Outlet.avg_disparity)
     elif sort_by == "name":
         order_col = Outlet.name
     elif sort_by == "latest_review":
