@@ -25,7 +25,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
   try {
     const journalist = await getJournalist(parseInt(id));
-    const disparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
+    const disparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
 
     let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
@@ -78,7 +78,7 @@ export default async function JournalistDetailPage({
   }
 
   const shareUrl = `${getSiteUrl()}/journalists/${id}`;
-  const shareDisparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
+  const shareDisparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${journalist.review_count} reviews`);
@@ -129,12 +129,10 @@ export default async function JournalistDetailPage({
 
             {/* Scoring Stats */}
             <div className="mt-6">
-              {/* Use launch window disparity if available, otherwise fall back to overall */}
               {(() => {
-                const steamDisparity = journalist.stats?.avg_disparity_steam ?? journalist.stats?.overall_disparity_steam;
-                const mcDisparity = journalist.stats?.avg_disparity_metacritic ?? journalist.stats?.overall_disparity_metacritic;
-                const combinedDisparity = journalist.stats?.avg_disparity_combined ?? journalist.stats?.overall_disparity_combined;
-                const isUsingOverall = journalist.stats?.avg_disparity_combined == null && journalist.stats?.overall_disparity_combined != null;
+                const steamDisparity = journalist.stats?.overall_disparity_steam ?? journalist.stats?.avg_disparity_steam;
+                const mcDisparity = journalist.stats?.overall_disparity_metacritic ?? journalist.stats?.avg_disparity_metacritic;
+                const combinedDisparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined ?? journalist.stats?.avg_disparity_combined;
 
                 return (
                   <>
@@ -205,7 +203,7 @@ export default async function JournalistDetailPage({
                           {formatDisparity(combinedDisparity)}
                         </div>
                         <div className="text-xs mt-1" style={{ color: "#5C574F" }}>
-                          Combined Disparity{isUsingOverall && "*"}
+                          Combined Disparity
                         </div>
                       </div>
 
@@ -247,11 +245,6 @@ export default async function JournalistDetailPage({
                             <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                             {late} late ({pct(late)}%)
                           </span>
-                          {isUsingOverall && (
-                            <span className="ml-2 text-amber-600">
-                              *No launch window reviews - showing overall disparity
-                            </span>
-                          )}
                         </div>
                       );
                     })()}

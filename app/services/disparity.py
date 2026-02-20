@@ -113,7 +113,10 @@ class DisparityCalculator:
             Review.journalist_id,
             Review.outlet_id,
             Review.score_normalized,
-        ).where(Review.score_normalized.isnot(None))
+        ).where(
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
 
         result = await self.db.execute(query)
         self._reviews_cache = result.all()
@@ -238,7 +241,11 @@ class DisparityCalculator:
         query = (
             select(Review, Game)
             .join(Game, Review.game_id == Game.id)
-            .where(Review.journalist_id == journalist_id)
+            .where(
+                Review.journalist_id == journalist_id,
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
         )
         result = await self.db.execute(query)
         rows = result.all()
@@ -290,7 +297,11 @@ class DisparityCalculator:
         query = (
             select(Review, Game)
             .join(Game, Review.game_id == Game.id)
-            .where(Review.outlet_id == outlet_id)
+            .where(
+                Review.outlet_id == outlet_id,
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
         )
         result = await self.db.execute(query)
         rows = result.all()
@@ -339,7 +350,11 @@ class DisparityCalculator:
             )
 
         # Fallback for individual calls
-        query = select(Review).where(Review.game_id == game_id)
+        query = select(Review).where(
+            Review.game_id == game_id,
+            Review.score_normalized.isnot(None),
+            Review.score_normalized > 0,
+        )
         result = await self.db.execute(query)
         reviews = result.scalars().all()
 
@@ -466,7 +481,10 @@ class DisparityCalculator:
                 Review.outlet_id,
                 func.max(Review.published_at).label("last_review_at"),
             )
-            .where(Review.score_normalized.isnot(None))
+            .where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
             .group_by(Review.journalist_id, Review.outlet_id)
         )
         last_review_result = await self.db.execute(last_review_query)
@@ -488,7 +506,11 @@ class DisparityCalculator:
                 Review.outlet_id,
                 func.count(func.distinct(Review.journalist_id)).label("journalist_count"),
             )
-            .where(Review.outlet_id.isnot(None), Review.score_normalized.isnot(None))
+            .where(
+                Review.outlet_id.isnot(None),
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
             .group_by(Review.outlet_id)
         )
         jc_result = await self.db.execute(journalist_count_query)
@@ -631,7 +653,10 @@ class DisparityCalculator:
                 Review.journalist_id,
                 func.max(Review.published_at).label("last_review_at"),
             )
-            .where(Review.score_normalized.isnot(None))
+            .where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
             .group_by(Review.journalist_id)
         )
         last_review_result = await self.db.execute(last_review_query)
@@ -703,6 +728,7 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id.isnot(None),
                 Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
             )
             .group_by(Review.outlet_id)
         )
@@ -722,6 +748,7 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id.isnot(None),
                 Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
             )
             .group_by(Review.outlet_id)
         )
