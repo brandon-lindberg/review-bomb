@@ -26,6 +26,7 @@ limiter = Limiter(key_func=get_remote_address)
 # Anti-gaming: minimum user reviews required for a game to appear in lists (per source)
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
+MIN_CRITIC_REVIEWS_FOR_GAMES_LIST = 5
 
 
 @router.get("", response_model=PaginatedResponse[GameWithScores])
@@ -40,9 +41,9 @@ async def list_games(
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
     filters = [
-        # Must have at least one valid user score.
-        # Do not require critic aggregates here: newly released games can have
-        # strong user-score signals before OpenCritic review data stabilizes.
+        # Include games with either:
+        # - at least one valid user-score signal, or
+        # - at least N critic reviews (for new releases that have critic coverage first).
         or_(
             Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
             and_(
@@ -52,6 +53,7 @@ async def list_games(
                     Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
                 )
             ),
+            Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAMES_LIST,
         ),
     ]
 
