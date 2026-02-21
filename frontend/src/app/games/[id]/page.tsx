@@ -166,18 +166,22 @@ export default async function GameDetailPage({ params }: PageProps) {
               label="Steam User Score"
               value={game.steam_user_score != null ? Number(game.steam_user_score).toFixed(0) : undefined}
               subtitle={
-                game.steam_sample_size
-                  ? `${game.steam_sample_size.toLocaleString()} reviews`
-                  : undefined
+                game.steam_user_score != null
+                  ? game.steam_sample_size
+                    ? `${game.steam_sample_size.toLocaleString()} reviews`
+                    : undefined
+                  : "Less than 50 reviews"
               }
             />
             <ScoreCard
               label="Metacritic User Score"
               value={game.metacritic_user_score != null ? Number(game.metacritic_user_score).toFixed(0) : undefined}
               subtitle={
-                game.metacritic_sample_size
-                  ? `${game.metacritic_sample_size.toLocaleString()} reviews`
-                  : undefined
+                game.metacritic_user_score != null
+                  ? game.metacritic_sample_size
+                    ? `${game.metacritic_sample_size.toLocaleString()} reviews`
+                    : undefined
+                  : "Less than 20 reviews"
               }
             />
           </div>
