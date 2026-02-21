@@ -242,7 +242,18 @@ async def get_outlet(
     avg_disparity_metacritic = Decimal(str(round(sum(launch_window_metacritic_disparities) / len(launch_window_metacritic_disparities), 2))) if launch_window_metacritic_disparities else None
 
     combined_values = [v for v in [avg_disparity_steam, avg_disparity_metacritic] if v is not None]
-    avg_disparity_combined = Decimal(str(round(sum(float(v) for v in combined_values) / len(combined_values), 2))) if combined_values else None
+    calculated_avg_disparity_combined = (
+        Decimal(str(round(sum(float(v) for v in combined_values) / len(combined_values), 2)))
+        if combined_values
+        else None
+    )
+    # Keep outlet detail aligned with outlets list/leaderboards: prefer the canonical
+    # denormalized combined value, and only fall back to on-the-fly calculation.
+    display_avg_disparity_combined = (
+        outlet.avg_disparity
+        if outlet.avg_disparity is not None
+        else calculated_avg_disparity_combined
+    )
 
     return OutletWithStats(
         id=outlet.id,
@@ -255,7 +266,7 @@ async def get_outlet(
         avg_disparity=outlet.avg_disparity,
         avg_disparity_steam=avg_disparity_steam,
         avg_disparity_metacritic=avg_disparity_metacritic,
-        avg_disparity_combined=avg_disparity_combined,
+        avg_disparity_combined=display_avg_disparity_combined,
         avg_score=stats_row.avg_score,
         early_review_count=early_review_count,
         launch_window_review_count=launch_window_review_count,

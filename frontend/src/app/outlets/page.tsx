@@ -111,7 +111,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
                       </div>
                     </div>
 
-                    <DisparityBadge disparity={outlet.avg_disparity} />
+                    <DisparityBadge disparity={outlet.avg_disparity_combined ?? outlet.avg_disparity} />
                   </div>
                 </Link>
               ))}
