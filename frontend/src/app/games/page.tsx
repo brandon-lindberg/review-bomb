@@ -124,10 +124,13 @@ export default async function GamesPage({ searchParams }: PageProps) {
                         steamUserScore={game.steam_user_score}
                         metacriticUserScore={game.metacritic_user_score}
                         size="sm"
+                        alwaysShowAll
                       />
-                      <DisparityBadge
-                        disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
-                      />
+                      <div className="w-16 flex justify-center">
+                        <DisparityBadge
+                          disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
+                        />
+                      </div>
                     </div>
                   </div>
                 </Link>

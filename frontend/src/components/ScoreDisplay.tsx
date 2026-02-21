@@ -7,6 +7,7 @@ interface ScoreDisplayProps {
   metacriticUserScore?: number | null | undefined;
   label?: string;
   size?: "sm" | "md" | "lg";
+  alwaysShowAll?: boolean;
 }
 
 export function ScoreDisplay({
@@ -16,6 +17,7 @@ export function ScoreDisplay({
   metacriticUserScore,
   label,
   size = "md",
+  alwaysShowAll = false,
 }: ScoreDisplayProps) {
   const sizeClasses = {
     sm: {
@@ -60,14 +62,9 @@ export function ScoreDisplay({
       colorClass: "text-orange-500",
     },
   ].filter((section) => {
-    if (section.key === "critics") {
-      return true;
-    }
-
-    if (section.value != null) {
-      return true;
-    }
-
+    if (alwaysShowAll) return true;
+    if (section.key === "critics") return true;
+    if (section.value != null) return true;
     // Backward-compatible path for callers that only pass userScore.
     return section.key === "steam" && fallbackUserScore != null;
   });
