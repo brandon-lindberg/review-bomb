@@ -216,10 +216,15 @@ async def _sync_opencritic_full():
                     stmt = stmt.on_conflict_do_update(
                         index_elements=["opencritic_review_id"],
                         set_={
+                            "journalist_id": stmt.excluded.journalist_id,
+                            "game_id": stmt.excluded.game_id,
+                            "outlet_id": stmt.excluded.outlet_id,
                             "score_raw": stmt.excluded.score_raw,
+                            "score_scale": stmt.excluded.score_scale,
                             "score_normalized": stmt.excluded.score_normalized,
                             "review_url": stmt.excluded.review_url,
                             "snippet": stmt.excluded.snippet,
+                            "published_at": stmt.excluded.published_at,
                             "updated_at": datetime.now(timezone.utc),
                         },
                     )
@@ -518,14 +523,20 @@ async def _match_games_to_platforms():
     async with async_session_maker() as db:
         matcher = GameMatcher()
 
-        # Get games without Steam IDs
-        query = select(Game).where(Game.steam_app_id.is_(None))
+        # Match games missing either platform identifier.
+        query = select(Game).where(
+            or_(
+                Game.steam_app_id.is_(None),
+                Game.metacritic_slug.is_(None),
+            )
+        )
         result = await db.execute(query)
         games = result.scalars().all()
 
         print(f"Matching {len(games)} games to platforms...")
 
-        matched = 0
+        matched_steam = 0
+        assigned_slugs = 0
         for game in games:
             match_result = await matcher.match_game(
                 title=game.title,
@@ -534,15 +545,20 @@ async def _match_games_to_platforms():
             )
 
             if match_result["steam_app_id"]:
-                game.steam_app_id = match_result["steam_app_id"]
-                matched += 1
+                if game.steam_app_id != match_result["steam_app_id"]:
+                    game.steam_app_id = match_result["steam_app_id"]
+                    matched_steam += 1
 
             if match_result["metacritic_slug"] and not game.metacritic_slug:
                 game.metacritic_slug = match_result["metacritic_slug"]
+                assigned_slugs += 1
 
         await db.commit()
         await matcher.steam_service.aclose()
-        print(f"Matched {matched} games to Steam")
+        print(
+            f"Matched {matched_steam} games to Steam and "
+            f"assigned {assigned_slugs} Metacritic slugs"
+        )
 
 
 # =============================================================================

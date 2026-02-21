@@ -49,6 +49,9 @@ class SyncOrchestrator:
     DEFAULT_TAIL_SCAN_PAGES = 60  # Always scan this many tail pages before stale-stop
     RECENT_ID_RECON_WINDOW = 300  # Reconcile /game/{id} for recent IDs missing from /game list
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
+    AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
+    AUTO_REVIEW_REFRESH_LIMIT = None  # Refresh all games in the rolling window
+    AUTO_REVIEW_REFRESH_MIN_HOURS = 6  # Skip games refreshed very recently
 
     # State keys for persistence
     STATE_SYNCED_GAMES = "synced_opencritic_game_ids"
@@ -297,10 +300,15 @@ class SyncOrchestrator:
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["opencritic_review_id"],
                     set_={
+                        "journalist_id": stmt.excluded.journalist_id,
+                        "game_id": stmt.excluded.game_id,
+                        "outlet_id": stmt.excluded.outlet_id,
                         "score_raw": stmt.excluded.score_raw,
+                        "score_scale": stmt.excluded.score_scale,
                         "score_normalized": stmt.excluded.score_normalized,
                         "review_url": stmt.excluded.review_url,
                         "snippet": stmt.excluded.snippet,
+                        "published_at": stmt.excluded.published_at,
                         "updated_at": datetime.now(timezone.utc),
                     },
                 )
@@ -559,6 +567,10 @@ class SyncOrchestrator:
         continuous: bool = True,
         full_scan: bool = False,
         stale_pages_before_stop: int = DEFAULT_STALE_PAGES_BEFORE_STOP,
+        auto_refresh_recent_reviews: bool = True,
+        review_refresh_days: int = AUTO_REVIEW_REFRESH_DAYS,
+        review_refresh_limit: Optional[int] = AUTO_REVIEW_REFRESH_LIMIT,
+        review_refresh_min_hours: int = AUTO_REVIEW_REFRESH_MIN_HOURS,
     ) -> Dict[str, Any]:
         """
         Run the sync.
@@ -569,6 +581,11 @@ class SyncOrchestrator:
             full_scan: If True, always traverse the full OpenCritic catalog.
             stale_pages_before_stop: In incremental mode, stop after this many
                 consecutive pages contain no unsynced game IDs. Set to 0 to disable.
+            auto_refresh_recent_reviews: If True, also refresh recent existing games
+                so new critic reviews are captured after initial game ingest.
+            review_refresh_days: Release/created window used for auto refresh.
+            review_refresh_limit: Max games to refresh automatically per run.
+            review_refresh_min_hours: Skip games refreshed within this many hours.
 
         Returns stats about what was synced.
         """
@@ -577,7 +594,8 @@ class SyncOrchestrator:
         print(
             "Starting sync "
             f"(continuous={continuous}, full_scan={full_scan}, "
-            f"stale_pages_before_stop={stale_pages_before_stop})"
+            f"stale_pages_before_stop={stale_pages_before_stop}, "
+            f"auto_refresh_recent_reviews={auto_refresh_recent_reviews})"
         )
 
         # Create sync log
@@ -596,6 +614,9 @@ class SyncOrchestrator:
             "id_reconcile_discovered": 0,
             "release_dates_updated": 0,
             "unreleased_games_rechecked": 0,
+            "recent_reviews_refreshed_games": 0,
+            "recent_reviews_refreshed_reviews": 0,
+            "recent_reviews_refresh_failed": 0,
             "journalists_discovered": 0,
             "outlets_discovered": 0,
             "requests_used": 0,
@@ -766,6 +787,25 @@ class SyncOrchestrator:
                 stats["release_dates_updated"] += recheck_stats["release_dates_updated"]
                 stats["reviews_synced"] += recheck_stats["reviews_synced"]
 
+                if auto_refresh_recent_reviews:
+                    recent_games = await self._get_recent_review_refresh_games(
+                        days=review_refresh_days,
+                        limit=review_refresh_limit,
+                        all_games=False,
+                        min_hours_since_last_sync=review_refresh_min_hours,
+                    )
+                    print(
+                        "Auto-refreshing recent reviews for "
+                        f"{len(recent_games)} existing games "
+                        f"(days={review_refresh_days}, limit={review_refresh_limit}, "
+                        f"min_hours_since_last_sync={review_refresh_min_hours})"
+                    )
+                    refresh_stats = await self._refresh_games_reviews(recent_games)
+                    stats["recent_reviews_refreshed_games"] += refresh_stats["games_refreshed"]
+                    stats["recent_reviews_refreshed_reviews"] += refresh_stats["reviews_synced"]
+                    stats["recent_reviews_refresh_failed"] += refresh_stats["games_failed"]
+                    stats["reviews_synced"] += refresh_stats["reviews_synced"]
+
             # Clear persisted queue on clean completion so next run starts fresh.
             await self._set_games_queue([])
 
@@ -796,6 +836,18 @@ class SyncOrchestrator:
                 f"{stats['unreleased_games_rechecked']}"
             )
             print(f"  Release dates updated: {stats['release_dates_updated']}")
+            print(
+                "  Existing games refreshed for new reviews: "
+                f"{stats['recent_reviews_refreshed_games']}"
+            )
+            print(
+                "  Reviews synced from existing-game refresh: "
+                f"{stats['recent_reviews_refreshed_reviews']}"
+            )
+            print(
+                "  Existing-game refresh failures: "
+                f"{stats['recent_reviews_refresh_failed']}"
+            )
             print(f"  New journalists: {stats['journalists_discovered']}")
             print(f"  New outlets: {stats['outlets_discovered']}")
             print(f"  API requests used: {stats['requests_used']}")
@@ -841,8 +893,157 @@ class SyncOrchestrator:
         await self._set_state(self.STATE_LAST_GAME_SKIP, "0")
         print("Sync state reset")
 
+    def _build_recent_review_refresh_query(
+        self,
+        days: int,
+        all_games: bool,
+        min_hours_since_last_sync: Optional[int] = None,
+    ):
+        """Build query for selecting games whose reviews should be refreshed."""
+        if all_games:
+            query = select(Game).where(Game.opencritic_id.isnot(None))
+        else:
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=days)).date()
+            created_window_days = max(days, self.MATCH_NEW_GAME_GRACE_DAYS)
+            created_cutoff_date = (now - timedelta(days=created_window_days)).date()
+            created_cutoff_dt = datetime.combine(
+                created_cutoff_date,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+            query = select(Game).where(
+                Game.opencritic_id.isnot(None),
+                or_(
+                    and_(
+                        Game.release_date.isnot(None),
+                        Game.release_date >= cutoff_date,
+                    ),
+                    Game.created_at >= created_cutoff_dt,
+                ),
+            )
+
+        if min_hours_since_last_sync is not None and min_hours_since_last_sync > 0:
+            stale_cutoff = datetime.now(timezone.utc) - timedelta(
+                hours=min_hours_since_last_sync
+            )
+            query = query.where(
+                or_(
+                    Game.last_review_sync_at.is_(None),
+                    Game.last_review_sync_at < stale_cutoff,
+                )
+            )
+
+        return query.order_by(
+            Game.last_review_sync_at.asc().nulls_first(),
+            Game.release_date.desc().nulls_last(),
+            Game.created_at.desc().nulls_last(),
+            Game.id.desc(),
+        )
+
+    async def _get_recent_review_refresh_games(
+        self,
+        days: int,
+        limit: Optional[int],
+        all_games: bool,
+        min_hours_since_last_sync: Optional[int] = None,
+    ) -> List[Game]:
+        """Fetch candidate games for review refresh."""
+        query = self._build_recent_review_refresh_query(
+            days=days,
+            all_games=all_games,
+            min_hours_since_last_sync=min_hours_since_last_sync,
+        )
+        if limit:
+            query = query.limit(limit)
+
+        result = await self.db.execute(query)
+        return result.scalars().all()
+
+    async def _refresh_games_reviews(self, games: List[Game]) -> Dict[str, int]:
+        """Refresh metadata + reviews for provided games."""
+        stats = {
+            "games_refreshed": 0,
+            "reviews_synced": 0,
+            "games_skipped": 0,
+            "games_failed": 0,
+        }
+
+        for game in games:
+            try:
+                # Skip deprecated merged games
+                if game.opencritic_id in self.GAME_MERGES:
+                    print(f"Skipping merged game: {game.title} (OC {game.opencritic_id})")
+                    stats["games_skipped"] += 1
+                    continue
+
+                print(f"Refreshing: {game.title} (OC ID: {game.opencritic_id})")
+
+                # Check if any deprecated games merge INTO this one
+                # If so, also fetch reviews from those deprecated OC IDs
+                merged_from = [
+                    deprecated_oc_id
+                    for deprecated_oc_id, canonical_oc_id in self.GAME_MERGES.items()
+                    if canonical_oc_id == game.opencritic_id
+                ]
+
+                # Re-fetch game details to update top_critic_score, etc.
+                game_data = await self.service.get_game(game.opencritic_id)
+                self._request_count += 1
+                if game_data:
+                    transformed = OpenCriticService.transform_game(game_data)
+                    today = datetime.now(timezone.utc).date()
+                    if transformed.get("title"):
+                        game.title = transformed["title"]
+                    if transformed.get("description") is not None:
+                        game.description = transformed["description"]
+                    if self._should_replace_release_date(
+                        game.release_date,
+                        transformed.get("release_date"),
+                        today=today,
+                    ):
+                        game.release_date = transformed["release_date"]
+                    game.top_critic_score = transformed.get("top_critic_score")
+                    game.percent_recommended = transformed.get("percent_recommended")
+                    game.tier = transformed.get("tier")
+                    if transformed.get("image_url"):
+                        game.image_url = transformed["image_url"]
+
+                # Re-fetch all reviews (upsert handles deduplication)
+                reviews_synced = await self._sync_game_reviews(
+                    game.opencritic_id, game.id
+                )
+
+                # Also fetch reviews from any merged-in deprecated game IDs
+                for deprecated_oc_id in merged_from:
+                    extra_reviews = await self._sync_game_reviews(
+                        deprecated_oc_id, game.id
+                    )
+                    reviews_synced += extra_reviews
+                    if extra_reviews:
+                        print(f"  + {extra_reviews} reviews from merged OC {deprecated_oc_id}")
+
+                await self._update_game_critic_aggregates(game.id)
+                game.last_review_sync_at = datetime.now(timezone.utc)
+                await self.db.commit()
+
+                stats["games_refreshed"] += 1
+                stats["reviews_synced"] += reviews_synced
+                print(f"  Synced {reviews_synced} reviews")
+
+            except Exception as e:
+                await self.db.rollback()
+                print(f"  Error refreshing {game.title}: {e}")
+                stats["games_failed"] += 1
+
+        return stats
+
     async def refresh_recent_reviews(
-        self, days: int = 90, limit: Optional[int] = None, all_games: bool = False
+        self,
+        days: int = 90,
+        limit: Optional[int] = None,
+        all_games: bool = False,
+        min_hours_since_last_sync: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Re-fetch reviews for recently released games to pick up new reviews.
@@ -851,10 +1052,17 @@ class SyncOrchestrator:
             days: Refresh games released within this many days (default 90).
             limit: Optional limit on number of games to process.
             all_games: If True, refresh ALL games regardless of release date.
+            min_hours_since_last_sync: Optional freshness gate. If provided,
+                only refresh games whose `last_review_sync_at` is older than
+                this many hours (or NULL).
 
         Returns stats about what was refreshed.
         """
-        print(f"Starting review refresh (days={days}, all={all_games})")
+        print(
+            "Starting review refresh "
+            f"(days={days}, all={all_games}, "
+            f"min_hours_since_last_sync={min_hours_since_last_sync})"
+        )
 
         sync_log = SyncLog(
             source=SyncSource.OPENCRITIC,
@@ -865,113 +1073,16 @@ class SyncOrchestrator:
         await self.db.commit()
         await self.db.refresh(sync_log)
 
-        stats = {
-            "games_refreshed": 0,
-            "reviews_synced": 0,
-            "games_skipped": 0,
-            "games_failed": 0,
-        }
-
         try:
-            # Build query for games to refresh
-            if all_games:
-                query = select(Game).where(Game.opencritic_id.isnot(None))
-            else:
-                now = datetime.now(timezone.utc)
-                cutoff_date = (now - timedelta(days=days)).date()
-                created_window_days = max(days, self.MATCH_NEW_GAME_GRACE_DAYS)
-                created_cutoff_date = (now - timedelta(days=created_window_days)).date()
-                created_cutoff_dt = datetime.combine(
-                    created_cutoff_date,
-                    datetime.min.time(),
-                    tzinfo=timezone.utc,
-                )
-                query = select(Game).where(
-                    Game.opencritic_id.isnot(None),
-                    or_(
-                        and_(
-                            Game.release_date.isnot(None),
-                            Game.release_date >= cutoff_date,
-                        ),
-                        Game.created_at >= created_cutoff_dt,
-                    ),
-                )
-
-            query = query.order_by(Game.release_date.desc())
-
-            if limit:
-                query = query.limit(limit)
-
-            result = await self.db.execute(query)
-            games = result.scalars().all()
+            games = await self._get_recent_review_refresh_games(
+                days=days,
+                limit=limit,
+                all_games=all_games,
+                min_hours_since_last_sync=min_hours_since_last_sync,
+            )
 
             print(f"Found {len(games)} games to refresh")
-
-            for game in games:
-                try:
-                    # Skip deprecated merged games
-                    if game.opencritic_id in self.GAME_MERGES:
-                        print(f"Skipping merged game: {game.title} (OC {game.opencritic_id})")
-                        stats["games_skipped"] += 1
-                        continue
-
-                    print(f"Refreshing: {game.title} (OC ID: {game.opencritic_id})")
-
-                    # Check if any deprecated games merge INTO this one
-                    # If so, also fetch reviews from those deprecated OC IDs
-                    merged_from = [
-                        deprecated_oc_id
-                        for deprecated_oc_id, canonical_oc_id in self.GAME_MERGES.items()
-                        if canonical_oc_id == game.opencritic_id
-                    ]
-
-                    # Re-fetch game details to update top_critic_score, etc.
-                    game_data = await self.service.get_game(game.opencritic_id)
-                    self._request_count += 1
-                    if game_data:
-                        transformed = OpenCriticService.transform_game(game_data)
-                        today = datetime.now(timezone.utc).date()
-                        if transformed.get("title"):
-                            game.title = transformed["title"]
-                        if transformed.get("description") is not None:
-                            game.description = transformed["description"]
-                        if self._should_replace_release_date(
-                            game.release_date,
-                            transformed.get("release_date"),
-                            today=today,
-                        ):
-                            game.release_date = transformed["release_date"]
-                        game.top_critic_score = transformed.get("top_critic_score")
-                        game.percent_recommended = transformed.get("percent_recommended")
-                        game.tier = transformed.get("tier")
-                        if transformed.get("image_url"):
-                            game.image_url = transformed["image_url"]
-
-                    # Re-fetch all reviews (upsert handles deduplication)
-                    reviews_synced = await self._sync_game_reviews(
-                        game.opencritic_id, game.id
-                    )
-
-                    # Also fetch reviews from any merged-in deprecated game IDs
-                    for deprecated_oc_id in merged_from:
-                        extra_reviews = await self._sync_game_reviews(
-                            deprecated_oc_id, game.id
-                        )
-                        reviews_synced += extra_reviews
-                        if extra_reviews:
-                            print(f"  + {extra_reviews} reviews from merged OC {deprecated_oc_id}")
-
-                    await self._update_game_critic_aggregates(game.id)
-                    game.last_review_sync_at = datetime.now(timezone.utc)
-                    await self.db.commit()
-
-                    stats["games_refreshed"] += 1
-                    stats["reviews_synced"] += reviews_synced
-                    print(f"  Synced {reviews_synced} reviews")
-
-                except Exception as e:
-                    print(f"  Error refreshing {game.title}: {e}")
-                    stats["games_failed"] += 1
+            stats = await self._refresh_games_reviews(games)
 
             # Update sync log
             sync_log.status = SyncStatus.COMPLETED
@@ -1000,7 +1111,7 @@ class SyncOrchestrator:
         days: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Match games in database to Steam app IDs.
+        Match games in database to Steam app IDs and Metacritic slugs.
 
         Args:
             limit: Optional limit on number of games to process
@@ -1013,9 +1124,14 @@ class SyncOrchestrator:
 
         matcher = GameMatcher()
 
-        # Get games without Steam IDs
-        query = select(Game).where(Game.steam_app_id.is_(None))
-        mode = "without Steam IDs"
+        # Match games that are missing either platform identifier.
+        query = select(Game).where(
+            or_(
+                Game.steam_app_id.is_(None),
+                Game.metacritic_slug.is_(None),
+            )
+        )
+        mode = "missing Steam ID or Metacritic slug"
         if days is not None:
             now = datetime.now(timezone.utc)
             today = now.date()
@@ -1060,7 +1176,7 @@ class SyncOrchestrator:
             mode = (
                 f"released in last {days} days, or added in last "
                 f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or in recent OpenCritic ID window, "
-                "or release-date reconciliation needed without Steam IDs"
+                "or release-date reconciliation needed with missing platform IDs"
             )
         if days is not None:
             query = query.order_by(
@@ -1080,6 +1196,8 @@ class SyncOrchestrator:
 
         stats = {
             "total": len(games),
+            "steam_matched": 0,
+            "metacritic_slugs_assigned": 0,
             "matched": 0,
             "failed": 0,
         }
@@ -1095,12 +1213,22 @@ class SyncOrchestrator:
                 )
 
                 if match_result["steam_app_id"]:
-                    game.steam_app_id = match_result["steam_app_id"]
-                    stats["matched"] += 1
-                    print(f"  Matched: {game.title} -> Steam ID {match_result['steam_app_id']}")
+                    if game.steam_app_id != match_result["steam_app_id"]:
+                        game.steam_app_id = match_result["steam_app_id"]
+                        stats["steam_matched"] += 1
+                        stats["matched"] += 1
+                        print(
+                            f"  Matched Steam: {game.title} -> "
+                            f"{match_result['steam_app_id']}"
+                        )
 
                 if match_result["metacritic_slug"] and not game.metacritic_slug:
                     game.metacritic_slug = match_result["metacritic_slug"]
+                    stats["metacritic_slugs_assigned"] += 1
+                    print(
+                        f"  Assigned Metacritic slug: {game.title} -> "
+                        f"{match_result['metacritic_slug']}"
+                    )
 
             except Exception as e:
                 print(f"  Error matching {game.title}: {e}")
@@ -1114,7 +1242,12 @@ class SyncOrchestrator:
         await self.db.commit()
         await matcher.steam_service.aclose()
 
-        print(f"\nMatching complete: {stats['matched']} matched, {stats['failed']} failed")
+        print(
+            "\nMatching complete: "
+            f"{stats['steam_matched']} Steam IDs matched, "
+            f"{stats['metacritic_slugs_assigned']} Metacritic slugs assigned, "
+            f"{stats['failed']} failed"
+        )
         return stats
 
 
@@ -1122,6 +1255,10 @@ async def run_daily_sync(
     continuous: bool = True,
     full_scan: bool = False,
     stale_pages_before_stop: int = SyncOrchestrator.DEFAULT_STALE_PAGES_BEFORE_STOP,
+    auto_refresh_recent_reviews: bool = True,
+    review_refresh_days: int = SyncOrchestrator.AUTO_REVIEW_REFRESH_DAYS,
+    review_refresh_limit: Optional[int] = SyncOrchestrator.AUTO_REVIEW_REFRESH_LIMIT,
+    review_refresh_min_hours: int = SyncOrchestrator.AUTO_REVIEW_REFRESH_MIN_HOURS,
 ):
     """Convenience function to run the sync.
     
@@ -1129,6 +1266,11 @@ async def run_daily_sync(
         continuous: If True, keep fetching until all games are synced.
         full_scan: If True, scan the entire OpenCritic catalog.
         stale_pages_before_stop: Incremental mode stop threshold.
+        auto_refresh_recent_reviews: Whether to refresh existing recent games
+            for new critic reviews after ingesting new games.
+        review_refresh_days: Auto-review-refresh recency window (days).
+        review_refresh_limit: Max games to refresh in the auto pass.
+        review_refresh_min_hours: Skip games refreshed within this many hours.
     """
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
@@ -1136,6 +1278,10 @@ async def run_daily_sync(
             continuous=continuous,
             full_scan=full_scan,
             stale_pages_before_stop=stale_pages_before_stop,
+            auto_refresh_recent_reviews=auto_refresh_recent_reviews,
+            review_refresh_days=review_refresh_days,
+            review_refresh_limit=review_refresh_limit,
+            review_refresh_min_hours=review_refresh_min_hours,
         )
 
 
@@ -1146,8 +1292,18 @@ async def get_sync_status():
         return await orchestrator.get_sync_status()
 
 
-async def refresh_recent_reviews(days: int = 90, limit: Optional[int] = None, all_games: bool = False):
+async def refresh_recent_reviews(
+    days: int = 90,
+    limit: Optional[int] = None,
+    all_games: bool = False,
+    min_hours_since_last_sync: Optional[int] = None,
+):
     """Convenience function to refresh recent reviews."""
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
-        return await orchestrator.refresh_recent_reviews(days=days, limit=limit, all_games=all_games)
+        return await orchestrator.refresh_recent_reviews(
+            days=days,
+            limit=limit,
+            all_games=all_games,
+            min_hours_since_last_sync=min_hours_since_last_sync,
+        )

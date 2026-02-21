@@ -66,12 +66,25 @@ async def cmd_sync(args):
                 "Mode: incremental tail scan "
                 f"(stop after {args.stale_pages} consecutive stale pages)"
             )
+        if args.no_auto_review_refresh:
+            print("Post-sync review refresh: disabled")
+        else:
+            print(
+                "Post-sync review refresh: enabled "
+                f"(days={args.review_refresh_days}, "
+                f"limit={args.review_refresh_limit}, "
+                f"min_hours={args.review_refresh_min_hours})"
+            )
         print(f"{'='*50}\n")
 
         try:
             stats = await orchestrator.run_daily_sync(
                 full_scan=args.full_scan,
                 stale_pages_before_stop=args.stale_pages,
+                auto_refresh_recent_reviews=not args.no_auto_review_refresh,
+                review_refresh_days=args.review_refresh_days,
+                review_refresh_limit=args.review_refresh_limit,
+                review_refresh_min_hours=args.review_refresh_min_hours,
             )
             print(f"\n{'='*50}")
             print("Sync completed successfully!")
@@ -782,6 +795,7 @@ async def cmd_refresh_reviews(args):
                 days=days,
                 limit=args.limit,
                 all_games=args.all,
+                min_hours_since_last_sync=args.min_hours_since_last_sync,
             )
             print(f"\n{'='*50}")
             print("Review refresh completed successfully!")
@@ -805,7 +819,8 @@ async def cmd_match(args):
 
         print(f"\nMatching complete!")
         print(f"  Total games: {stats['total']}")
-        print(f"  Matched: {stats['matched']}")
+        print(f"  Steam IDs matched: {stats.get('steam_matched', stats.get('matched', 0))}")
+        print(f"  Metacritic slugs assigned: {stats.get('metacritic_slugs_assigned', 0)}")
         print(f"  Failed: {stats['failed']}")
 
 
@@ -1269,6 +1284,29 @@ def main():
     sync_parser.add_argument("--reset", action="store_true", help="Reset sync state")
     sync_parser.add_argument("--full-scan", action="store_true", help="Force full OpenCritic catalog sweep (slower)")
     sync_parser.add_argument("--stale-pages", type=int, default=5, help="Incremental mode: stop after N consecutive pages with no new games (default: 5, use 0 to disable)")
+    sync_parser.add_argument(
+        "--no-auto-review-refresh",
+        action="store_true",
+        help="Disable automatic post-sync refresh of recent existing games",
+    )
+    sync_parser.add_argument(
+        "--review-refresh-days",
+        type=int,
+        default=SyncOrchestrator.AUTO_REVIEW_REFRESH_DAYS,
+        help="Auto-refresh reviews for games released/added in last N days (default: 14)",
+    )
+    sync_parser.add_argument(
+        "--review-refresh-limit",
+        type=int,
+        default=SyncOrchestrator.AUTO_REVIEW_REFRESH_LIMIT,
+        help="Optional cap for auto-refresh game count (default: no cap)",
+    )
+    sync_parser.add_argument(
+        "--review-refresh-min-hours",
+        type=int,
+        default=SyncOrchestrator.AUTO_REVIEW_REFRESH_MIN_HOURS,
+        help="Skip auto-refresh for games synced within N hours (default: 6)",
+    )
 
     # Match command
     match_parser = subparsers.add_parser("match", help="Match games to Steam/Metacritic IDs")
@@ -1301,6 +1339,12 @@ def main():
     refresh_parser.add_argument("--days", type=int, default=90, help="Refresh games released within N days (default: 90)")
     refresh_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     refresh_parser.add_argument("--all", action="store_true", help="Refresh ALL games (full re-sync of reviews)")
+    refresh_parser.add_argument(
+        "--min-hours-since-last-sync",
+        type=int,
+        default=None,
+        help="Only refresh games whose last review sync is older than N hours",
+    )
 
     # Clear command
     subparsers.add_parser("clear", help="Clear all data from database")
