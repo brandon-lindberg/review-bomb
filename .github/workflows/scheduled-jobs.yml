@@ -2,23 +2,12 @@ name: Scheduled Jobs
 
 on:
   schedule:
-    # Core ingestion (daily)
-    - cron: '30 5 * * *'
+    # Core ingestion pipeline - every 12 hours
+    - cron: '0 */12 * * *'
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
     # News relink backfill (last 14 days) - weekly Tuesday
     - cron: '30 3 * * 2'
-    # Disparity (journalists + outlets) - every 12 hours
-    - cron: '0 */12 * * *'
-    # Disparity (games) - every 12 hours, staggered 30 minutes later
-    - cron: '30 */12 * * *'
-    # Metacritic recent - daily
-    - cron: '0 6 * * *'
-    # Metacritic user-count backfill (last 45 days) - weekly Wednesday
-    - cron: '0 9 * * 3'
-    # Match + Steam refresh - daily
-    - cron: '10 7 * * *'
-    - cron: '40 7 * * *'
   workflow_dispatch:
     inputs:
       job:
@@ -26,6 +15,7 @@ on:
         required: true
         type: choice
         options:
+          - pipeline
           - sync
           - sync-full
           - news
@@ -50,6 +40,41 @@ env:
   ENVIRONMENT: production
 
 jobs:
+  pipeline:
+    name: Core Ingestion Pipeline (12h)
+    runs-on: ubuntu-latest
+    concurrency:
+      group: core-pipeline-${{ github.repository }}-${{ github.ref_name }}
+      cancel-in-progress: false
+    if: >
+      github.event.schedule == '0 */12 * * *' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'pipeline')
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Validate OpenCritic API key
+        run: |
+          if [ -z "${RAPIDAPI_KEY}" ]; then
+            echo "::error::RAPIDAPI_KEY secret is missing."
+            exit 1
+          fi
+      - run: pip install -r requirements.txt
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium --with-deps
+      - name: Run OpenCritic -> Match -> Steam -> Metacritic -> Disparity
+        run: |
+          set -euo pipefail
+          python -u -m app sync --stale-pages 5 --review-refresh-days 14 --review-refresh-min-hours 6
+          python -u -m app match --days 14
+          python -u -m app steam --days 14
+          python -u -m app metacritic --recent 14
+          python -u -m app disparity --journalists --outlets
+          python -u -m app disparity --games
+        timeout-minutes: 360
+
   sync:
     name: Sync OpenCritic Games
     runs-on: ubuntu-latest
@@ -57,8 +82,7 @@ jobs:
       group: opencritic-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '30 5 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sync')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'sync'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -135,8 +159,7 @@ jobs:
     name: Calculate Disparity (Journalists + Outlets)
     runs-on: ubuntu-latest
     if: >
-      github.event.schedule == '0 */12 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-people')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-people'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -151,8 +174,7 @@ jobs:
     name: Calculate Disparity (Games)
     runs-on: ubuntu-latest
     if: >
-      github.event.schedule == '30 */12 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-games')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'disparity-games'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -170,8 +192,7 @@ jobs:
       group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '0 6 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-recent')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-recent'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -211,8 +232,7 @@ jobs:
       group: metacritic-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '0 9 * * 3' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-counts-backfill')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'metacritic-counts-backfill'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -252,8 +272,7 @@ jobs:
       group: steam-match-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '10 7 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-30d')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'match-30d'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -271,8 +290,7 @@ jobs:
       group: steam-sync-${{ github.repository }}-${{ github.ref_name }}
       cancel-in-progress: false
     if: >
-      github.event.schedule == '40 7 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-30d')
+      github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'steam-30d'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
