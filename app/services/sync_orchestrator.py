@@ -213,6 +213,85 @@ class SyncOrchestrator:
         )
         return result.scalar_one_or_none()
 
+    @staticmethod
+    def _outlet_staff_opencritic_id(outlet_opencritic_id: int) -> int:
+        """
+        Build a deterministic synthetic OpenCritic critic ID for outlet-staff fallbacks.
+
+        OpenCritic critic IDs are positive integers; we reserve a distant negative range
+        for generated "Outlet Staff" pseudo-critics so reviews without author data can
+        still be ingested and associated with a stable journalist row.
+        """
+        return -(1_000_000_000 + int(outlet_opencritic_id))
+
+    async def _upsert_outlet_staff_journalist(
+        self,
+        outlet_data: Dict[str, Any],
+    ) -> Optional[int]:
+        """
+        Upsert a deterministic pseudo-journalist for reviews that have no author.
+
+        This preserves scored reviews where OpenCritic omits Authors while still
+        satisfying our non-null Review.journalist_id constraint.
+        """
+        if not outlet_data:
+            return None
+
+        outlet_opencritic_id = outlet_data.get("id")
+        outlet_name = (outlet_data.get("name") or "").strip() or "Unknown Outlet"
+        pseudo_name = f"{outlet_name} Staff"
+
+        synthetic_oc_id = None
+        if outlet_opencritic_id is not None:
+            try:
+                synthetic_oc_id = self._outlet_staff_opencritic_id(int(outlet_opencritic_id))
+            except (TypeError, ValueError):
+                synthetic_oc_id = None
+
+        if synthetic_oc_id is not None:
+            stmt = insert(Journalist).values(
+                name=pseudo_name,
+                opencritic_id=synthetic_oc_id,
+                image_url=None,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["opencritic_id"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "updated_at": datetime.now(timezone.utc),
+                },
+            )
+            await self.db.execute(stmt)
+            result = await self.db.execute(
+                select(Journalist.id).where(Journalist.opencritic_id == synthetic_oc_id)
+            )
+            return result.scalar_one_or_none()
+
+        # Last-resort fallback when outlet has no numeric OpenCritic ID.
+        result = await self.db.execute(
+            select(Journalist.id).where(
+                Journalist.opencritic_id.is_(None),
+                Journalist.name == pseudo_name,
+            ).limit(1)
+        )
+        existing_id = result.scalar_one_or_none()
+        if existing_id:
+            return existing_id
+
+        stmt = insert(Journalist).values(
+            name=pseudo_name,
+            opencritic_id=None,
+            image_url=None,
+        )
+        await self.db.execute(stmt)
+        result = await self.db.execute(
+            select(Journalist.id).where(
+                Journalist.opencritic_id.is_(None),
+                Journalist.name == pseudo_name,
+            ).order_by(Journalist.id.desc()).limit(1)
+        )
+        return result.scalars().first()
+
     async def _upsert_game(self, game_data: Dict[str, Any]) -> Optional[int]:
         """Insert/update game and return internal ID."""
         transformed = OpenCriticService.transform_game(game_data)
@@ -288,6 +367,11 @@ class SyncOrchestrator:
                 journalist_id = None
                 if authors:
                     journalist_id = await self._upsert_journalist_from_review(authors[0])
+
+                # OpenCritic sometimes emits valid scored reviews without Authors.
+                # Preserve these via a stable per-outlet pseudo-journalist.
+                if not journalist_id:
+                    journalist_id = await self._upsert_outlet_staff_journalist(outlet_data)
 
                 if not journalist_id:
                     continue

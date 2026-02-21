@@ -152,11 +152,6 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                           ? Number(review.score_normalized).toFixed(0)
                           : "—"}
                       </p>
-                      {review.score_raw && review.score_scale && (
-                        <p className="text-xs text-gray-500">
-                          {review.score_raw}/{review.score_scale}
-                        </p>
-                      )}
                     </div>
                     {review.review_url && (
                       <a

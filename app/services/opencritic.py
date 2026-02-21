@@ -243,10 +243,35 @@ class OpenCriticService:
     # Reviews
     # =========================================================================
 
-    async def get_game_reviews(self, game_id: int) -> List[Dict[str, Any]]:
-        """Fetch all reviews for a specific game."""
-        data = await self._request("GET", f"/reviews/game/{game_id}")
-        return data if isinstance(data, list) else []
+    async def get_game_reviews(
+        self,
+        game_id: int,
+        batch_size: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Fetch all reviews for a specific game (paginated)."""
+        all_reviews: List[Dict[str, Any]] = []
+        skip = 0
+
+        while True:
+            data = await self._request(
+                "GET",
+                f"/reviews/game/{game_id}",
+                params={"skip": skip, "limit": batch_size},
+            )
+            reviews = data if isinstance(data, list) else []
+            if not reviews:
+                break
+
+            all_reviews.extend(reviews)
+
+            if len(reviews) < batch_size:
+                break
+
+            skip += len(reviews)
+            # Keep within RapidAPI limits while paginating.
+            await asyncio.sleep(0.01)
+
+        return all_reviews
 
     async def get_critic_reviews(
         self,
@@ -383,8 +408,8 @@ class OpenCriticService:
         normalized_score = None
         detected_scale = None
 
-        # OpenCritic provides scoreFormat which indicates the scale
-        score_format = data.get("scoreFormat", {})
+        # OpenCritic responses have used both `scoreFormat` and `ScoreFormat`.
+        score_format = data.get("scoreFormat") or data.get("ScoreFormat") or {}
 
         # Check if this is a recommendation-based format (not a real numeric score)
         # These outlets don't give numeric scores, so we shouldn't normalize them

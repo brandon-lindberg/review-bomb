@@ -37,3 +37,7 @@ def test_release_date_guard_allows_forward_past_correction():
     today = date(2026, 2, 20)
 
     assert SyncOrchestrator._should_replace_release_date(existing, incoming, today=today)
+
+
+def test_outlet_staff_opencritic_id_is_stable_negative_namespace():
+    assert SyncOrchestrator._outlet_staff_opencritic_id(896) == -1000000896
