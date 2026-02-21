@@ -331,15 +331,34 @@ class OpenCriticService:
         if image_url and not image_url.startswith("http"):
             image_url = f"{cls.IMAGE_CDN_URL}/{image_url}"
 
+        top_critic_raw = data.get("topCriticScore")
+        percent_recommended_raw = data.get("percentRecommended")
+
+        top_critic_score = None
+        if top_critic_raw is not None:
+            try:
+                top_critic_val = float(top_critic_raw)
+                if top_critic_val >= 0:
+                    top_critic_score = Decimal(str(round(top_critic_val, 2)))
+            except (TypeError, ValueError):
+                top_critic_score = None
+
+        percent_recommended = None
+        if percent_recommended_raw is not None:
+            try:
+                percent_val = float(percent_recommended_raw)
+                if percent_val >= 0:
+                    percent_recommended = Decimal(str(round(percent_val, 2)))
+            except (TypeError, ValueError):
+                percent_recommended = None
+
         return {
             "opencritic_id": data.get("id"),
             "title": data.get("name", "Unknown"),
             "description": data.get("description"),
             "release_date": release_date,
-            "top_critic_score": Decimal(str(round(data["topCriticScore"], 2)))
-                if data.get("topCriticScore") else None,
-            "percent_recommended": Decimal(str(round(data["percentRecommended"], 2)))
-                if data.get("percentRecommended") else None,
+            "top_critic_score": top_critic_score,
+            "percent_recommended": percent_recommended,
             "tier": data.get("tier"),
             "image_url": image_url,
         }

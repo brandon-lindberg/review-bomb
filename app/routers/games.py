@@ -40,8 +40,9 @@ async def list_games(
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
     filters = [
-        Game.avg_critic_score.isnot(None),
-        # Must have at least one valid user score
+        # Must have at least one valid user score.
+        # Do not require critic aggregates here: newly released games can have
+        # strong user-score signals before OpenCritic review data stabilizes.
         or_(
             Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
             and_(

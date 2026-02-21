@@ -338,19 +338,10 @@ async def cmd_metacritic(args):
         now = datetime.now(timezone.utc)
         today = now.date()
 
-        # Reuse "needs sync" logic across modes.
-        games_with_user_score = (
-            select(UserScore.game_id)
-            .where(UserScore.source == UserScoreSource.METACRITIC)
-            .distinct()
-            .scalar_subquery()
-        )
+        # Missing-data condition (used by targeted modes only).
         needs_sync_condition = or_(
             Game.metacritic_score.is_(None),
-            and_(
-                Game.metacritic_score.isnot(None),
-                Game.id.notin_(games_with_user_score),
-            ),
+            Game.metacritic_user_score.is_(None),
         )
         max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
         recent_opencritic_condition = and_(
@@ -396,7 +387,8 @@ async def cmd_metacritic(args):
             query = select(Game).where(Game.metacritic_slug.isnot(None))
             mode = 'total'
         elif args.recent is not None:
-            # Only process recent games that still need Metacritic data.
+            # Process all recent games so score/sample changes are refreshed,
+            # not only games missing initial Metacritic data.
             days = args.recent
             cutoff_date = (now - timedelta(days=days)).date()
             created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
@@ -407,7 +399,6 @@ async def cmd_metacritic(args):
             )
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                or_(needs_sync_condition, release_date_reconcile_condition),
                 or_(
                     and_(
                         Game.release_date.isnot(None),
@@ -419,9 +410,9 @@ async def cmd_metacritic(args):
                 ),
             )
             mode = (
-                f'released in last {days} days, or added in last '
+                f'recent-window refresh (released in last {days} days, or added in last '
                 f'{min_recent_add_window_days} days, or in recent OpenCritic ID window, '
-                'or release-date reconciliation needed'
+                'or release-date reconciliation needed)'
             )
         elif args.new_only is not None:
             # Only process recently released games that have never been synced from Metacritic
@@ -450,10 +441,9 @@ async def cmd_metacritic(args):
                 f'{min_recent_add_window_days} days, or in recent OpenCritic ID window, never synced)'
             )
         else:
-            # Sync games that either: have no metascore yet, OR have a metascore but no user score
+            # Refresh all games with Metacritic slugs, with stale-days gating.
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
-                or_(needs_sync_condition, release_date_reconcile_condition),
             )
 
             # Apply stale-days filter: skip games synced recently
@@ -468,7 +458,7 @@ async def cmd_metacritic(args):
                     )
                 )
 
-            mode = 'needing'
+            mode = 'stale/refresh'
         release_reconcile_priority = case(
             (release_date_reconcile_condition, 0),
             else_=1,
@@ -1086,7 +1076,7 @@ async def cmd_merge_games(args):
 
 async def cmd_news(args):
     """Handle news RSS feed sync command."""
-    from sqlalchemy import text, select, func
+    from sqlalchemy import text, select, func, and_, or_
 
     from app.models.models import Game, NewsArticle
     from app.services.news_rss import NewsRSSService
@@ -1127,7 +1117,7 @@ async def cmd_news(args):
         games_result = await db.execute(select(Game.id, Game.title))
         matcher = NewsMatcher(games_result.all())
 
-        inserted = 0
+        upserted = 0
         matched = 0
         for article in articles:
             game_id = matcher.match(article["title"], article.get("description"))
@@ -1135,10 +1125,20 @@ async def cmd_news(args):
                 article["game_id"] = game_id
                 matched += 1
             stmt = pg_insert(NewsArticle).values(**article)
-            stmt = stmt.on_conflict_do_nothing(index_elements=["url"])
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["url"],
+                set_={"game_id": stmt.excluded.game_id},
+                where=and_(
+                    stmt.excluded.game_id.isnot(None),
+                    or_(
+                        NewsArticle.game_id.is_(None),
+                        NewsArticle.game_id != stmt.excluded.game_id,
+                    ),
+                ),
+            )
             result = await db.execute(stmt)
             if result.rowcount > 0:
-                inserted += 1
+                upserted += 1
 
         await db.commit()
 
@@ -1148,13 +1148,16 @@ async def cmd_news(args):
         total = total_result.scalar() or 0
 
         # Invalidate news cache so the API serves fresh data
-        if inserted > 0:
+        if upserted > 0:
             from app.cache import delete_cached, close_redis
             deleted_keys = await delete_cached("news:*")
             print(f"Cleared {deleted_keys} cached news entries")
             await close_redis()
 
-        print(f"\nNews sync complete: {inserted} new articles inserted, {matched} matched to games ({total} total in database)")
+        print(
+            f"\nNews sync complete: {upserted} rows inserted/updated, "
+            f"{matched} matched to games ({total} total in database)"
+        )
 
 
 async def cmd_news_backfill(args):

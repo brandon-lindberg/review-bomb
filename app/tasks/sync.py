@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import dramatiq
-from sqlalchemy import select, delete, or_
+from sqlalchemy import select, delete, or_, and_
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import async_session_maker
@@ -111,13 +111,11 @@ async def _sync_opencritic_full():
             print(f"Synced {len(critics)} critics")
 
             # Sync all games
-            # Only import games that can be matched to Steam or Metacritic
             print("Syncing games...")
             games = await service.get_all_games()
             matcher = GameMatcher()
 
             games_imported = 0
-            games_skipped = 0
             imported_game_ids = set()  # Track OpenCritic IDs of imported games
 
             for game_data in games:
@@ -129,12 +127,6 @@ async def _sync_opencritic_full():
                     release_date=transformed.get("release_date"),
                     opencritic_id=transformed.get("opencritic_id"),
                 )
-
-                # Only import if we have a Steam match (verified via search)
-                # Metacritic slug is just generated from title, not verified
-                if not match_result["steam_app_id"]:
-                    games_skipped += 1
-                    continue
 
                 # Add platform IDs to the game data
                 if match_result["steam_app_id"]:
@@ -164,7 +156,7 @@ async def _sync_opencritic_full():
                 imported_game_ids.add(game_data.get("id"))
 
             await db.commit()
-            print(f"Synced {games_imported} games (skipped {games_skipped} without platform match)")
+            print(f"Synced {games_imported} games")
 
             # Sync reviews only for imported games
             print("Syncing reviews...")
@@ -588,26 +580,36 @@ async def _sync_news_feeds():
         games_result = await db.execute(select(Game.id, Game.title))
         matcher = NewsMatcher(games_result.all())
 
-        inserted = 0
+        upserted = 0
         for article in articles:
             game_id = matcher.match(article["title"], article.get("description"))
             if game_id:
                 article["game_id"] = game_id
             stmt = pg_insert(NewsArticle).values(**article)
-            stmt = stmt.on_conflict_do_nothing(index_elements=["url"])
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["url"],
+                set_={"game_id": stmt.excluded.game_id},
+                where=and_(
+                    stmt.excluded.game_id.isnot(None),
+                    or_(
+                        NewsArticle.game_id.is_(None),
+                        NewsArticle.game_id != stmt.excluded.game_id,
+                    ),
+                ),
+            )
             result = await db.execute(stmt)
             if result.rowcount > 0:
-                inserted += 1
+                upserted += 1
 
             # Commit every 50 articles
-            if inserted > 0 and inserted % 50 == 0:
+            if upserted > 0 and upserted % 50 == 0:
                 await db.commit()
 
         await db.commit()
-        print(f"Inserted {inserted} new articles")
+        print(f"Inserted/updated {upserted} news rows")
 
         # Invalidate news cache so the API serves fresh data
-        if inserted > 0:
+        if upserted > 0:
             from app.cache import delete_cached
             await delete_cached("news:*")
             print("Cleared news cache")

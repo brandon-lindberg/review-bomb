@@ -40,6 +40,28 @@ class MetacriticService:
         "to",
         "with",
     }
+    ROMAN_NUMERAL_MAP = {
+        "i": "1",
+        "ii": "2",
+        "iii": "3",
+        "iv": "4",
+        "v": "5",
+        "vi": "6",
+        "vii": "7",
+        "viii": "8",
+        "ix": "9",
+        "x": "10",
+        "xi": "11",
+        "xii": "12",
+    }
+    PLATFORM_NUMBER_CONTEXT = {
+        "nintendo",
+        "playstation",
+        "ps",
+        "switch",
+        "xbox",
+        "series",
+    }
 
     def __init__(self, headless: bool = True):
         """
@@ -235,7 +257,53 @@ class MetacriticService:
     def _core_title_tokens(cls, value: str) -> List[str]:
         """Extract core title tokens, filtering generic connector/platform words."""
         tokens = cls._normalize_title_for_compare(value).split()
-        return [t for t in tokens if len(t) >= 3 and t not in cls.TITLE_STOPWORDS]
+        core_tokens: List[str] = []
+        for token in tokens:
+            if token in cls.TITLE_STOPWORDS:
+                continue
+            if token in cls.ROMAN_NUMERAL_MAP or token.isdigit():
+                core_tokens.append(token)
+                continue
+            if len(token) >= 3:
+                core_tokens.append(token)
+        return core_tokens
+
+    @classmethod
+    def _extract_series_markers(cls, value: str) -> set[str]:
+        """
+        Extract sequel/chapter markers from a title for stricter identity checks.
+
+        Examples:
+            "Resident Evil 4" -> {"4"}
+            "Final Fantasy X" -> {"10"}
+            "Switch 2 Edition" -> {} (platform marker ignored)
+        """
+        tokens = cls._normalize_title_for_compare(value).split()
+        markers: set[str] = set()
+        for idx, token in enumerate(tokens):
+            if token in cls.ROMAN_NUMERAL_MAP:
+                markers.add(cls.ROMAN_NUMERAL_MAP[token])
+                continue
+
+            if not token.isdigit():
+                continue
+
+            # Keep only small sequel/chapter-style numbers.
+            if len(token) > 2:
+                continue
+            previous = tokens[idx - 1] if idx > 0 else ""
+            if previous in cls.PLATFORM_NUMBER_CONTEXT:
+                continue
+
+            try:
+                numeric_value = int(token)
+                if numeric_value <= 0 or numeric_value > 20:
+                    continue
+                markers.add(str(numeric_value))
+            except ValueError:
+                continue
+
+        return markers
 
     @classmethod
     def _title_similarity(cls, left: str, right: str) -> float:
@@ -274,6 +342,12 @@ class MetacriticService:
         Guards against catastrophic mismatches from broad search results.
         """
         if not candidate_title:
+            return False
+
+        expected_markers = cls._extract_series_markers(expected_title)
+        candidate_markers = cls._extract_series_markers(candidate_title)
+        # Guard against sequel/chapter collisions (e.g., X vs non-X, 4 vs 5).
+        if expected_markers and not expected_markers.issubset(candidate_markers):
             return False
 
         similarity = cls._title_similarity(expected_title, candidate_title)
@@ -316,6 +390,7 @@ class MetacriticService:
                 score_data = await self.get_scores(
                     self.build_game_url(candidate),
                     max_retries=max_retries,
+                    title=title,
                 )
                 if score_data:
                     score_data["resolved_slug"] = candidate
@@ -332,6 +407,7 @@ class MetacriticService:
                     score_data = await self.get_scores(
                         self.build_game_url(candidate),
                         max_retries=max_retries,
+                        title=title,
                     )
                     if score_data:
                         score_data["resolved_slug"] = candidate
@@ -345,6 +421,7 @@ class MetacriticService:
                     score_data = await self.get_scores(
                         self.build_game_url(searched_slug),
                         max_retries=max_retries,
+                        title=title,
                     )
                     if score_data:
                         score_data["resolved_slug"] = searched_slug
