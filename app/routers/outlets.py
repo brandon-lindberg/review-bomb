@@ -5,7 +5,7 @@ from typing import Optional
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, func, desc, asc
+from sqlalchemy import select, func, desc, asc, case, and_, cast, Date
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -159,96 +159,80 @@ async def get_outlet(
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    # Get additional stats (avg/min/max score) with single query
-    stats_query = select(
+    # Get score and timing metrics in one aggregate query.
+    review_date_expr = cast(Review.published_at, Date)
+    days_after_release_expr = review_date_expr - Game.release_date
+
+    metrics_query = select(
         func.avg(Review.score_normalized).label("avg_score"),
         func.min(Review.score_normalized).label("min_score"),
         func.max(Review.score_normalized).label("max_score"),
+        func.sum(
+            case(
+                (
+                    and_(
+                        review_date_expr.isnot(None),
+                        Game.release_date.isnot(None),
+                        days_after_release_expr < 0,
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("early_review_count"),
+        func.sum(
+            case(
+                (
+                    and_(
+                        review_date_expr.isnot(None),
+                        Game.release_date.isnot(None),
+                        days_after_release_expr >= 0,
+                        days_after_release_expr <= LAUNCH_WINDOW_DAYS,
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("launch_window_review_count"),
+        func.sum(
+            case(
+                (
+                    and_(
+                        review_date_expr.isnot(None),
+                        Game.release_date.isnot(None),
+                        days_after_release_expr > LAUNCH_WINDOW_DAYS,
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("late_review_count"),
+    ).select_from(Review).join(
+        Game, Review.game_id == Game.id
     ).where(
         Review.outlet_id == outlet_id,
         Review.score_normalized.isnot(None),
         Review.score_normalized > 0,
     )
+    metrics_row = (await db.execute(metrics_query)).one()
 
-    stats_result = await db.execute(stats_query)
-    stats_row = stats_result.one()
-
-    # Calculate per-source disparity from reviews (same approach as journalist endpoint)
-    from app.models.models import UserScore
-
-    reviews_query = (
-        select(Review, Game)
-        .join(Game, Review.game_id == Game.id)
-        .where(
-            Review.outlet_id == outlet_id,
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
+    # Per-source disparities come from the latest precomputed outlet snapshot.
+    # This avoids expensive per-request recomputation across all outlet games.
+    snapshot = (
+        await db.execute(
+            select(DisparitySnapshot)
+            .where(DisparitySnapshot.outlet_id == outlet_id)
+            .order_by(desc(DisparitySnapshot.snapshot_date), desc(DisparitySnapshot.id))
+            .limit(1)
         )
-    )
-    reviews_result = await db.execute(reviews_query)
-    review_rows = reviews_result.all()
+    ).scalar_one_or_none()
 
-    game_ids = list(set(row[1].id for row in review_rows)) if review_rows else []
-    user_score_lookup: dict = {}
-    if game_ids:
-        user_scores_query = (
-            select(UserScore)
-            .where(UserScore.game_id.in_(game_ids))
-            .order_by(desc(UserScore.scraped_at))
-        )
-        user_scores_result = await db.execute(user_scores_query)
-        user_scores = user_scores_result.scalars().all()
-        for us in user_scores:
-            key = (us.game_id, us.source.value)
-            if key not in user_score_lookup:
-                user_score_lookup[key] = {
-                    "score": us.score,
-                    "sample_size": us.sample_size,
-                }
+    avg_disparity_steam = snapshot.avg_disparity_steam if snapshot else None
+    avg_disparity_metacritic = snapshot.avg_disparity_metacritic if snapshot else None
+    calculated_avg_disparity_combined = snapshot.avg_disparity_combined if snapshot else None
 
-    launch_window_steam_disparities = []
-    launch_window_metacritic_disparities = []
-
-    early_review_count = 0
-    launch_window_review_count = 0
-    late_review_count = 0
-
-    for review, game in review_rows:
-        steam_data = user_score_lookup.get((game.id, "steam"))
-        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-        review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
-        timing = calculate_review_timing(review_date, game.release_date)
-
-        if timing == "early":
-            early_review_count += 1
-        elif timing == "launch_window":
-            launch_window_review_count += 1
-        elif timing == "late":
-            late_review_count += 1
-
-        if timing != "launch_window":
-            continue
-
-        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
-            launch_window_steam_disparities.append(float(review.score_normalized - steam_data["score"]))
-
-        if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ):
-            launch_window_metacritic_disparities.append(float(review.score_normalized - metacritic_data["score"]))
-
-    avg_disparity_steam = Decimal(str(round(sum(launch_window_steam_disparities) / len(launch_window_steam_disparities), 2))) if launch_window_steam_disparities else None
-    avg_disparity_metacritic = Decimal(str(round(sum(launch_window_metacritic_disparities) / len(launch_window_metacritic_disparities), 2))) if launch_window_metacritic_disparities else None
-
-    combined_values = [v for v in [avg_disparity_steam, avg_disparity_metacritic] if v is not None]
-    calculated_avg_disparity_combined = (
-        Decimal(str(round(sum(float(v) for v in combined_values) / len(combined_values), 2)))
-        if combined_values
-        else None
-    )
-    # Keep outlet detail aligned with outlets list/leaderboards: prefer the canonical
-    # denormalized combined value, and only fall back to on-the-fly calculation.
+    # Keep outlet detail aligned with outlets list/leaderboards:
+    # prefer the canonical denormalized combined value, then snapshot fallback.
     display_avg_disparity_combined = (
         outlet.avg_disparity
         if outlet.avg_disparity is not None
@@ -267,12 +251,12 @@ async def get_outlet(
         avg_disparity_steam=avg_disparity_steam,
         avg_disparity_metacritic=avg_disparity_metacritic,
         avg_disparity_combined=display_avg_disparity_combined,
-        avg_score=stats_row.avg_score,
-        early_review_count=early_review_count,
-        launch_window_review_count=launch_window_review_count,
-        late_review_count=late_review_count,
-        min_score_given=Decimal(str(round(stats_row.min_score, 2))) if stats_row.min_score else None,
-        max_score_given=Decimal(str(round(stats_row.max_score, 2))) if stats_row.max_score else None,
+        avg_score=metrics_row.avg_score,
+        early_review_count=int(metrics_row.early_review_count or 0),
+        launch_window_review_count=int(metrics_row.launch_window_review_count or 0),
+        late_review_count=int(metrics_row.late_review_count or 0),
+        min_score_given=Decimal(str(round(metrics_row.min_score, 2))) if metrics_row.min_score else None,
+        max_score_given=Decimal(str(round(metrics_row.max_score, 2))) if metrics_row.max_score else None,
         score_std_deviation=outlet.score_std_dev,
     )
 
