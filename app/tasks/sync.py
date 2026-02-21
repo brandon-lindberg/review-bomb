@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import dramatiq
-from sqlalchemy import select, delete, or_, and_
+from sqlalchemy import select, delete, or_, and_, case, func
 from sqlalchemy.dialects.postgresql import insert
 
 from app.database import async_session_maker
@@ -33,6 +33,47 @@ def run_async(coro):
         return loop.run_until_complete(coro)
     finally:
         loop.close()
+
+
+def _should_update_release_date_from_metacritic(
+    existing_release_date,
+    candidate_release_date,
+    *,
+    today,
+) -> bool:
+    """
+    Decide whether a Metacritic-derived release date should overwrite DB value.
+
+    Strategy:
+    - Always fill missing dates.
+    - Correct placeholder future dates using earlier/released dates.
+    - Never regress a known released date to a future value.
+    - For two past dates, only apply large forward corrections (>=120 days),
+      which catches stale-year errors while avoiding remaster/port regressions.
+    """
+    if candidate_release_date is None:
+        return False
+    if existing_release_date is None:
+        return True
+    if candidate_release_date == existing_release_date:
+        return False
+
+    # Do not replace a known released date with a future candidate.
+    if existing_release_date <= today and candidate_release_date > today:
+        return False
+
+    # Replace placeholder future dates with released or earlier corrected dates.
+    if existing_release_date > today:
+        if candidate_release_date <= today:
+            return True
+        return candidate_release_date < existing_release_date
+
+    # Both are in the past: allow only substantial forward corrections.
+    if candidate_release_date > existing_release_date:
+        return (candidate_release_date - existing_release_date).days >= 120
+
+    # Avoid moving a date earlier in the past from Metacritic alone.
+    return False
 
 
 # =============================================================================
@@ -135,12 +176,37 @@ async def _sync_opencritic_full():
                     transformed["metacritic_slug"] = match_result["metacritic_slug"]
 
                 stmt = insert(Game).values(**transformed)
+                today = datetime.now(timezone.utc).date()
+                incoming_release_date = stmt.excluded.release_date
+                preserve_existing_released_date = and_(
+                    Game.release_date.isnot(None),
+                    Game.release_date <= today,
+                    incoming_release_date.isnot(None),
+                    incoming_release_date > today,
+                )
+                preserve_existing_backward_past_shift = and_(
+                    Game.release_date.isnot(None),
+                    Game.release_date <= today,
+                    incoming_release_date.isnot(None),
+                    incoming_release_date <= today,
+                    incoming_release_date < Game.release_date,
+                )
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["opencritic_id"],
                     set_={
                         "title": stmt.excluded.title,
                         "description": stmt.excluded.description,
-                        "release_date": stmt.excluded.release_date,
+                        # Preserve known released dates against OpenCritic placeholder regressions.
+                        "release_date": case(
+                            (
+                                or_(
+                                    preserve_existing_released_date,
+                                    preserve_existing_backward_past_shift,
+                                ),
+                                Game.release_date,
+                            ),
+                            else_=func.coalesce(incoming_release_date, Game.release_date),
+                        ),
                         "top_critic_score": stmt.excluded.top_critic_score,
                         "percent_recommended": stmt.excluded.percent_recommended,
                         "tier": stmt.excluded.tier,
@@ -406,6 +472,7 @@ async def _sync_metacritic_scores():
             records_updated = 0
             records_deleted = 0
             records_failed = 0
+            release_dates_updated = 0
 
             # Get all games with Metacritic slugs
             query = select(Game).where(Game.metacritic_slug.isnot(None))
@@ -468,6 +535,25 @@ async def _sync_metacritic_scores():
                                 game.metacritic_score = score_data["metascore"]
                                 records_updated += 1
 
+                            # Reconcile release date from Metacritic when safe.
+                            mc_release_date = score_data.get("release_date")
+                            if mc_release_date is not None:
+                                today = datetime.now(timezone.utc).date()
+                                if _should_update_release_date_from_metacritic(
+                                    game.release_date,
+                                    mc_release_date,
+                                    today=today,
+                                ) and game.release_date != mc_release_date:
+                                    old_release = game.release_date
+                                    game.release_date = mc_release_date
+                                    release_dates_updated += 1
+                                    print(
+                                        "Updated Metacritic release date for "
+                                        f"{game.title}: {old_release} -> {mc_release_date}"
+                                    )
+
+                        # Mark game as checked by Metacritic sync even when unchanged.
+                        game.metacritic_synced_at = datetime.now(timezone.utc)
                         records_processed += 1
 
                         # Commit every 20 games (scraping is slow)
@@ -493,7 +579,13 @@ async def _sync_metacritic_scores():
             sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-            print(f"Metacritic sync completed: {records_created} user scores created, {records_deleted} invalid scores deleted, {records_updated} metascores updated")
+            print(
+                "Metacritic sync completed: "
+                f"{records_created} user scores created, "
+                f"{records_deleted} invalid scores deleted, "
+                f"{records_updated} metascores updated, "
+                f"{release_dates_updated} release dates updated"
+            )
 
         except Exception as e:
             sync_log.status = SyncStatus.FAILED

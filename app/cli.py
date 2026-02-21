@@ -31,6 +31,47 @@ from app.database import async_session_maker
 from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get_sync_status
 
 
+def _should_update_release_date_from_metacritic(
+    existing_release_date,
+    candidate_release_date,
+    *,
+    today,
+) -> bool:
+    """
+    Decide whether a Metacritic-derived release date should overwrite DB value.
+
+    Strategy:
+    - Always fill missing dates.
+    - Correct placeholder future dates using earlier/released dates.
+    - Never regress a known released date to a future value.
+    - For two past dates, only apply large forward corrections (>=120 days),
+      which catches stale-year errors while avoiding remaster/port regressions.
+    """
+    if candidate_release_date is None:
+        return False
+    if existing_release_date is None:
+        return True
+    if candidate_release_date == existing_release_date:
+        return False
+
+    # Do not replace a known released date with a future candidate.
+    if existing_release_date <= today and candidate_release_date > today:
+        return False
+
+    # Replace placeholder future dates with released or earlier corrected dates.
+    if existing_release_date > today:
+        if candidate_release_date <= today:
+            return True
+        return candidate_release_date < existing_release_date
+
+    # Both are in the past: allow only substantial forward corrections.
+    if candidate_release_date > existing_release_date:
+        return (candidate_release_date - existing_release_date).days >= 120
+
+    # Avoid moving a date earlier in the past from Metacritic alone.
+    return False
+
+
 async def cmd_sync(args):
     """Handle sync command."""
     async with async_session_maker() as db:
@@ -376,6 +417,25 @@ async def cmd_metacritic(args):
             or_(Game.release_date.is_(None), Game.release_date > today),
             Game.id.in_(published_review_game_ids),
         )
+        recent_review_window_days = max(
+            args.recent or 0,
+            args.new_only or 0,
+            min_recent_add_window_days,
+        )
+        recent_review_cutoff_dt = now - timedelta(days=recent_review_window_days)
+        recent_review_game_ids = (
+            select(Review.game_id)
+            .where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+                Review.published_at.isnot(None),
+                Review.published_at >= recent_review_cutoff_dt,
+                Review.published_at <= now,
+            )
+            .distinct()
+            .scalar_subquery()
+        )
+        recent_review_activity_condition = Game.id.in_(recent_review_game_ids)
 
         # Get games with Metacritic slugs
         if args.backfill_counts:
@@ -420,12 +480,14 @@ async def cmd_metacritic(args):
                     Game.created_at >= created_cutoff_dt,
                     recent_opencritic_condition,
                     release_date_reconcile_condition,
+                    recent_review_activity_condition,
                 ),
             )
             mode = (
                 f'recent-window refresh (released in last {days} days, or added in last '
                 f'{min_recent_add_window_days} days, or in recent OpenCritic ID window, '
-                'or release-date reconciliation needed)'
+                f'or release-date reconciliation needed, or with scored reviews in last '
+                f'{recent_review_window_days} days)'
             )
         elif args.new_only is not None:
             # Only process recently released games that have never been synced from Metacritic
@@ -472,8 +534,11 @@ async def cmd_metacritic(args):
                 )
 
             mode = 'stale/refresh'
+        if args.title:
+            query = query.where(Game.title.ilike(f"%{args.title}%"))
+            mode = f"{mode}, title contains '{args.title}'"
         release_reconcile_priority = case(
-            (release_date_reconcile_condition, 0),
+            (or_(release_date_reconcile_condition, recent_review_activity_condition), 0),
             else_=1,
         )
         if args.recent is not None:
@@ -621,12 +686,10 @@ async def cmd_metacritic(args):
                         if mc_release_date is not None:
                             today = datetime.now(timezone.utc).date()
                             should_update_release_date = (
-                                game.release_date is None
-                                or (game.release_date > today and mc_release_date <= today)
-                                or (
-                                    game.release_date is not None
-                                    and game.release_date > today
-                                    and mc_release_date < game.release_date
+                                _should_update_release_date_from_metacritic(
+                                    game.release_date,
+                                    mc_release_date,
+                                    today=today,
                                 )
                             )
                             if should_update_release_date and game.release_date != mc_release_date:
@@ -1327,6 +1390,7 @@ def main():
     metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days that still need Metacritic sync (default: 90)")
     metacritic_parser.add_argument("--new-only", type=int, nargs="?", const=60, default=None, help="Only process games released in last N days that have never been synced (default: 60)")
     metacritic_parser.add_argument("--stale-days", type=int, default=30, help="Skip games synced within the last N days (default: 30, use 0 to disable)")
+    metacritic_parser.add_argument("--title", type=str, help="Only process games whose title contains this text")
 
     # Disparity command
     disparity_parser = subparsers.add_parser("disparity", help="Calculate disparity snapshots")

@@ -98,6 +98,15 @@ class SyncOrchestrator:
         if existing_release_date <= today and candidate_release_date > today:
             return False
 
+        # For already-released dates, do not drift backward in time from
+        # upstream placeholder/regression noise.
+        if (
+            existing_release_date <= today
+            and candidate_release_date <= today
+            and candidate_release_date < existing_release_date
+        ):
+            return False
+
         return True
 
     async def _get_state(self, key: str, default: str = "") -> str:
@@ -216,6 +225,13 @@ class SyncOrchestrator:
             incoming_release_date.isnot(None),
             incoming_release_date > today,
         )
+        preserve_existing_backward_past_shift = and_(
+            Game.release_date.isnot(None),
+            Game.release_date <= today,
+            incoming_release_date.isnot(None),
+            incoming_release_date <= today,
+            incoming_release_date < Game.release_date,
+        )
         stmt = stmt.on_conflict_do_update(
             index_elements=["opencritic_id"],
             set_={
@@ -224,7 +240,7 @@ class SyncOrchestrator:
                 # Keep existing date when OpenCritic omits it temporarily,
                 # and prevent future placeholder dates from replacing known released dates.
                 "release_date": case(
-                    (preserve_existing_released_date, Game.release_date),
+                    (or_(preserve_existing_released_date, preserve_existing_backward_past_shift), Game.release_date),
                     else_=func.coalesce(
                         incoming_release_date,
                         Game.release_date,
