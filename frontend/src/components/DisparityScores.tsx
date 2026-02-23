@@ -159,18 +159,12 @@ interface DisparityScoreCardsProps {
   steamDisparity: number | null | undefined;
   metacriticDisparity: number | null | undefined;
   combinedDisparity: number | null | undefined;
-  steamUserScore?: number | null;
-  metacriticUserScore?: number | null;
-  criticScore?: number | null;
 }
 
 export function DisparityScoreCards({
   steamDisparity,
   metacriticDisparity,
   combinedDisparity,
-  steamUserScore,
-  metacriticUserScore,
-  criticScore,
 }: DisparityScoreCardsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -201,11 +195,6 @@ export function DisparityScoreCards({
             >
               {formatDisparity(steamDisparity)}
             </span>
-            {steamUserScore != null && criticScore != null && (
-              <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
-                {Number(criticScore).toFixed(0)} vs {Number(steamUserScore).toFixed(0)}
-              </p>
-            )}
           </div>
         </div>
       </div>
@@ -236,11 +225,6 @@ export function DisparityScoreCards({
             >
               {formatDisparity(metacriticDisparity)}
             </span>
-            {metacriticUserScore != null && criticScore != null && (
-              <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
-                {Number(criticScore).toFixed(0)} vs {Number(metacriticUserScore).toFixed(0)}
-              </p>
-            )}
           </div>
         </div>
       </div>

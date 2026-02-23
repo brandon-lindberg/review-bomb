@@ -196,9 +196,6 @@ export default async function GameDetailPage({ params }: PageProps) {
             steamDisparity={game.disparity_steam}
             metacriticDisparity={game.disparity_metacritic}
             combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
-            steamUserScore={game.steam_user_score}
-            metacriticUserScore={game.metacritic_user_score}
-            criticScore={game.avg_critic_score}
           />
         </div>
       </div>
