@@ -25,7 +25,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
   try {
     const journalist = await getJournalist(parseInt(id));
-    const disparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined;
+    const disparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
 
     let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
@@ -78,7 +78,7 @@ export default async function JournalistDetailPage({
   }
 
   const shareUrl = `${getSiteUrl()}/journalists/${id}`;
-  const shareDisparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined;
+  const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${journalist.review_count} reviews`);
@@ -132,7 +132,7 @@ export default async function JournalistDetailPage({
               {(() => {
                 const steamDisparity = journalist.stats?.overall_disparity_steam ?? journalist.stats?.avg_disparity_steam;
                 const mcDisparity = journalist.stats?.overall_disparity_metacritic ?? journalist.stats?.avg_disparity_metacritic;
-                const combinedDisparity = journalist.avg_disparity ?? journalist.stats?.overall_disparity_combined ?? journalist.stats?.avg_disparity_combined;
+                const combinedDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
 
                 return (
                   <>

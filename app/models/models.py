@@ -210,6 +210,12 @@ class Review(Base):
     score_raw: Mapped[str] = mapped_column(String(50), nullable=False)  # "8.5", "4/5", "B+"
     score_scale: Mapped[Optional[str]] = mapped_column(String(50))  # "10", "5", "100", "letter"
     score_normalized: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))  # 0-100, NULL for unscored
+    # Pipeline-cached user scores/disparities used by review endpoints to avoid live disparity math
+    cached_steam_user_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    cached_metacritic_user_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    cached_disparity_steam: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    cached_disparity_metacritic: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    cached_disparity_combined: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
 
     # Citation (link to original article)
     review_url: Mapped[Optional[str]] = mapped_column(String(1024))
@@ -334,6 +340,49 @@ class DisparitySnapshot(Base):
         Index("idx_disparity_journalist", "journalist_id", "snapshot_date"),
         Index("idx_disparity_outlet", "outlet_id", "snapshot_date"),
         Index("idx_disparity_game", "game_id", "snapshot_date"),
+    )
+
+
+class JournalistOutletDisparitySnapshot(Base):
+    """
+    Precomputed disparity statistics for a journalist at a specific outlet.
+    Used to avoid live disparity math on journalist outlet breakdowns.
+    """
+    __tablename__ = "journalist_outlet_disparity_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    journalist_id: Mapped[int] = mapped_column(
+        ForeignKey("journalists.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    outlet_id: Mapped[int] = mapped_column(
+        ForeignKey("outlets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+
+    avg_disparity_steam: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    avg_disparity_metacritic: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    avg_disparity_combined: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+
+    review_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    std_deviation: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    min_disparity: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    max_disparity: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_journalist_outlet_disparity_pair",
+            "journalist_id",
+            "outlet_id",
+            "snapshot_date",
+        ),
+        Index("idx_journalist_outlet_disparity_journalist", "journalist_id", "snapshot_date"),
+        Index("idx_journalist_outlet_disparity_outlet", "outlet_id", "snapshot_date"),
     )
 
 

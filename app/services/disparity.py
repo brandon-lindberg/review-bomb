@@ -15,11 +15,12 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from statistics import mean, stdev
 
-from sqlalchemy import select, func, and_, update
+from sqlalchemy import select, func, and_, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import (
     Review, Game, UserScore, Journalist, Outlet, DisparitySnapshot,
+    JournalistOutletDisparitySnapshot,
     UserScoreSource,
 )
 
@@ -49,6 +50,7 @@ class DisparityCalculator:
         self._reviews_by_journalist: Optional[Dict[int, List[Tuple]]] = None
         self._reviews_by_outlet: Optional[Dict[int, List[Tuple]]] = None
         self._reviews_by_game: Optional[Dict[int, List[Tuple]]] = None
+        self._detail_disparity_cache_snapshot_date: Optional[date] = None
 
     # =========================================================================
     # Bulk Loading
@@ -219,6 +221,153 @@ class DisparityCalculator:
             result["metacritic_score"] = metacritic_row[0]
 
         return result
+
+    async def ensure_detail_disparity_caches(
+        self,
+        snapshot_date: Optional[date] = None,
+    ) -> None:
+        """
+        Ensure pipeline-backed detail caches are refreshed for this run.
+
+        Populates:
+        - per-review cached disparities/user scores (for review list endpoints)
+        - journalist+outlet disparity snapshots (for journalist outlet breakdown)
+        """
+        if snapshot_date is None:
+            snapshot_date = date.today()
+
+        if self._detail_disparity_cache_snapshot_date == snapshot_date:
+            return
+
+        await self._load_all_user_scores()
+        await self._load_all_reviews()
+
+        review_count = await self._refresh_review_disparity_cache()
+        pair_count = await self._generate_journalist_outlet_snapshots(snapshot_date)
+
+        print(
+            f"Refreshed detail disparity caches: {review_count} reviews, "
+            f"{pair_count} journalist-outlet snapshots"
+        )
+        self._detail_disparity_cache_snapshot_date = snapshot_date
+
+    async def _refresh_review_disparity_cache(
+        self,
+        batch_size: int = 5000,
+    ) -> int:
+        """
+        Cache per-review disparities and the user scores used to calculate them.
+        """
+        await self._load_all_user_scores()
+        await self._load_all_reviews()
+
+        updates: List[Dict[str, Any]] = []
+        processed = 0
+
+        for review_id, game_id, _journalist_id, _outlet_id, score_normalized in self._reviews_cache:
+            user_scores = self._user_scores_cache.get(
+                game_id,
+                {"steam_score": None, "metacritic_score": None},
+            )
+            disparity = self.calculate_review_disparity(
+                score_normalized,
+                user_scores.get("steam_score"),
+                user_scores.get("metacritic_score"),
+            )
+            updates.append(
+                {
+                    "id": review_id,
+                    "cached_steam_user_score": user_scores.get("steam_score"),
+                    "cached_metacritic_user_score": user_scores.get("metacritic_score"),
+                    "cached_disparity_steam": disparity["disparity_steam"],
+                    "cached_disparity_metacritic": disparity["disparity_metacritic"],
+                    "cached_disparity_combined": disparity["disparity_combined"],
+                }
+            )
+            processed += 1
+
+            if len(updates) >= batch_size:
+                await self.db.execute(update(Review), updates)
+                updates = []
+
+        if updates:
+            await self.db.execute(update(Review), updates)
+
+        await self.db.flush()
+        return processed
+
+    async def _generate_journalist_outlet_snapshots(
+        self,
+        snapshot_date: date,
+    ) -> int:
+        """
+        Generate per-(journalist, outlet) disparity snapshots from pipeline inputs.
+        """
+        await self._load_all_user_scores()
+        await self._load_all_reviews()
+
+        # If the job is re-run the same day, replace today's pair snapshots so API reads
+        # a single canonical row per pair for that date.
+        await self.db.execute(
+            delete(JournalistOutletDisparitySnapshot).where(
+                JournalistOutletDisparitySnapshot.snapshot_date == snapshot_date
+            )
+        )
+
+        pair_steam: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+        pair_metacritic: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+        pair_combined: Dict[Tuple[int, int], List[float]] = defaultdict(list)
+        pair_review_counts: Dict[Tuple[int, int], int] = defaultdict(int)
+
+        for _review_id, game_id, journalist_id, outlet_id, score_normalized in self._reviews_cache:
+            if outlet_id is None:
+                continue
+
+            pair_key = (journalist_id, outlet_id)
+            pair_review_counts[pair_key] += 1
+
+            user_scores = self._user_scores_cache.get(
+                game_id,
+                {"steam_score": None, "metacritic_score": None},
+            )
+            disparity = self.calculate_review_disparity(
+                score_normalized,
+                user_scores.get("steam_score"),
+                user_scores.get("metacritic_score"),
+            )
+            if disparity["disparity_steam"] is not None:
+                pair_steam[pair_key].append(float(disparity["disparity_steam"]))
+            if disparity["disparity_metacritic"] is not None:
+                pair_metacritic[pair_key].append(float(disparity["disparity_metacritic"]))
+            if disparity["disparity_combined"] is not None:
+                pair_combined[pair_key].append(float(disparity["disparity_combined"]))
+
+        count = 0
+        for (journalist_id, outlet_id), review_count in pair_review_counts.items():
+            stats = self._compute_stats(
+                pair_steam.get((journalist_id, outlet_id), []),
+                pair_metacritic.get((journalist_id, outlet_id), []),
+                pair_combined.get((journalist_id, outlet_id), []),
+                review_count,
+            )
+            self.db.add(
+                JournalistOutletDisparitySnapshot(
+                    journalist_id=journalist_id,
+                    outlet_id=outlet_id,
+                    snapshot_date=snapshot_date,
+                    avg_disparity_steam=stats["avg_disparity_steam"],
+                    avg_disparity_metacritic=stats["avg_disparity_metacritic"],
+                    avg_disparity_combined=stats["avg_disparity_combined"],
+                    review_count=stats["review_count"],
+                    std_deviation=stats["std_deviation"],
+                    min_disparity=stats["min_disparity"],
+                    max_disparity=stats["max_disparity"],
+                )
+            )
+            count += 1
+
+        await self.db.flush()
+        return count
 
     # =========================================================================
     # Journalist Aggregations
@@ -464,6 +613,10 @@ class DisparityCalculator:
         reviews = await self._load_all_reviews()
         print(f"  Loaded {len(reviews)} scored reviews")
 
+        # Refresh pipeline-backed detail caches used by review rows and journalist
+        # outlet breakdowns before generating entity snapshots.
+        await self.ensure_detail_disparity_caches(snapshot_date)
+
         # Entity IDs extracted from pre-built indexes
         journalist_ids = set(self._reviews_by_journalist.keys())
         outlet_ids = set(self._reviews_by_outlet.keys())
@@ -628,6 +781,7 @@ class DisparityCalculator:
         self._reviews_by_journalist = None
         self._reviews_by_outlet = None
         self._reviews_by_game = None
+        self._detail_disparity_cache_snapshot_date = None
 
         return {
             "journalists": journalist_count,
@@ -643,9 +797,7 @@ class DisparityCalculator:
         if snapshot_date is None:
             snapshot_date = date.today()
 
-        # Bulk load data
-        await self._load_all_user_scores()
-        await self._load_all_reviews()
+        await self.ensure_detail_disparity_caches(snapshot_date)
 
         # Build last_review_at lookup (guard against bad future dates).
         last_review_query = (
@@ -716,8 +868,7 @@ class DisparityCalculator:
         if snapshot_date is None:
             snapshot_date = date.today()
 
-        await self._load_all_user_scores()
-        await self._load_all_reviews()
+        await self.ensure_detail_disparity_caches(snapshot_date)
 
         # Build last_review_at lookup (guard against bad future dates).
         outlet_last_review_query = (
@@ -810,8 +961,7 @@ class DisparityCalculator:
         if snapshot_date is None:
             snapshot_date = date.today()
 
-        await self._load_all_user_scores()
-        await self._load_all_reviews()
+        await self.ensure_detail_disparity_caches(snapshot_date)
 
         game_ids = set(r[1] for r in self._reviews_cache)
         print(f"Processing {len(game_ids)} games...")

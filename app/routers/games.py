@@ -11,7 +11,7 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models.models import Game, Review, Journalist, Outlet, UserScore, NewsArticle
+from app.models.models import Game, Review, Journalist, Outlet, NewsArticle
 from app.schemas.schemas import (
     GameDetail,
     GameWithScores,
@@ -337,30 +337,6 @@ async def get_game_reviews(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
-    # Get user scores for disparity calculation (with sample size for filtering)
-    steam_query = (
-        select(UserScore.score, UserScore.sample_size)
-        .where(UserScore.game_id == game_id, UserScore.source == "STEAM")
-        .order_by(desc(UserScore.scraped_at))
-        .limit(1)
-    )
-    steam_result = await db.execute(steam_query)
-    steam_row = steam_result.first()
-    steam_score = steam_row[0] if steam_row and (steam_row[1] or 0) >= MIN_STEAM_USER_REVIEWS else None
-
-    metacritic_query = (
-        select(UserScore.score, UserScore.sample_size)
-        .where(UserScore.game_id == game_id, UserScore.source == "METACRITIC")
-        .order_by(desc(UserScore.scraped_at))
-        .limit(1)
-    )
-    metacritic_result = await db.execute(metacritic_query)
-    metacritic_row = metacritic_result.first()
-    # Allow Metacritic if score exists and (sample_size is NULL or meets minimum)
-    metacritic_score = metacritic_row[0] if metacritic_row and metacritic_row[0] and (
-        metacritic_row[1] is None or metacritic_row[1] >= MIN_METACRITIC_USER_REVIEWS
-    ) else None
-
     # Build timing filter conditions
     timing_conditions = []
     if review_timing and game.release_date:
@@ -414,13 +390,8 @@ async def get_game_reviews(
 
     items = []
     for review, journalist, outlet in rows:
-        disparity_steam = None
-        disparity_metacritic = None
-
-        if steam_score:
-            disparity_steam = review.score_normalized - steam_score
-        if metacritic_score:
-            disparity_metacritic = review.score_normalized - metacritic_score
+        disparity_steam = review.cached_disparity_steam
+        disparity_metacritic = review.cached_disparity_metacritic
 
         # Calculate review timing (early/launch_window/late)
         review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at

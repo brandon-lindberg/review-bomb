@@ -9,16 +9,11 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import Journalist, Outlet, Game, Review, UserScore
+from app.models.models import Journalist, Outlet, Game, Review
 from app.schemas.schemas import SiteStats, ReviewWithJournalist
 from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 
 router = APIRouter()
-
-# Anti-gaming: minimum user reviews required for a game to count (per source)
-MIN_STEAM_USER_REVIEWS = 50
-MIN_METACRITIC_USER_REVIEWS = 20
-
 
 @router.get("", response_model=SiteStats)
 async def get_stats(
@@ -113,40 +108,10 @@ async def get_recent_reviews(
     if not rows:
         return []
 
-    # Get user scores for these games
-    game_ids = list(set(row[2].id for row in rows))
-    user_score_lookup: dict = {}
-    if game_ids:
-        user_scores_query = (
-            select(UserScore)
-            .where(UserScore.game_id.in_(game_ids))
-            .order_by(desc(UserScore.scraped_at))
-        )
-        user_scores_result = await db.execute(user_scores_query)
-        user_scores = user_scores_result.scalars().all()
-        for us in user_scores:
-            key = (us.game_id, us.source.value.lower())
-            if key not in user_score_lookup:
-                user_score_lookup[key] = {"score": us.score, "sample_size": us.sample_size}
-
     items = []
     for review, journalist, game, outlet in rows:
-        steam_data = user_score_lookup.get((game.id, "steam"))
-        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-        # Only use scores if they meet minimum sample size
-        steam_user_score = steam_data["score"] if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS else None
-        metacritic_user_score = metacritic_data["score"] if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ) else None
-
-        disparity_steam = None
-        disparity_metacritic = None
-
-        if steam_user_score and review.score_normalized:
-            disparity_steam = review.score_normalized - steam_user_score
-        if metacritic_user_score and review.score_normalized:
-            disparity_metacritic = review.score_normalized - metacritic_user_score
+        disparity_steam = review.cached_disparity_steam
+        disparity_metacritic = review.cached_disparity_metacritic
 
         # Calculate review timing
         review_timing = "unknown"

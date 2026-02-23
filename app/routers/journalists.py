@@ -11,7 +11,14 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models.models import Journalist, Review, Outlet, Game, UserScore
+from app.models.models import (
+    Journalist,
+    Review,
+    Outlet,
+    Game,
+    DisparitySnapshot,
+    JournalistOutletDisparitySnapshot,
+)
 from app.schemas.schemas import (
     JournalistSummary,
     JournalistLatestReview,
@@ -28,9 +35,6 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60  # Reviews within 60 days of game release count for launch window disparity
-# Minimum user reviews required for a game to count in disparity (per source)
-MIN_STEAM_USER_REVIEWS = 50
-MIN_METACRITIC_USER_REVIEWS = 20
 # Leaderboard-style minimums for disparity sorting in the journalists list
 MIN_REVIEWS_FOR_DISPARITY_SORT = 10
 MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT = 10
@@ -328,43 +332,12 @@ async def get_journalist(
     reviews_result = await db.execute(reviews_query)
     review_rows = reviews_result.all()
 
-    # Get user scores for all games (including sample_size for filtering)
-    game_ids = list(set(row[1].id for row in review_rows)) if review_rows else []
-    user_score_lookup: dict = {}  # (game_id, source) -> {score, sample_size}
-    if game_ids:
-        user_scores_query = (
-            select(UserScore)
-            .where(UserScore.game_id.in_(game_ids))
-            .order_by(desc(UserScore.scraped_at))
-        )
-        user_scores_result = await db.execute(user_scores_query)
-        user_scores = user_scores_result.scalars().all()
-        for us in user_scores:
-            key = (us.game_id, us.source.value)
-            if key not in user_score_lookup:
-                user_score_lookup[key] = {
-                    "score": us.score,
-                    "sample_size": us.sample_size,
-                }
-
-    # Calculate disparity with launch window and user review minimum filters
-    # Launch window: reviews within 60 days of game release
-    # User review minimum: games must have 50+ user reviews
-
-    launch_window_steam_disparities = []
-    launch_window_metacritic_disparities = []
-    overall_steam_disparities = []
-    overall_metacritic_disparities = []
-
+    # Calculate review timing transparency metrics only (no live disparity math).
     early_review_count = 0
     launch_window_review_count = 0
     late_review_count = 0
 
     for review, game in review_rows:
-        steam_data = user_score_lookup.get((game.id, "steam"))
-        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-        # Calculate review timing
         review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
         timing = calculate_review_timing(review_date, game.release_date)
 
@@ -375,39 +348,38 @@ async def get_journalist(
         elif timing == "late":
             late_review_count += 1
 
-        is_launch_window = timing == "launch_window"
+    # Canonical disparity values for display come from the disparity pipeline (snapshots/
+    # denormalized columns), not route-time recalculation. This avoids formula drift and
+    # keeps journalist detail aligned with leaderboards/lists.
+    latest_snapshot = (
+        await db.execute(
+            select(DisparitySnapshot)
+            .where(DisparitySnapshot.journalist_id == journalist_id)
+            .order_by(desc(DisparitySnapshot.snapshot_date), desc(DisparitySnapshot.id))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
 
-        # Calculate Steam disparity (only if meets minimum threshold)
-        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
-            disparity = float(review.score_normalized - steam_data["score"])
-            overall_steam_disparities.append(disparity)
-            if is_launch_window:
-                launch_window_steam_disparities.append(disparity)
-
-        # Calculate Metacritic disparity (only if meets minimum threshold or sample_size unknown)
-        if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ):
-            disparity = float(review.score_normalized - metacritic_data["score"])
-            overall_metacritic_disparities.append(disparity)
-            if is_launch_window:
-                launch_window_metacritic_disparities.append(disparity)
-
-    # Calculate launch window averages (primary metric)
-    avg_disparity_steam = Decimal(str(round(sum(launch_window_steam_disparities) / len(launch_window_steam_disparities), 2))) if launch_window_steam_disparities else None
-    avg_disparity_metacritic = Decimal(str(round(sum(launch_window_metacritic_disparities) / len(launch_window_metacritic_disparities), 2))) if launch_window_metacritic_disparities else None
-
-    combined_values = [v for v in [avg_disparity_steam, avg_disparity_metacritic] if v is not None]
-    avg_disparity_combined = Decimal(str(round(sum(float(v) for v in combined_values) / len(combined_values), 2))) if combined_values else None
-
-    # Calculate overall averages (secondary metric, includes late reviews)
-    overall_disparity_steam = Decimal(str(round(sum(overall_steam_disparities) / len(overall_steam_disparities), 2))) if overall_steam_disparities else None
-    overall_disparity_metacritic = Decimal(str(round(sum(overall_metacritic_disparities) / len(overall_metacritic_disparities), 2))) if overall_metacritic_disparities else None
-
-    overall_combined_values = [v for v in [overall_disparity_steam, overall_disparity_metacritic] if v is not None]
-    overall_disparity_combined = Decimal(str(round(sum(float(v) for v in overall_combined_values) / len(overall_combined_values), 2))) if overall_combined_values else None
-
-    # Get outlet breakdown with per-outlet disparity (using launch window only)
+    pipeline_disparity_steam = (
+        latest_snapshot.avg_disparity_steam
+        if latest_snapshot and latest_snapshot.avg_disparity_steam is not None
+        else None
+    )
+    pipeline_disparity_metacritic = (
+        latest_snapshot.avg_disparity_metacritic
+        if latest_snapshot and latest_snapshot.avg_disparity_metacritic is not None
+        else None
+    )
+    pipeline_disparity_combined = (
+        journalist.avg_disparity
+        if journalist.avg_disparity is not None
+        else (
+            latest_snapshot.avg_disparity_combined
+            if latest_snapshot and latest_snapshot.avg_disparity_combined is not None
+            else None
+        )
+    )
+    # Get outlet breakdown metadata and attach pipeline-cached journalist+outlet disparity.
     outlet_breakdown_query = (
         select(
             Outlet.id.label("outlet_id"),
@@ -427,55 +399,38 @@ async def get_journalist(
     )
     outlet_result = await db.execute(outlet_breakdown_query)
     outlet_rows = outlet_result.all()
-
-    # Calculate per-outlet disparity (using launch window reviews and 50+ user review filter)
-    # Uses same approach as outlet detail page: separate Steam/Metacritic lists, then combine averages
-    outlet_breakdown = []
-    for row in outlet_rows:
-        outlet_steam_disparities = []
-        outlet_metacritic_disparities = []
-        for review, game in review_rows:
-            if review.outlet_id == row.outlet_id:
-                # Check launch window
-                review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
-                timing = calculate_review_timing(review_date, game.release_date)
-
-                if timing != "launch_window":
-                    continue
-
-                steam_data = user_score_lookup.get((game.id, "steam"))
-                metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-                if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
-                    outlet_steam_disparities.append(float(review.score_normalized - steam_data["score"]))
-
-                if metacritic_data and metacritic_data["score"] and (
-                    metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-                ):
-                    outlet_metacritic_disparities.append(float(review.score_normalized - metacritic_data["score"]))
-
-        outlet_avg_steam = Decimal(str(round(sum(outlet_steam_disparities) / len(outlet_steam_disparities), 2))) if outlet_steam_disparities else None
-        outlet_avg_metacritic = Decimal(str(round(sum(outlet_metacritic_disparities) / len(outlet_metacritic_disparities), 2))) if outlet_metacritic_disparities else None
-        outlet_combined = [v for v in [outlet_avg_steam, outlet_avg_metacritic] if v is not None]
-        outlet_avg_disparity = Decimal(str(round(sum(float(v) for v in outlet_combined) / len(outlet_combined), 2))) if outlet_combined else None
-
-        outlet_breakdown.append(
-            JournalistOutletBreakdown(
-                outlet_id=row.outlet_id,
-                outlet_name=row.outlet_name,
-                review_count=row.review_count,
-                avg_disparity=outlet_avg_disparity,
-                date_range_start=row.date_range_start.date() if row.date_range_start else None,
-                date_range_end=row.date_range_end.date() if row.date_range_end else None,
+    outlet_snapshot_rows = (
+        await db.execute(
+            select(JournalistOutletDisparitySnapshot)
+            .where(JournalistOutletDisparitySnapshot.journalist_id == journalist_id)
+            .order_by(
+                desc(JournalistOutletDisparitySnapshot.snapshot_date),
+                desc(JournalistOutletDisparitySnapshot.id),
             )
         )
+    ).scalars().all()
+    outlet_disparity_lookup: dict[int, Optional[Decimal]] = {}
+    for snapshot in outlet_snapshot_rows:
+        if snapshot.outlet_id not in outlet_disparity_lookup:
+            outlet_disparity_lookup[snapshot.outlet_id] = snapshot.avg_disparity_combined
 
-    # Calculate std deviation (from launch window disparities)
-    all_launch_disparities = launch_window_steam_disparities + launch_window_metacritic_disparities
-    std_deviation = None
-    if len(all_launch_disparities) > 1:
-        from statistics import stdev
-        std_deviation = Decimal(str(round(stdev(all_launch_disparities), 2)))
+    outlet_breakdown = [
+        JournalistOutletBreakdown(
+            outlet_id=row.outlet_id,
+            outlet_name=row.outlet_name,
+            review_count=row.review_count,
+            avg_disparity=outlet_disparity_lookup.get(row.outlet_id),
+            date_range_start=row.date_range_start.date() if row.date_range_start else None,
+            date_range_end=row.date_range_end.date() if row.date_range_end else None,
+        )
+        for row in outlet_rows
+    ]
+
+    pipeline_std_deviation = (
+        latest_snapshot.std_deviation
+        if latest_snapshot and latest_snapshot.std_deviation is not None
+        else None
+    )
 
     # Calculate score std deviation (variance in scores given)
     score_std_deviation = None
@@ -487,15 +442,14 @@ async def get_journalist(
     stats = JournalistStats(
         total_reviews=stats_row.total_reviews or 0,
         avg_score_given=Decimal(str(round(stats_row.avg_score_given, 2))) if stats_row.avg_score_given else None,
-        # Launch window disparity (primary - for rankings/leaderboards)
-        avg_disparity_steam=avg_disparity_steam,
-        avg_disparity_metacritic=avg_disparity_metacritic,
-        avg_disparity_combined=avg_disparity_combined,
-        # Overall disparity (secondary - includes late reviews)
-        overall_disparity_steam=overall_disparity_steam,
-        overall_disparity_metacritic=overall_disparity_metacritic,
-        overall_disparity_combined=overall_disparity_combined,
-        std_deviation=std_deviation,
+        # Use canonical pipeline disparity values for consistency across all entity types.
+        avg_disparity_steam=pipeline_disparity_steam,
+        avg_disparity_metacritic=pipeline_disparity_metacritic,
+        avg_disparity_combined=pipeline_disparity_combined,
+        overall_disparity_steam=pipeline_disparity_steam,
+        overall_disparity_metacritic=pipeline_disparity_metacritic,
+        overall_disparity_combined=pipeline_disparity_combined,
+        std_deviation=pipeline_std_deviation,
         alignment_rating=None,  # Calculate based on disparity threshold
         # Transparency metrics - timing
         early_review_count=early_review_count,
@@ -514,7 +468,7 @@ async def get_journalist(
         bio=journalist.bio,
         opencritic_id=journalist.opencritic_id,
         review_count=stats_row.total_reviews or 0,
-        avg_disparity=journalist.avg_disparity,
+        avg_disparity=journalist.avg_disparity if journalist.avg_disparity is not None else pipeline_disparity_combined,
         stats=stats,
         outlet_breakdown=outlet_breakdown,
         created_at=journalist.created_at,
@@ -570,44 +524,12 @@ async def get_journalist_reviews(
     result = await db.execute(query)
     rows = result.all()
 
-    # Get user scores for the games
-    game_ids = [row[1].id for row in rows]
-    user_scores_query = (
-        select(UserScore)
-        .where(UserScore.game_id.in_(game_ids))
-        .order_by(desc(UserScore.scraped_at))
-    )
-    user_scores_result = await db.execute(user_scores_query)
-    user_scores = user_scores_result.scalars().all()
-
-    # Build lookup for latest user scores by game and source
-    user_score_lookup: dict = {}
-    for us in user_scores:
-        key = (us.game_id, us.source.value)
-        if key not in user_score_lookup:
-            user_score_lookup[key] = us
-
     items = []
     for review, game, outlet in rows:
-        steam_score_obj = user_score_lookup.get((game.id, "steam"))
-        metacritic_score_obj = user_score_lookup.get((game.id, "metacritic"))
-
-        # Only use scores if they meet the minimum sample size requirement (per source)
-        # Steam always provides sample_size, so we require it
-        steam_user_score = steam_score_obj.score if steam_score_obj and (steam_score_obj.sample_size or 0) >= MIN_STEAM_USER_REVIEWS else None
-        # Metacritic doesn't always expose sample_size - if score exists, allow it through
-        # (Metacritic only displays user scores when there are enough ratings)
-        metacritic_user_score = metacritic_score_obj.score if metacritic_score_obj and metacritic_score_obj.score and (
-            metacritic_score_obj.sample_size is None or metacritic_score_obj.sample_size >= MIN_METACRITIC_USER_REVIEWS
-        ) else None
-
-        disparity_steam = None
-        disparity_metacritic = None
-
-        if steam_user_score:
-            disparity_steam = review.score_normalized - steam_user_score
-        if metacritic_user_score:
-            disparity_metacritic = review.score_normalized - metacritic_user_score
+        steam_user_score = review.cached_steam_user_score
+        metacritic_user_score = review.cached_metacritic_user_score
+        disparity_steam = review.cached_disparity_steam
+        disparity_metacritic = review.cached_disparity_metacritic
 
         # Calculate review timing (early/launch_window/late)
         review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
@@ -652,17 +574,7 @@ async def get_journalist_history(
     limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Get historical disparity data for charts.
-
-    Returns cumulative disparity calculated at each review date,
-    showing how the journalist's disparity evolved over time.
-
-    Only includes launch window reviews (within 60 days of game release)
-    and games with 50+ user reviews.
-    
-    Returns full career timeline (no practical limit).
-    """
+    """Get historical disparity data for charts from pipeline snapshots."""
     # Verify journalist exists
     journalist_result = await db.execute(
         select(Journalist.id).where(Journalist.id == journalist_id)
@@ -670,133 +582,22 @@ async def get_journalist_history(
     if not journalist_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Journalist not found")
 
-    # Get all reviews with actual scores, ordered by date
     query = (
-        select(Review, Game)
-        .join(Game, Review.game_id == Game.id)
-        .where(
-            Review.journalist_id == journalist_id,
-            Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
-            Review.published_at.isnot(None),  # Only reviews with dates
-        )
-        .order_by(Review.published_at)
+        select(DisparitySnapshot)
+        .where(DisparitySnapshot.journalist_id == journalist_id)
+        .order_by(desc(DisparitySnapshot.snapshot_date))
+        .limit(limit)
     )
     result = await db.execute(query)
-    rows = result.all()
+    snapshots = result.scalars().all()
 
-    if not rows:
-        return []
-
-    # Get user scores for all games (including sample_size for filtering)
-    game_ids = list(set(row[1].id for row in rows))
-    user_scores_query = (
-        select(UserScore)
-        .where(UserScore.game_id.in_(game_ids))
-        .order_by(desc(UserScore.scraped_at))
-    )
-    user_scores_result = await db.execute(user_scores_query)
-    user_scores = user_scores_result.scalars().all()
-
-    # Build lookup for latest user scores with sample size
-    user_score_lookup: dict = {}
-    for us in user_scores:
-        key = (us.game_id, us.source.value)
-        if key not in user_score_lookup:
-            user_score_lookup[key] = {
-                "score": us.score,
-                "sample_size": us.sample_size,
-            }
-
-    # Calculate cumulative disparity at each review date
-    # Only include launch window reviews with 50+ user reviews
-    steam_sum = Decimal("0")
-    steam_count = 0
-    metacritic_sum = Decimal("0")
-    metacritic_count = 0
-
-    history = []
-    last_date = None
-
-    for review, game in rows:
-        review_date = review.published_at.date() if review.published_at else None
-        if not review_date:
-            continue
-
-        # Calculate review timing
-        timing = calculate_review_timing(review_date, game.release_date)
-
-        # Skip non-launch-window reviews for history chart (early and late reviews excluded)
-        if timing != "launch_window":
-            continue
-
-        steam_data = user_score_lookup.get((game.id, "steam"))
-        metacritic_data = user_score_lookup.get((game.id, "metacritic"))
-
-        # Calculate this review's disparity (only if meets minimum threshold)
-        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
-            steam_sum += review.score_normalized - steam_data["score"]
-            steam_count += 1
-        if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ):
-            metacritic_sum += review.score_normalized - metacritic_data["score"]
-            metacritic_count += 1
-
-        # Only add a data point if we have valid disparities and date changed
-        if steam_count == 0 and metacritic_count == 0:
-            continue
-
-        if review_date != last_date:
-            avg_steam = Decimal(str(round(float(steam_sum) / steam_count, 2))) if steam_count > 0 else None
-            avg_metacritic = Decimal(str(round(float(metacritic_sum) / metacritic_count, 2))) if metacritic_count > 0 else None
-
-            combined_count = 0
-            combined_sum = Decimal("0")
-            if avg_steam is not None:
-                combined_sum += avg_steam
-                combined_count += 1
-            if avg_metacritic is not None:
-                combined_sum += avg_metacritic
-                combined_count += 1
-            avg_combined = Decimal(str(round(float(combined_sum) / combined_count, 2))) if combined_count > 0 else None
-
-            history.append(
-                DisparitySnapshotSchema(
-                    date=review_date,
-                    avg_disparity_steam=avg_steam,
-                    avg_disparity_metacritic=avg_metacritic,
-                    avg_disparity_combined=avg_combined,
-                    review_count=steam_count + metacritic_count,
-                )
-            )
-            last_date = review_date
-        else:
-            # Update the last entry if same date (multiple reviews on same day)
-            if history:
-                avg_steam = Decimal(str(round(float(steam_sum) / steam_count, 2))) if steam_count > 0 else None
-                avg_metacritic = Decimal(str(round(float(metacritic_sum) / metacritic_count, 2))) if metacritic_count > 0 else None
-
-                combined_count = 0
-                combined_sum = Decimal("0")
-                if avg_steam is not None:
-                    combined_sum += avg_steam
-                    combined_count += 1
-                if avg_metacritic is not None:
-                    combined_sum += avg_metacritic
-                    combined_count += 1
-                avg_combined = Decimal(str(round(float(combined_sum) / combined_count, 2))) if combined_count > 0 else None
-
-                history[-1] = DisparitySnapshotSchema(
-                    date=review_date,
-                    avg_disparity_steam=avg_steam,
-                    avg_disparity_metacritic=avg_metacritic,
-                    avg_disparity_combined=avg_combined,
-                    review_count=steam_count + metacritic_count,
-                )
-
-    # Return last N entries if we have more than limit
-    if len(history) > limit:
-        history = history[-limit:]
-
-    return history
+    return [
+        DisparitySnapshotSchema(
+            date=s.snapshot_date,
+            avg_disparity_steam=s.avg_disparity_steam,
+            avg_disparity_metacritic=s.avg_disparity_metacritic,
+            avg_disparity_combined=s.avg_disparity_combined,
+            review_count=s.review_count,
+        )
+        for s in reversed(snapshots)
+    ]

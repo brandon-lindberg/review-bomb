@@ -27,9 +27,6 @@ limiter = Limiter(key_func=get_remote_address)
 
 # Anti-gaming constants
 LAUNCH_WINDOW_DAYS = 60
-# Minimum user reviews required for disparity calculation (per source)
-MIN_STEAM_USER_REVIEWS = 50
-MIN_METACRITIC_USER_REVIEWS = 20
 # Leaderboard-style minimums for disparity sorting in the outlets list
 MIN_REVIEWS_FOR_DISPARITY_SORT = 10
 MIN_SCORE_STD_DEV_FOR_DISPARITY_SORT = 10
@@ -347,8 +344,6 @@ async def get_outlet_reviews(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all reviews from this outlet."""
-    from app.models.models import UserScore
-
     # Verify outlet exists
     outlet_result = await db.execute(
         select(Outlet.id).where(Outlet.id == outlet_id)
@@ -387,77 +382,10 @@ async def get_outlet_reviews(
     result = await db.execute(query)
     rows = result.all()
 
-    # Get user scores for all games in the result set for disparity calculation
-    game_ids = list(set(row[2].id for row in rows))
-    user_scores = {}
-    if game_ids:
-        # Get latest Steam scores with sample size
-        steam_subq = (
-            select(
-                UserScore.game_id,
-                UserScore.score,
-                UserScore.sample_size,
-                func.row_number().over(
-                    partition_by=UserScore.game_id,
-                    order_by=desc(UserScore.scraped_at)
-                ).label("rn")
-            )
-            .where(UserScore.game_id.in_(game_ids), UserScore.source == "STEAM")
-            .subquery()
-        )
-        steam_query = select(
-            steam_subq.c.game_id,
-            steam_subq.c.score,
-            steam_subq.c.sample_size
-        ).where(steam_subq.c.rn == 1)
-        steam_result = await db.execute(steam_query)
-        for gid, score, sample_size in steam_result.all():
-            if gid not in user_scores:
-                user_scores[gid] = {}
-            user_scores[gid]["steam"] = {"score": score, "sample_size": sample_size}
-
-        # Get latest Metacritic scores with sample size
-        mc_subq = (
-            select(
-                UserScore.game_id,
-                UserScore.score,
-                UserScore.sample_size,
-                func.row_number().over(
-                    partition_by=UserScore.game_id,
-                    order_by=desc(UserScore.scraped_at)
-                ).label("rn")
-            )
-            .where(UserScore.game_id.in_(game_ids), UserScore.source == "METACRITIC")
-            .subquery()
-        )
-        mc_query = select(
-            mc_subq.c.game_id,
-            mc_subq.c.score,
-            mc_subq.c.sample_size
-        ).where(mc_subq.c.rn == 1)
-        mc_result = await db.execute(mc_query)
-        for gid, score, sample_size in mc_result.all():
-            if gid not in user_scores:
-                user_scores[gid] = {}
-            user_scores[gid]["metacritic"] = {"score": score, "sample_size": sample_size}
-
     items = []
     for review, journalist, game in rows:
-        game_user_scores = user_scores.get(game.id, {})
-        steam_data = game_user_scores.get("steam")
-        metacritic_data = game_user_scores.get("metacritic")
-
-        disparity_steam = None
-        disparity_metacritic = None
-        # Only calculate disparity if sample size meets minimum threshold (per source)
-        # Steam always provides sample_size, so we require it
-        if steam_data and steam_data["sample_size"] and steam_data["sample_size"] >= MIN_STEAM_USER_REVIEWS:
-            disparity_steam = review.score_normalized - steam_data["score"]
-        # Metacritic doesn't always expose sample_size - if score exists, allow it through
-        if metacritic_data and metacritic_data["score"] and (
-            metacritic_data["sample_size"] is None or metacritic_data["sample_size"] >= MIN_METACRITIC_USER_REVIEWS
-        ):
-            disparity_metacritic = review.score_normalized - metacritic_data["score"]
+        disparity_steam = review.cached_disparity_steam
+        disparity_metacritic = review.cached_disparity_metacritic
 
         # Calculate review timing (early/launch_window/late)
         review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
