@@ -69,6 +69,11 @@ class FakeResult:
             raise AssertionError("all() was not expected for this fake result")
         return self._all_rows
 
+    def __iter__(self):
+        if self._all_rows is _UNSET:
+            raise AssertionError("iteration was not expected for this fake result")
+        return iter(self._all_rows)
+
     def scalars(self):
         if self._scalars_all is _UNSET:
             raise AssertionError("scalars() was not expected for this fake result")
@@ -81,6 +86,7 @@ class FakeAsyncSession:
         self.execute_calls: list[tuple[Any, Any]] = []
         self.added: list[Any] = []
         self.flush_calls = 0
+        self.commit_calls = 0
 
     async def execute(self, statement, params=None):
         self.execute_calls.append((statement, params))
@@ -97,6 +103,9 @@ class FakeAsyncSession:
     async def flush(self):
         self.flush_calls += 1
 
+    async def commit(self):
+        self.commit_calls += 1
+
 
 def _utc(year: int, month: int, day: int) -> datetime:
     return datetime(year, month, day, 12, 0, tzinfo=timezone.utc)
@@ -104,7 +113,7 @@ def _utc(year: int, month: int, day: int) -> datetime:
 
 @pytest.mark.asyncio
 async def test_refresh_review_disparity_cache_persists_canonical_values():
-    db = FakeAsyncSession(results=[FakeResult()])
+    db = FakeAsyncSession(results=[FakeResult(all_rows=[]), FakeResult()])
     calc = DisparityCalculator(db)
     calc._reviews_cache = [
         (1, 10, 100, 200, Decimal("80.00")),
@@ -121,10 +130,11 @@ async def test_refresh_review_disparity_cache_persists_canonical_values():
     processed = await calc._refresh_review_disparity_cache(batch_size=100)
 
     assert processed == 1
-    assert db.flush_calls == 1
-    assert len(db.execute_calls) == 1
+    assert db.flush_calls == 0
+    assert db.commit_calls == 1
+    assert len(db.execute_calls) == 2
 
-    _stmt, params = db.execute_calls[0]
+    _stmt, params = db.execute_calls[1]
     assert isinstance(params, list)
     assert len(params) == 1
     payload = params[0]
@@ -134,6 +144,40 @@ async def test_refresh_review_disparity_cache_persists_canonical_values():
     assert payload["cached_disparity_steam"] == Decimal("10")
     assert payload["cached_disparity_metacritic"] == Decimal("-10")
     assert payload["cached_disparity_combined"] == Decimal("0")
+
+
+@pytest.mark.asyncio
+async def test_refresh_review_disparity_cache_skips_unchanged_rows():
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(
+                all_rows=[
+                    (
+                        1,
+                        Decimal("70.00"),
+                        Decimal("90.00"),
+                        Decimal("10.00"),
+                        Decimal("-10.00"),
+                        Decimal("0.00"),
+                    )
+                ]
+            )
+        ]
+    )
+    calc = DisparityCalculator(db)
+    calc._reviews_cache = [(1, 10, 100, 200, Decimal("80.00"))]
+    calc._user_scores_cache = {
+        10: {"steam_score": Decimal("70.00"), "metacritic_score": Decimal("90.00")}
+    }
+    calc._load_all_user_scores = AsyncMock(return_value=calc._user_scores_cache)
+    calc._load_all_reviews = AsyncMock(return_value=calc._reviews_cache)
+
+    updated = await calc._refresh_review_disparity_cache(batch_size=100)
+
+    assert updated == 0
+    # Only the existing-cache read runs; no write/commit needed.
+    assert len(db.execute_calls) == 1
+    assert db.commit_calls == 0
 
 
 @pytest.mark.asyncio

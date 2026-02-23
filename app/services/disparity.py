@@ -244,9 +244,11 @@ class DisparityCalculator:
 
         review_count = await self._refresh_review_disparity_cache()
         pair_count = await self._generate_journalist_outlet_snapshots(snapshot_date)
+        # Release review-table writes before continuing with the heavier snapshot loops.
+        await self.db.commit()
 
         print(
-            f"Refreshed detail disparity caches: {review_count} reviews, "
+            f"Refreshed detail disparity caches: {review_count} review cache rows updated, "
             f"{pair_count} journalist-outlet snapshots"
         )
         self._detail_disparity_cache_snapshot_date = snapshot_date
@@ -261,8 +263,50 @@ class DisparityCalculator:
         await self._load_all_user_scores()
         await self._load_all_reviews()
 
+        # Avoid rewriting every review on every disparity run; only update rows whose
+        # cached values actually changed (new reviews or changed user scores).
+        existing_cache_result = await self.db.execute(
+            select(
+                Review.id,
+                Review.cached_steam_user_score,
+                Review.cached_metacritic_user_score,
+                Review.cached_disparity_steam,
+                Review.cached_disparity_metacritic,
+                Review.cached_disparity_combined,
+            ).where(
+                Review.score_normalized.isnot(None),
+                Review.score_normalized > 0,
+            )
+        )
+        existing_cache: Dict[
+            int,
+            Tuple[
+                Optional[Decimal],
+                Optional[Decimal],
+                Optional[Decimal],
+                Optional[Decimal],
+                Optional[Decimal],
+            ],
+        ] = {
+            review_id: (
+                cached_steam_user_score,
+                cached_metacritic_user_score,
+                cached_disparity_steam,
+                cached_disparity_metacritic,
+                cached_disparity_combined,
+            )
+            for (
+                review_id,
+                cached_steam_user_score,
+                cached_metacritic_user_score,
+                cached_disparity_steam,
+                cached_disparity_metacritic,
+                cached_disparity_combined,
+            ) in existing_cache_result
+        }
+
         updates: List[Dict[str, Any]] = []
-        processed = 0
+        updated_count = 0
 
         for review_id, game_id, _journalist_id, _outlet_id, score_normalized in self._reviews_cache:
             user_scores = self._user_scores_cache.get(
@@ -274,27 +318,40 @@ class DisparityCalculator:
                 user_scores.get("steam_score"),
                 user_scores.get("metacritic_score"),
             )
+            new_values = (
+                user_scores.get("steam_score"),
+                user_scores.get("metacritic_score"),
+                disparity["disparity_steam"],
+                disparity["disparity_metacritic"],
+                disparity["disparity_combined"],
+            )
+            if existing_cache.get(review_id) == new_values:
+                continue
+
             updates.append(
                 {
                     "id": review_id,
-                    "cached_steam_user_score": user_scores.get("steam_score"),
-                    "cached_metacritic_user_score": user_scores.get("metacritic_score"),
-                    "cached_disparity_steam": disparity["disparity_steam"],
-                    "cached_disparity_metacritic": disparity["disparity_metacritic"],
-                    "cached_disparity_combined": disparity["disparity_combined"],
+                    "cached_steam_user_score": new_values[0],
+                    "cached_metacritic_user_score": new_values[1],
+                    "cached_disparity_steam": new_values[2],
+                    "cached_disparity_metacritic": new_values[3],
+                    "cached_disparity_combined": new_values[4],
                 }
             )
-            processed += 1
+            updated_count += 1
 
             if len(updates) >= batch_size:
                 await self.db.execute(update(Review), updates)
+                # Commit in chunks so the site is not impacted by one long-running
+                # write transaction touching the entire reviews table.
+                await self.db.commit()
                 updates = []
 
         if updates:
             await self.db.execute(update(Review), updates)
+            await self.db.commit()
 
-        await self.db.flush()
-        return processed
+        return updated_count
 
     async def _generate_journalist_outlet_snapshots(
         self,
