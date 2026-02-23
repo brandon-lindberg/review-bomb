@@ -77,15 +77,18 @@ export default async function GamesPage({ searchParams }: PageProps) {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Games</h1>
 
-        <div className="flex flex-wrap gap-2 items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <SearchInput defaultValue={search} placeholder="Search games..." />
-          <YearFilter years={years} defaultValue={year} />
-          <SortSelect
-            options={sortOptions}
-            defaultValue={sortSelectValue}
-            paramName="sort"
-            paramName2="order"
-          />
+          <div className="flex gap-2 sm:flex-shrink-0">
+            <YearFilter years={years} defaultValue={year} className="flex-1 sm:flex-none" />
+            <SortSelect
+              options={sortOptions}
+              defaultValue={sortSelectValue}
+              paramName="sort"
+              paramName2="order"
+              className="flex-1 sm:flex-none"
+            />
+          </div>
         </div>
       </div>
 

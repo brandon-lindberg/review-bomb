@@ -97,7 +97,7 @@ export function SearchInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className="relative flex-1 max-w-sm">
+    <form onSubmit={handleSubmit} className="relative w-full">
       <div className="relative">
         <svg
           xmlns="http://www.w3.org/2000/svg"
