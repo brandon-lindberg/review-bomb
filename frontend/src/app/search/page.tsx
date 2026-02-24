@@ -3,7 +3,7 @@ import Link from "next/link";
 import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 30;
 
 export const metadata: Metadata = {
   title: "Search",

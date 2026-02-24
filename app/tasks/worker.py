@@ -42,3 +42,4 @@ dramatiq.set_broker(broker)
 # These imports must come after broker setup
 from app.tasks import sync  # noqa: F401, E402
 from app.tasks import disparity  # noqa: F401, E402
+from app.tasks import performance  # noqa: F401, E402

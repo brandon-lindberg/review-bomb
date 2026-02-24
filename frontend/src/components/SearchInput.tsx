@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useTransition } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { emitNavigationStart } from "@/lib/navigation-progress";
 
 interface SearchInputProps {
   defaultValue?: string;
@@ -19,6 +20,7 @@ export function SearchInput({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [isPending, startTransition] = useTransition();
   const [value, setValue] = useState(defaultValue);
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const previousValueRef = useRef(defaultValue);
@@ -36,9 +38,12 @@ export function SearchInput({
       params.delete("page");
       
       const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-      router.push(newUrl);
+      emitNavigationStart();
+      startTransition(() => {
+        router.replace(newUrl);
+      });
     },
-    [paramName, pathname, router, searchParams]
+    [paramName, pathname, router, searchParams, startTransition]
   );
 
   // Debounced search effect - only triggers when value actually changes from user input
@@ -78,10 +83,13 @@ export function SearchInput({
     params.delete(paramName);
     params.delete("page");
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    router.push(newUrl);
+    emitNavigationStart();
+    startTransition(() => {
+      router.replace(newUrl);
+    });
     // Keep focus on input
     inputRef.current?.focus();
-  }, [paramName, pathname, router, searchParams]);
+  }, [paramName, pathname, router, searchParams, startTransition]);
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -97,7 +105,7 @@ export function SearchInput({
   );
 
   return (
-    <form onSubmit={handleSubmit} className="relative w-full">
+    <form onSubmit={handleSubmit} className="relative w-full" aria-busy={isPending}>
       <div className="relative">
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -120,14 +128,23 @@ export function SearchInput({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-rust)] focus:border-transparent"
+          className="w-full pl-10 pr-14 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-rust)] focus:border-transparent"
+          aria-busy={isPending}
         />
+        {isPending && (
+          <span
+            aria-hidden="true"
+            className="absolute right-8 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin rounded-full border-2 border-solid border-t-transparent"
+            style={{ borderColor: "var(--foreground-muted)", borderTopColor: "transparent" }}
+          />
+        )}
         {value && (
           <button
             type="button"
             onClick={handleClear}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-60"
             aria-label="Clear search"
+            disabled={isPending}
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"

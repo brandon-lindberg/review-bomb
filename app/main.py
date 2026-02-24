@@ -2,10 +2,13 @@
 Main FastAPI application for Game Journalist Review Disparity Tracker.
 """
 
+import asyncio
 from contextlib import asynccontextmanager
+from contextlib import suppress
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -13,6 +16,7 @@ from slowapi.util import get_remote_address
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import get_settings
+from app.cache import close_redis
 from app.ip_filter import IPFilterMiddleware
 from app.middleware import (
     SecurityHeadersMiddleware,
@@ -35,6 +39,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     print(f"Starting {settings.app_name}...")
+    startup_prewarm_task: asyncio.Task | None = None
 
     # Initialize Sentry if configured
     if settings.sentry_dsn:
@@ -48,9 +53,25 @@ async def lifespan(app: FastAPI):
             environment=settings.environment,
         )
 
+    async def _startup_prewarm():
+        try:
+            from app.services.cache_prewarm import prewarm_core_caches
+            await prewarm_core_caches(top_journalist_details=10)
+        except Exception as exc:
+            # Never fail app startup due to prewarming; this is best-effort.
+            print(f"Startup cache prewarm failed: {exc}")
+
+    # Best-effort background prewarm for first-user experience after restart/deploy.
+    startup_prewarm_task = asyncio.create_task(_startup_prewarm())
+
     yield
 
     # Shutdown
+    if startup_prewarm_task and not startup_prewarm_task.done():
+        startup_prewarm_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await startup_prewarm_task
+    await close_redis()
     print("Shutting down...")
 
 
@@ -78,6 +99,9 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["Content-Type", "Accept"],
 )
+
+# Compress larger JSON responses (review lists, chart datasets, etc.)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 # Security headers on all responses
 app.add_middleware(SecurityHeadersMiddleware)

@@ -9,7 +9,7 @@ import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 interface PageProps {
   params: Promise<{ id: string }>;

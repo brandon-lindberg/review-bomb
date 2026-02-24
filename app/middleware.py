@@ -10,6 +10,26 @@ from starlette.responses import Response
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses."""
 
+    @staticmethod
+    def _cache_control_for(request: Request, response: Response) -> str:
+        """Return cache policy based on route and response status."""
+        if request.method not in ("GET", "HEAD") or response.status_code >= 400:
+            return "no-store, no-cache, must-revalidate"
+
+        path = request.url.path
+        if not path.startswith("/api/v1/"):
+            return "no-store, no-cache, must-revalidate"
+
+        if path == "/api/v1/stats/sitemap-data":
+            return "public, max-age=3600, stale-while-revalidate=86400"
+        if path == "/api/v1/news/sources":
+            return "public, max-age=300, stale-while-revalidate=3600"
+        if path.startswith("/api/v1/search"):
+            return "public, max-age=30, stale-while-revalidate=120"
+
+        # Default short cache for public read-only API responses.
+        return "public, max-age=60, stale-while-revalidate=300"
+
     async def dispatch(self, request: Request, call_next):
         response: Response = await call_next(request)
 
@@ -25,9 +45,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Referrer policy - don't leak full URLs
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-        # Prevent browsers from caching sensitive data
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-        response.headers["Pragma"] = "no-cache"
+        # Cache policy (API is public/read-only; keep non-API endpoints uncached)
+        cache_control = self._cache_control_for(request, response)
+        response.headers["Cache-Control"] = cache_control
+        if cache_control.startswith("no-store"):
+            response.headers["Pragma"] = "no-cache"
+        else:
+            if "Pragma" in response.headers:
+                del response.headers["Pragma"]
 
         # Content Security Policy for API (only JSON responses)
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"

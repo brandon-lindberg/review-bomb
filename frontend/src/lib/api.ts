@@ -18,13 +18,42 @@ import type {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 const outletAllReviewsCache = new Map<number, Promise<ReviewWithJournalist[]>>();
 
-async function fetchAPI<T>(endpoint: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_URL}${endpoint}`, {
+type NextFetchOptions = RequestInit & {
+  next?: {
+    revalidate?: number;
+    tags?: string[];
+  };
+};
+
+function getServerRevalidateSeconds(endpoint: string): number {
+  if (endpoint.startsWith("/stats/sitemap-data")) return 3600;
+  if (endpoint.startsWith("/news/sources")) return 300;
+  if (endpoint.startsWith("/search")) return 30;
+  return 60;
+}
+
+async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promise<T> {
+  const isServer = typeof window === "undefined";
+  const hasExplicitRevalidate = options?.next?.revalidate != null;
+  const hasExplicitCache = options?.cache != null;
+
+  const requestOptions: NextFetchOptions = {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...options?.headers,
     },
+  };
+
+  if (isServer && !hasExplicitRevalidate && !hasExplicitCache) {
+    requestOptions.next = {
+      ...requestOptions.next,
+      revalidate: getServerRevalidateSeconds(endpoint),
+    };
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...requestOptions,
   });
 
   if (!response.ok) {

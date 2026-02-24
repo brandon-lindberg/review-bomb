@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useTransition } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Journalist, Outlet } from "@/types";
+import { emitNavigationStart } from "@/lib/navigation-progress";
 
 interface SelectedItem {
   id: number;
@@ -29,6 +31,10 @@ export function CompareSelector({
   selectedItems,
   maxSelections,
 }: CompareSelectorProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [isNavigating, startTransition] = useTransition();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -93,26 +99,34 @@ export function CompareSelector({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const navigateWithSelection = (nextIds: number[]) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (nextIds.length > 0) {
+      params.set("ids", nextIds.join(","));
+    } else {
+      params.delete("ids");
+    }
+    params.set("type", type);
+    const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    emitNavigationStart();
+    startTransition(() => {
+      router.replace(nextUrl);
+    });
+  };
+
   const handleSelect = (item: SearchResult) => {
-    if (selectedIds.length >= maxSelections) return;
+    if (selectedIds.length >= maxSelections || isNavigating) return;
 
     const newIds = [...selectedIds, item.id];
-    const url = new URL(window.location.href);
-    url.searchParams.set("ids", newIds.join(","));
-    url.searchParams.set("type", type);
-    window.location.href = url.toString();
+    setShowDropdown(false);
+    setQuery("");
+    navigateWithSelection(newIds);
   };
 
   const handleRemove = (id: number) => {
+    if (isNavigating) return;
     const newIds = selectedIds.filter((selectedId) => selectedId !== id);
-    const url = new URL(window.location.href);
-    if (newIds.length > 0) {
-      url.searchParams.set("ids", newIds.join(","));
-    } else {
-      url.searchParams.delete("ids");
-    }
-    url.searchParams.set("type", type);
-    window.location.href = url.toString();
+    navigateWithSelection(newIds);
   };
 
   return (
@@ -127,7 +141,9 @@ export function CompareSelector({
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setShowDropdown(true)}
             placeholder={`Search ${type}...`}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:opacity-70"
+            disabled={isNavigating}
+            aria-busy={isNavigating}
           />
 
           {/* Dropdown */}
@@ -140,7 +156,8 @@ export function CompareSelector({
                   <button
                     key={item.id}
                     onClick={() => handleSelect(item)}
-                    className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors"
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors disabled:opacity-70"
+                    disabled={isNavigating}
                   >
                     {item.image_url ? (
                       <img
@@ -195,8 +212,9 @@ export function CompareSelector({
               <span className="font-medium">{item.name}</span>
               <button
                 onClick={() => handleRemove(item.id)}
-                className="hover:text-blue-600 transition-colors"
+                className="hover:text-blue-600 transition-colors disabled:opacity-60"
                 aria-label="Remove"
+                disabled={isNavigating}
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -219,12 +237,13 @@ export function CompareSelector({
       )}
 
       {/* Helper Text */}
-      <p className="text-sm text-gray-500">
+      <p className="text-sm text-gray-500" aria-live="polite">
         {selectedIds.length === 0
           ? `Search and select up to ${maxSelections} ${type} to compare.`
           : selectedIds.length >= maxSelections
             ? `Maximum of ${maxSelections} selections reached.`
             : `${maxSelections - selectedIds.length} more selection${maxSelections - selectedIds.length !== 1 ? "s" : ""} available.`}
+        {isNavigating ? " Updating comparison..." : ""}
       </p>
     </div>
   );

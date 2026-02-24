@@ -1,11 +1,12 @@
 """Journalists API endpoints."""
 
+import json
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import select, func, desc, asc
+from sqlalchemy import select, func, desc, asc, case, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -29,6 +30,7 @@ from app.schemas.schemas import (
     PaginatedResponse,
     DisparitySnapshot as DisparitySnapshotSchema,
 )
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -73,6 +75,18 @@ async def list_journalists(
     db: AsyncSession = Depends(get_db),
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
+    key_hash = cache_key(
+        "journalists:list:v1",
+        page=page,
+        per_page=per_page,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    cached = await get_cached(f"journalists:list:{key_hash}")
+    if cached:
+        return PaginatedResponse[JournalistSummary](**json.loads(cached))
+
     now = datetime.now(timezone.utc)
 
     # For disparity sorting, enforce leaderboard anti-gaming thresholds.
@@ -88,7 +102,6 @@ async def list_journalists(
         ])
 
     journalists: list[Journalist] = []
-    latest_review_subquery = None
     total = 0
 
     if sort_by == "disparity":
@@ -139,35 +152,15 @@ async def list_journalists(
                 count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
             total = (await db.execute(count_query)).scalar() or 0
     else:
+        query = select(
+            Journalist,
+            func.count().over().label("total_count"),
+        ).where(*filters)
         if sort_by == "latest_review":
-            # Use same recency criteria as home /stats/recent-reviews endpoint.
-            latest_review_subquery = (
-                select(
-                    Review.journalist_id.label("journalist_id"),
-                    func.max(Review.published_at).label("latest_review_at"),
-                )
-                .where(
-                    Review.score_normalized.isnot(None),
-                    Review.score_normalized > 0,
-                    Review.published_at.isnot(None),
-                    Review.published_at <= now,
-                )
-                .group_by(Review.journalist_id)
-                .subquery()
+            query = query.where(
+                Journalist.last_review_at.isnot(None),
+                Journalist.last_review_at <= now,
             )
-            query = (
-                select(
-                    Journalist,
-                    func.count().over().label("total_count"),
-                )
-                .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
-                .where(*filters)
-            )
-        else:
-            query = select(
-                Journalist,
-                func.count().over().label("total_count"),
-            ).where(*filters)
 
         if search:
             query = query.where(Journalist.name.ilike(f"%{search}%"))
@@ -175,7 +168,7 @@ async def list_journalists(
         if sort_by == "name":
             order_col = Journalist.name
         elif sort_by == "latest_review":
-            order_col = latest_review_subquery.c.latest_review_at
+            order_col = Journalist.last_review_at
         else:  # review_count
             order_col = Journalist.review_count_scored
 
@@ -190,15 +183,12 @@ async def list_journalists(
         total = rows[0].total_count if rows else 0
 
         if not rows and page > 1:
+            count_query = select(func.count()).select_from(Journalist).where(*filters)
             if sort_by == "latest_review":
-                count_query = (
-                    select(func.count())
-                    .select_from(Journalist)
-                    .join(latest_review_subquery, latest_review_subquery.c.journalist_id == Journalist.id)
-                    .where(*filters)
+                count_query = count_query.where(
+                    Journalist.last_review_at.isnot(None),
+                    Journalist.last_review_at <= now,
                 )
-            else:
-                count_query = select(func.count()).select_from(Journalist).where(*filters)
             if search:
                 count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
             total = (await db.execute(count_query)).scalar() or 0
@@ -279,13 +269,20 @@ async def list_journalists(
             )
         )
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        f"journalists:list:{key_hash}",
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+    return response
 
 
 @router.get("/{journalist_id}", response_model=JournalistDetail)
@@ -294,6 +291,10 @@ async def get_journalist(
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalist detail with stats and outlet breakdown."""
+    cached = await get_cached(f"journalists:detail:v1:{journalist_id}")
+    if cached:
+        return JournalistDetail(**json.loads(cached))
+
     # Get journalist
     result = await db.execute(
         select(Journalist).where(Journalist.id == journalist_id)
@@ -303,13 +304,62 @@ async def get_journalist(
     if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
 
-    # Get review stats (only properly scored reviews - exclude 0 which means "no score")
+    # Get review stats and timing counts in a single aggregate query.
     stats_query = select(
         func.count(Review.id).label("total_reviews"),
         func.avg(Review.score_normalized).label("avg_score_given"),
         func.min(Review.score_normalized).label("min_score_given"),
         func.max(Review.score_normalized).label("max_score_given"),
-    ).where(
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            Review.published_at.isnot(None),
+                            Game.release_date.isnot(None),
+                            Review.published_at < Game.release_date,
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("early_review_count"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            Review.published_at.isnot(None),
+                            Game.release_date.isnot(None),
+                            Review.published_at >= Game.release_date,
+                            Review.published_at <= Game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("launch_window_review_count"),
+        func.coalesce(
+            func.sum(
+                case(
+                    (
+                        and_(
+                            Review.published_at.isnot(None),
+                            Game.release_date.isnot(None),
+                            Review.published_at > Game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS),
+                        ),
+                        1,
+                    ),
+                    else_=0,
+                )
+            ),
+            0,
+        ).label("late_review_count"),
+    ).select_from(Review).join(Game, Review.game_id == Game.id).where(
         Review.journalist_id == journalist_id,
         Review.score_normalized.isnot(None),  # Only scored reviews
         Review.score_normalized > 0,  # Exclude 0 (indicates unscored/text-only review)
@@ -317,36 +367,9 @@ async def get_journalist(
 
     stats_result = await db.execute(stats_query)
     stats_row = stats_result.one()
-
-    # Get all scored reviews with their games to calculate disparity dynamically
-    # Exclude score_normalized = 0 which indicates an unscored/text-only review
-    reviews_query = (
-        select(Review, Game)
-        .join(Game, Review.game_id == Game.id)
-        .where(
-            Review.journalist_id == journalist_id,
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,  # Exclude unscored reviews
-        )
-    )
-    reviews_result = await db.execute(reviews_query)
-    review_rows = reviews_result.all()
-
-    # Calculate review timing transparency metrics only (no live disparity math).
-    early_review_count = 0
-    launch_window_review_count = 0
-    late_review_count = 0
-
-    for review, game in review_rows:
-        review_date = review.published_at.date() if review.published_at and hasattr(review.published_at, 'date') else review.published_at
-        timing = calculate_review_timing(review_date, game.release_date)
-
-        if timing == "early":
-            early_review_count += 1
-        elif timing == "launch_window":
-            launch_window_review_count += 1
-        elif timing == "late":
-            late_review_count += 1
+    early_review_count = int(stats_row.early_review_count or 0)
+    launch_window_review_count = int(stats_row.launch_window_review_count or 0)
+    late_review_count = int(stats_row.late_review_count or 0)
 
     # Canonical disparity values for display come from the disparity pipeline (snapshots/
     # denormalized columns), not route-time recalculation. This avoids formula drift and
@@ -399,20 +422,32 @@ async def get_journalist(
     )
     outlet_result = await db.execute(outlet_breakdown_query)
     outlet_rows = outlet_result.all()
+    latest_outlet_snapshots = (
+        select(
+            JournalistOutletDisparitySnapshot.outlet_id.label("outlet_id"),
+            JournalistOutletDisparitySnapshot.avg_disparity_combined.label("avg_disparity_combined"),
+            func.row_number().over(
+                partition_by=JournalistOutletDisparitySnapshot.outlet_id,
+                order_by=(
+                    JournalistOutletDisparitySnapshot.snapshot_date.desc(),
+                    JournalistOutletDisparitySnapshot.id.desc(),
+                ),
+            ).label("rn"),
+        )
+        .where(JournalistOutletDisparitySnapshot.journalist_id == journalist_id)
+        .subquery()
+    )
     outlet_snapshot_rows = (
         await db.execute(
-            select(JournalistOutletDisparitySnapshot)
-            .where(JournalistOutletDisparitySnapshot.journalist_id == journalist_id)
-            .order_by(
-                desc(JournalistOutletDisparitySnapshot.snapshot_date),
-                desc(JournalistOutletDisparitySnapshot.id),
-            )
+            select(
+                latest_outlet_snapshots.c.outlet_id,
+                latest_outlet_snapshots.c.avg_disparity_combined,
+            ).where(latest_outlet_snapshots.c.rn == 1)
         )
-    ).scalars().all()
+    ).all()
     outlet_disparity_lookup: dict[int, Optional[Decimal]] = {}
     for snapshot in outlet_snapshot_rows:
-        if snapshot.outlet_id not in outlet_disparity_lookup:
-            outlet_disparity_lookup[snapshot.outlet_id] = snapshot.avg_disparity_combined
+        outlet_disparity_lookup[snapshot.outlet_id] = snapshot.avg_disparity_combined
 
     outlet_breakdown = [
         JournalistOutletBreakdown(
@@ -432,12 +467,8 @@ async def get_journalist(
         else None
     )
 
-    # Calculate score std deviation (variance in scores given)
-    score_std_deviation = None
-    if len(review_rows) > 1:
-        from statistics import stdev
-        scores = [float(review.score_normalized) for review, _ in review_rows]
-        score_std_deviation = Decimal(str(round(stdev(scores), 2)))
+    # Use denormalized score std dev computed by the disparity pipeline/snapshot refresh.
+    score_std_deviation = journalist.score_std_dev
 
     stats = JournalistStats(
         total_reviews=stats_row.total_reviews or 0,
@@ -461,7 +492,7 @@ async def get_journalist(
         score_std_deviation=score_std_deviation,
     )
 
-    return JournalistDetail(
+    response = JournalistDetail(
         id=journalist.id,
         name=journalist.name,
         image_url=journalist.image_url,
@@ -474,6 +505,13 @@ async def get_journalist(
         created_at=journalist.created_at,
         updated_at=journalist.updated_at,
     )
+
+    await set_cached(
+        f"journalists:detail:v1:{journalist_id}",
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+    return response
 
 
 @router.get("/{journalist_id}/reviews", response_model=PaginatedResponse[ReviewWithDisparity])

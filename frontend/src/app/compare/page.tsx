@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
@@ -6,7 +7,7 @@ import { MiniDisparityChart } from "@/components/DisparityChart";
 import { CompareSelector } from "@/components/CompareSelector";
 import type { JournalistDetail, OutletWithStats, DisparitySnapshot } from "@/types";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "Compare Critics",
@@ -151,16 +152,18 @@ export default async function ComparePage({ searchParams }: PageProps) {
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
           Select {type === "journalists" ? "Journalists" : "Outlets"} to Compare
         </h2>
-        <CompareSelector
-          type={type as "journalists" | "outlets"}
-          selectedIds={ids}
-          selectedItems={compareData.map((item) => ({
-            id: item.id,
-            name: item.name,
-            image_url: item.image_url,
-          }))}
-          maxSelections={4}
-        />
+        <Suspense fallback={<CompareSelectorFallback />}>
+          <CompareSelector
+            type={type as "journalists" | "outlets"}
+            selectedIds={ids}
+            selectedItems={compareData.map((item) => ({
+              id: item.id,
+              name: item.name,
+              image_url: item.image_url,
+            }))}
+            maxSelections={4}
+          />
+        </Suspense>
       </div>
 
       {/* Comparison Grid */}
@@ -288,6 +291,18 @@ export default async function ComparePage({ searchParams }: PageProps) {
           </p>
         </div>
       )}
+    </div>
+  );
+}
+
+function CompareSelectorFallback() {
+  return (
+    <div className="space-y-4" aria-busy="true">
+      <div className="h-10 w-full rounded-lg bg-gray-100 animate-pulse" />
+      <div className="flex flex-wrap gap-2">
+        <div className="h-8 w-24 rounded-full bg-gray-100 animate-pulse" />
+        <div className="h-8 w-28 rounded-full bg-gray-100 animate-pulse" />
+      </div>
     </div>
   );
 }

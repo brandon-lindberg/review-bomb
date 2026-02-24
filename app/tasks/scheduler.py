@@ -20,6 +20,7 @@ from app.tasks.sync import (
     sync_news_feeds,
 )
 from app.tasks.disparity import calculate_daily_snapshots
+from app.tasks.performance import prewarm_core_api_caches
 
 
 def create_scheduler() -> BlockingScheduler:
@@ -85,6 +86,15 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Cache prewarm - hourly to keep first user hit fast and refresh stored stats snapshot
+    scheduler.add_job(
+        lambda: prewarm_core_api_caches.send(10),
+        trigger=IntervalTrigger(hours=1),
+        id="prewarm_core_api_caches",
+        name="Prewarm core API caches and site stats snapshot",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -98,6 +108,7 @@ def main():
     print("  - Game matching: daily at 1 AM UTC")
     print("  - Disparity snapshots: daily at 5 AM UTC")
     print("  - News RSS feeds: every 4 hours")
+    print("  - Cache prewarm: every 1 hour")
     print()
     print("Press Ctrl+C to exit")
 

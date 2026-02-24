@@ -9,7 +9,7 @@ import { DisparityScores } from "@/components/DisparityScores";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: "Leaderboards",

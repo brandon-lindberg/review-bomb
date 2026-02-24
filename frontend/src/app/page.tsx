@@ -6,7 +6,7 @@ import { NewsCard } from "@/components/NewsCard";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { getSiteUrl } from "@/lib/site-url";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const siteUrl = getSiteUrl();
 

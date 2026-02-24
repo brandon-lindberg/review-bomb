@@ -4,7 +4,7 @@ import { getNews, getNewsSources } from "@/lib/api";
 import { NewsCard } from "@/components/NewsCard";
 import { SourceFilter } from "@/components/SourceFilter";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { page: pageParam } = await searchParams;
@@ -75,7 +75,6 @@ export default async function NewsPage({ searchParams }: PageProps) {
               {page > 1 && (
                 <Link
                   href={`/news?page=${page - 1}${source ? `&source=${encodeURIComponent(source)}` : ""}`}
-                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Previous
@@ -87,7 +86,6 @@ export default async function NewsPage({ searchParams }: PageProps) {
               {page < news.total_pages && (
                 <Link
                   href={`/news?page=${page + 1}${source ? `&source=${encodeURIComponent(source)}` : ""}`}
-                  prefetch={false}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
                 >
                   Next

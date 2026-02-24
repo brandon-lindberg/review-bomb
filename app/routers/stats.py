@@ -2,16 +2,16 @@
 
 import json
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.models import Journalist, Outlet, Game, Review
 from app.schemas.schemas import SiteStats, ReviewWithJournalist
 from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
+from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
 
 router = APIRouter()
 
@@ -19,57 +19,13 @@ router = APIRouter()
 async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get site-wide statistics (fast using denormalized columns)."""
-    # Count journalists with disparity data (uses index)
-    journalist_count = await db.execute(
-        select(func.count()).select_from(Journalist).where(Journalist.avg_disparity.isnot(None))
-    )
-    total_journalists = journalist_count.scalar() or 0
+    """Get site-wide statistics from a stored snapshot (fallback computes and stores)."""
+    snapshot = await get_stored_site_stats_snapshot(db)
+    if snapshot:
+        return snapshot
 
-    # Count outlets with disparity data (uses index)
-    outlet_count = await db.execute(
-        select(func.count()).select_from(Outlet).where(Outlet.avg_disparity.isnot(None))
-    )
-    total_outlets = outlet_count.scalar() or 0
-
-    # Count games with scored reviews
-    games_with_reviews = (
-        select(Review.game_id)
-        .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
-        .distinct()
-        .subquery()
-    )
-    game_count = await db.execute(
-        select(func.count()).select_from(games_with_reviews)
-    )
-    total_games = game_count.scalar() or 0
-
-    # Count scored reviews (simple count)
-    review_count = await db.execute(
-        select(func.count()).select_from(Review).where(
-            Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
-        )
-    )
-    total_reviews = review_count.scalar() or 0
-
-    # Calculate site-wide avg disparity from pre-computed journalist averages
-    avg_disparity_result = await db.execute(
-        select(func.avg(Journalist.avg_disparity))
-        .where(Journalist.avg_disparity.isnot(None))
-    )
-    avg_disparity = avg_disparity_result.scalar()
-    if avg_disparity is not None:
-        avg_disparity = Decimal(str(round(float(avg_disparity), 2)))
-
-    return SiteStats(
-        total_journalists=total_journalists,
-        total_outlets=total_outlets,
-        total_games=total_games,
-        total_reviews=total_reviews,
-        avg_disparity_site=avg_disparity,
-        last_updated=datetime.now(timezone.utc),
-    )
+    # Fallback path for first boot / empty cache-store.
+    return await refresh_site_stats_snapshot(db)
 
 
 @router.get("/recent-reviews", response_model=list[ReviewWithJournalist])
