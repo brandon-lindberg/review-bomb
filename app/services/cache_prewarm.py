@@ -17,6 +17,22 @@ _news_list_fn = getattr(news.list_news, "__wrapped__", news.list_news)
 _news_sources_fn = getattr(news.list_sources, "__wrapped__", news.list_sources)
 
 
+async def prewarm_news_caches_with_db(db: AsyncSession) -> None:
+    """Prewarm the news queries used by the home page and `/news` page."""
+    # Home page news panel
+    await _news_list_fn(request=None, page=1, per_page=5, source=None, search=None, db=db)
+    # /news page default listing
+    await _news_list_fn(request=None, page=1, per_page=18, source=None, search=None, db=db)
+    # Source filter options
+    await _news_sources_fn(request=None, db=db)
+
+
+async def prewarm_news_caches() -> None:
+    """Prewarm news caches with a fresh DB session."""
+    async with async_session_maker() as db:
+        await prewarm_news_caches_with_db(db)
+
+
 async def prewarm_core_caches_with_db(
     db: AsyncSession,
     *,
@@ -39,8 +55,7 @@ async def prewarm_core_caches_with_db(
         sort_order="desc",
         db=db,
     )
-    await _news_list_fn(request=None, page=1, per_page=5, source=None, search=None, db=db)
-    await _news_sources_fn(request=None, db=db)
+    await prewarm_news_caches_with_db(db)
 
     # 3) Journalists list (default page).
     journalist_list = await journalists.list_journalists(

@@ -13,6 +13,7 @@ import dramatiq
 from sqlalchemy import select, delete, or_, and_, case, func
 from sqlalchemy.dialects.postgresql import insert
 
+from app.cache import close_redis
 from app.database import async_session_maker
 from app.models.models import (
     Journalist, Outlet, Game, Review, UserScore, SyncLog,
@@ -23,6 +24,7 @@ from app.services.steam import SteamService
 from app.services.metacritic import MetacriticService
 from app.services.game_matcher import GameMatcher
 from app.services.score_normalizer import ScoreNormalizer
+from app.services.post_sync_refresh import refresh_news_after_sync
 
 
 def run_async(coro):
@@ -32,7 +34,10 @@ def run_async(coro):
     try:
         return loop.run_until_complete(coro)
     finally:
-        loop.close()
+        try:
+            loop.run_until_complete(close_redis())
+        finally:
+            loop.close()
 
 
 def _should_update_release_date_from_metacritic(
@@ -716,11 +721,9 @@ async def _sync_news_feeds():
         await db.commit()
         print(f"Inserted/updated {upserted} news rows")
 
-        # Invalidate news cache so the API serves fresh data
+        # Refresh backend news caches and trigger optional frontend revalidation.
         if upserted > 0:
-            from app.cache import delete_cached
-            await delete_cached("news:*")
-            print("Cleared news cache")
+            await refresh_news_after_sync(db)
 
         print("News feed sync complete")
 

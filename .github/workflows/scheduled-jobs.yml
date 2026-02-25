@@ -24,6 +24,8 @@ env:
   REDIS_URL: ${{ secrets.REDIS_URL }}
   RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
   ENVIRONMENT: production
+  FRONTEND_REVALIDATE_URL: ${{ secrets.FRONTEND_REVALIDATE_URL }}
+  FRONTEND_REVALIDATE_SECRET: ${{ secrets.FRONTEND_REVALIDATE_SECRET }}
 
 jobs:
   pipeline:

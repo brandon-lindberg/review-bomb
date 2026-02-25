@@ -1157,8 +1157,10 @@ async def cmd_news(args):
     from sqlalchemy import text, select, func, and_, or_
 
     from app.models.models import Game, NewsArticle
+    from app.cache import close_redis
     from app.services.news_rss import NewsRSSService
     from app.services.news_matcher import NewsMatcher
+    from app.services.post_sync_refresh import refresh_news_after_sync
     from sqlalchemy.dialects.postgresql import insert as pg_insert
 
     async with async_session_maker() as db:
@@ -1225,11 +1227,9 @@ async def cmd_news(args):
         )
         total = total_result.scalar() or 0
 
-        # Invalidate news cache so the API serves fresh data
+        # Refresh backend news caches and trigger optional frontend revalidation.
         if upserted > 0:
-            from app.cache import delete_cached, close_redis
-            deleted_keys = await delete_cached("news:*")
-            print(f"Cleared {deleted_keys} cached news entries")
+            await refresh_news_after_sync(db)
             await close_redis()
 
         print(
@@ -1244,7 +1244,8 @@ async def cmd_news_backfill(args):
 
     from app.models.models import Game, NewsArticle
     from app.services.news_matcher import NewsMatcher
-    from app.cache import delete_cached, close_redis
+    from app.cache import close_redis
+    from app.services.post_sync_refresh import refresh_news_after_sync
 
     async with async_session_maker() as db:
         # Load all game titles
@@ -1318,8 +1319,7 @@ async def cmd_news_backfill(args):
 
         changed = linked_new + relinked
         if changed > 0 and not args.dry_run:
-            deleted_keys = await delete_cached("news:*")
-            print(f"Cleared {deleted_keys} cached news entries")
+            await refresh_news_after_sync(db)
             await close_redis()
 
         print("\nBackfill complete:")

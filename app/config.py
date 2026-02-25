@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     # Security
     allowed_hosts: list[str] = []  # Empty = allow all (dev), set in production
 
+    # Optional frontend on-demand revalidation webhook (Next.js app route)
+    frontend_revalidate_url: Optional[str] = None
+    frontend_revalidate_secret: Optional[str] = None
+
 
 @lru_cache
 def get_settings() -> Settings:
