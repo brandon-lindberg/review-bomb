@@ -43,7 +43,8 @@ const sortOptions = [
   { value: "release_date-desc", label: "Release Date" },
   { value: "disparity-desc", label: "Highest Disparity" },
   { value: "disparity-asc", label: "Lowest Disparity" },
-  { value: "title-desc", label: "Title" },
+  { value: "title-asc", label: "Title A - Z" },
+  { value: "title-desc", label: "Title Z - A" },
 ];
 
 export default async function GamesPage({ searchParams }: PageProps) {
