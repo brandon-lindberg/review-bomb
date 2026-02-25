@@ -97,10 +97,24 @@ async def list_outlets(
     else:  # review_count
         order_col = Outlet.review_count_scored
 
-    if sort_order == "desc":
-        query = query.order_by(desc(order_col).nulls_last())
+    if sort_by == "disparity":
+        if sort_order == "desc":
+            query = query.order_by(
+                desc(order_col).nulls_last(),
+                desc(Outlet.review_count_scored).nulls_last(),
+                asc(Outlet.id),
+            )
+        else:
+            query = query.order_by(
+                asc(order_col).nulls_last(),
+                desc(Outlet.review_count_scored).nulls_last(),
+                asc(Outlet.id),
+            )
     else:
-        query = query.order_by(asc(order_col).nulls_last())
+        if sort_order == "desc":
+            query = query.order_by(desc(order_col).nulls_last())
+        else:
+            query = query.order_by(asc(order_col).nulls_last())
 
     query = query.offset((page - 1) * per_page).limit(per_page)
 

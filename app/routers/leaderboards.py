@@ -44,9 +44,17 @@ async def journalist_leaderboard(
     if sort == "recent":
         query = query.order_by(desc(Journalist.last_review_at).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(func.abs(Journalist.avg_disparity)))
+        query = query.order_by(
+            desc(func.abs(Journalist.avg_disparity)).nulls_last(),
+            desc(Journalist.review_count_scored).nulls_last(),
+            asc(Journalist.id),
+        )
     else:
-        query = query.order_by(asc(func.abs(Journalist.avg_disparity)))
+        query = query.order_by(
+            asc(func.abs(Journalist.avg_disparity)).nulls_last(),
+            desc(Journalist.review_count_scored).nulls_last(),
+            asc(Journalist.id),
+        )
 
     # Get total count
     count_query = (
@@ -113,9 +121,17 @@ async def outlet_leaderboard(
     if sort == "recent":
         query = query.order_by(desc(Outlet.last_review_at).nulls_last())
     elif sort == "highest":
-        query = query.order_by(desc(func.abs(Outlet.avg_disparity)))
+        query = query.order_by(
+            desc(func.abs(Outlet.avg_disparity)).nulls_last(),
+            desc(Outlet.review_count_scored).nulls_last(),
+            asc(Outlet.id),
+        )
     else:
-        query = query.order_by(asc(func.abs(Outlet.avg_disparity)))
+        query = query.order_by(
+            asc(func.abs(Outlet.avg_disparity)).nulls_last(),
+            desc(Outlet.review_count_scored).nulls_last(),
+            asc(Outlet.id),
+        )
 
     # Get total count
     count_query = (
@@ -199,9 +215,17 @@ async def game_leaderboard(
             desc(func.coalesce(Game.release_date, func.date(Game.created_at)))
         )
     elif sort == "highest":
-        query = query.order_by(desc(func.abs(combined_disparity_expr)))
+        query = query.order_by(
+            desc(func.abs(combined_disparity_expr)).nulls_last(),
+            desc(func.coalesce(Game.release_date, func.date(Game.created_at))).nulls_last(),
+            asc(Game.id),
+        )
     else:
-        query = query.order_by(asc(func.abs(combined_disparity_expr)))
+        query = query.order_by(
+            asc(func.abs(combined_disparity_expr)).nulls_last(),
+            desc(func.coalesce(Game.release_date, func.date(Game.created_at))).nulls_last(),
+            asc(Game.id),
+        )
 
     # Get total count
     count_query = (

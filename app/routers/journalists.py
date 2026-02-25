@@ -124,13 +124,13 @@ async def list_journalists(
         if sort_order == "desc":
             query = query.order_by(
                 desc(abs_disparity_col).nulls_last(),
-                desc(Journalist.avg_disparity).nulls_last(),
+                desc(Journalist.review_count_scored).nulls_last(),
                 asc(Journalist.id),
             )
         else:
             query = query.order_by(
                 asc(abs_disparity_col).nulls_last(),
-                asc(Journalist.avg_disparity).nulls_last(),
+                desc(Journalist.review_count_scored).nulls_last(),
                 asc(Journalist.id),
             )
 

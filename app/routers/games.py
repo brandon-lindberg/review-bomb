@@ -125,7 +125,6 @@ async def list_games(
             if sort_by == "disparity":
                 query = query.order_by(
                     desc(order_col).nulls_last(),
-                    desc(combined_disparity_expr).nulls_last(),
                     desc(Game.release_date).nulls_last(),
                     asc(Game.id),
                 )
@@ -135,7 +134,6 @@ async def list_games(
             if sort_by == "disparity":
                 query = query.order_by(
                     asc(order_col).nulls_last(),
-                    asc(combined_disparity_expr).nulls_last(),
                     desc(Game.release_date).nulls_last(),
                     asc(Game.id),
                 )
