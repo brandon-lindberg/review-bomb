@@ -6,7 +6,9 @@ import { NewsCard } from "@/components/NewsCard";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { getSiteUrl } from "@/lib/site-url";
 
-export const revalidate = 60;
+// Keep the home page shell revalidating frequently so section freshness is driven
+// by the underlying API/fetch caches (typically ~60s), not an extra 60s page cache.
+export const revalidate = 1;
 
 const siteUrl = getSiteUrl();
 
