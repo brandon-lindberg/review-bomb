@@ -11,7 +11,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import select, func, desc, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM, CACHE_TTL_SHORT
 from app.database import get_db
 from app.models.models import NewsArticle
 from app.schemas.schemas import PaginatedResponse, NewsArticleSummary
@@ -75,11 +75,11 @@ async def list_news(
         total_pages=total_pages,
     )
 
-    # Cache for 5 minutes
+    # Cache for 1 minute so newly synced news appears quickly.
     await set_cached(
         f"news:{key}",
         response.model_dump_json(),
-        expire_seconds=CACHE_TTL_MEDIUM,
+        expire_seconds=CACHE_TTL_SHORT,
     )
 
     return response
