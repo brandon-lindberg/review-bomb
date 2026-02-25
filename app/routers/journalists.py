@@ -76,7 +76,7 @@ async def list_journalists(
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
     key_hash = cache_key(
-        "journalists:list:v1",
+        "journalists:list:v3",
         page=page,
         per_page=per_page,
         search=search,
