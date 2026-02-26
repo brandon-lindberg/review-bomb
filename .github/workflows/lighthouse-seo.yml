@@ -1,0 +1,66 @@
+name: Lighthouse SEO
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "frontend/**"
+      - ".github/workflows/lighthouse-seo.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "frontend/**"
+      - ".github/workflows/lighthouse-seo.yml"
+
+jobs:
+  lighthouse-seo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "yarn"
+          cache-dependency-path: frontend/yarn.lock
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: yarn install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend
+        run: yarn build
+
+      - name: Run Lighthouse SEO checks
+        working-directory: frontend
+        run: |
+          set -euo pipefail
+          yarn start -p 3000 > /tmp/next-lhci.log 2>&1 &
+          NEXT_PID=$!
+          trap 'kill $NEXT_PID || true; echo "==== next start log ===="; cat /tmp/next-lhci.log || true' EXIT
+
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:3000/ >/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl -sf http://127.0.0.1:3000/ >/dev/null
+          npx @lhci/cli@0.15.x collect --config=.lighthouserc.json
+          npx @lhci/cli@0.15.x assert --config=.lighthouserc.json
+
+      - name: Upload Lighthouse artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-seo-reports
+          path: frontend/.lighthouseci
+          if-no-files-found: ignore
+

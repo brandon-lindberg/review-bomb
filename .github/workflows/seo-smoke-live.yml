@@ -1,0 +1,33 @@
+name: SEO Smoke Tests (Live)
+
+on:
+  schedule:
+    - cron: "15 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  seo-smoke-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: seo-smoke-live-${{ github.repository }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run live SEO smoke tests
+        working-directory: frontend
+        env:
+          SEO_BASE_URL: https://reviewdisparity.com
+          SEO_EXPECTED_CANONICAL_ORIGIN: https://reviewdisparity.com
+          SEO_REQUIRE_DETAIL_PAGES: "1"
+          SEO_DETAIL_SAMPLES_PER_TYPE: "3"
+        run: node scripts/seo-smoke.mjs
+

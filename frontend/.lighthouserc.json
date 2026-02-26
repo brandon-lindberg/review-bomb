@@ -1,0 +1,31 @@
+{
+  "ci": {
+    "collect": {
+      "numberOfRuns": 1,
+      "url": [
+        "http://127.0.0.1:3000/",
+        "http://127.0.0.1:3000/games",
+        "http://127.0.0.1:3000/news",
+        "http://127.0.0.1:3000/journalists",
+        "http://127.0.0.1:3000/outlets",
+        "http://127.0.0.1:3000/leaderboards"
+      ],
+      "settings": {
+        "onlyCategories": [
+          "seo"
+        ],
+        "chromeFlags": "--headless=new --no-sandbox --disable-dev-shm-usage"
+      }
+    },
+    "assert": {
+      "assertions": {
+        "categories:seo": [
+          "error",
+          {
+            "minScore": 0.9
+          }
+        ]
+      }
+    }
+  }
+}

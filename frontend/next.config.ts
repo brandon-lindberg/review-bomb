@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
 import withSerwistInit from "@serwist/next";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const CANONICAL_HOST = "reviewdisparity.com";
 const CANONICAL_ORIGIN = `https://${CANONICAL_HOST}`;
+const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const withSerwist = withSerwistInit({
   swSrc: "src/app/sw.ts",
@@ -11,7 +14,10 @@ const withSerwist = withSerwistInit({
 });
 
 const nextConfig: NextConfig = {
-  turbopack: {},
+  outputFileTracingRoot: CONFIG_DIR,
+  turbopack: {
+    root: CONFIG_DIR,
+  },
   images: {
     remotePatterns: [
       {
