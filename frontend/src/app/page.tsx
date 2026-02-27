@@ -19,6 +19,13 @@ function isUnreleasedNow(gameReleaseDate: string | null): boolean {
   return releaseDate.getTime() > Date.now();
 }
 
+function getReleaseDateTimestamp(gameReleaseDate: string | null): number | null {
+  if (!gameReleaseDate) return null;
+  const releaseDate = new Date(`${gameReleaseDate}T00:00:00`);
+  if (Number.isNaN(releaseDate.getTime())) return null;
+  return releaseDate.getTime();
+}
+
 export default async function Home() {
   let stats = null;
   let recentReviews = null;
@@ -35,6 +42,19 @@ export default async function Home() {
   } catch (error) {
     console.error("Error fetching data:", error);
   }
+
+  const sortedRecentGames = recentGames
+    ? [...recentGames.items].sort((a, b) => {
+        const aReleaseTs = getReleaseDateTimestamp(a.release_date);
+        const bReleaseTs = getReleaseDateTimestamp(b.release_date);
+
+        if (aReleaseTs == null && bReleaseTs == null) return b.id - a.id;
+        if (aReleaseTs == null) return 1;
+        if (bReleaseTs == null) return -1;
+        if (aReleaseTs !== bReleaseTs) return bReleaseTs - aReleaseTs;
+        return b.id - a.id;
+      })
+    : [];
 
   const websiteJsonLd = {
     "@context": "https://schema.org",
@@ -172,7 +192,7 @@ export default async function Home() {
         )}
 
         {/* Recent Games */}
-        {recentGames && recentGames.items.length > 0 && (
+        {sortedRecentGames.length > 0 && (
           <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
@@ -187,7 +207,7 @@ export default async function Home() {
               </Link>
             </div>
             <div className="space-y-3">
-              {recentGames.items.map((game) => (
+              {sortedRecentGames.map((game) => (
                 <Link
                   key={game.id}
                   href={`/games/${game.id}`}
