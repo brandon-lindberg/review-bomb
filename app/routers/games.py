@@ -104,17 +104,27 @@ async def list_games(
 
     # Apply sorting using denormalized columns
     if sort_by == "release_date":
+        # Keep already-released games first, then sort by release date.
+        # This prevents upcoming titles from displacing the "most recent" released titles.
+        unreleased_sort_expr = case(
+            (Game.release_date > func.current_date(), 1),
+            else_=0,
+        )
         # Keep newly discovered games visible even when release_date is missing by
         # using created_at as a tiebreaker/fallback without non-immutable casts.
         if sort_order == "desc":
             query = query.order_by(
+                asc(unreleased_sort_expr),
                 desc(Game.release_date).nulls_last(),
                 desc(Game.created_at).nulls_last(),
+                desc(Game.id),
             )
         else:
             query = query.order_by(
+                asc(unreleased_sort_expr),
                 asc(Game.release_date).nulls_last(),
                 asc(Game.created_at).nulls_last(),
+                asc(Game.id),
             )
     else:
         if sort_by == "title":

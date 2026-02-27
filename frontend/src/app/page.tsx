@@ -26,6 +26,13 @@ function getReleaseDateTimestamp(gameReleaseDate: string | null): number | null 
   return releaseDate.getTime();
 }
 
+function getDateTimeTimestamp(dateTime: string | null): number | null {
+  if (!dateTime) return null;
+  const parsed = new Date(dateTime);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.getTime();
+}
+
 export default async function Home() {
   let stats = null;
   let recentReviews = null;
@@ -43,10 +50,31 @@ export default async function Home() {
     console.error("Error fetching data:", error);
   }
 
+  const sortedRecentReviews = recentReviews
+    ? [...recentReviews].sort((a, b) => {
+        const aIsUnreleased = isUnreleasedNow(a.game_release_date);
+        const bIsUnreleased = isUnreleasedNow(b.game_release_date);
+        if (aIsUnreleased !== bIsUnreleased) return aIsUnreleased ? 1 : -1;
+
+        const aPublishedTs = getDateTimeTimestamp(a.published_at);
+        const bPublishedTs = getDateTimeTimestamp(b.published_at);
+
+        if (aPublishedTs == null && bPublishedTs == null) return b.id - a.id;
+        if (aPublishedTs == null) return 1;
+        if (bPublishedTs == null) return -1;
+        if (aPublishedTs !== bPublishedTs) return bPublishedTs - aPublishedTs;
+        return b.id - a.id;
+      })
+    : [];
+
   const sortedRecentGames = recentGames
     ? [...recentGames.items].sort((a, b) => {
         const aReleaseTs = getReleaseDateTimestamp(a.release_date);
         const bReleaseTs = getReleaseDateTimestamp(b.release_date);
+
+        const aIsUnreleased = isUnreleasedNow(a.release_date);
+        const bIsUnreleased = isUnreleasedNow(b.release_date);
+        if (aIsUnreleased !== bIsUnreleased) return aIsUnreleased ? 1 : -1;
 
         if (aReleaseTs == null && bReleaseTs == null) return b.id - a.id;
         if (aReleaseTs == null) return 1;
@@ -100,7 +128,7 @@ export default async function Home() {
       {/* Recent Content */}
       <div className="grid md:grid-cols-2 gap-8">
         {/* Recent Reviews */}
-        {recentReviews && recentReviews.length > 0 && (
+        {sortedRecentReviews.length > 0 && (
           <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
@@ -115,7 +143,7 @@ export default async function Home() {
               </Link>
             </div>
             <div className="space-y-3">
-              {recentReviews.map((review) => {
+              {sortedRecentReviews.map((review) => {
                 const disparity = getDisplayDisparity(review.disparity_steam, review.disparity_metacritic);
                 const unreleasedNow = isUnreleasedNow(review.game_release_date);
                 const isPreReleaseReview = (review.review_timing === "early") || unreleasedNow;
