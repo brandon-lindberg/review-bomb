@@ -17,6 +17,7 @@ Usage:
     python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
     python -m app clear             Clear all data from database
     python -m app backfill          Backfill denormalized Game columns from UserScore/Review data
+    python -m app recompute-scores  Recompute review score_normalized values from score_raw/score_scale
     python -m app merge-games       Merge deprecated games into canonical records
     python -m app news              Fetch latest gaming news from RSS feeds
     python -m app news-backfill     Link existing news articles to games by title matching
@@ -406,7 +407,6 @@ async def cmd_metacritic(args):
             select(Review.game_id)
             .where(
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
                 Review.published_at.isnot(None),
                 Review.published_at <= now,
             )
@@ -427,7 +427,6 @@ async def cmd_metacritic(args):
             select(Review.game_id)
             .where(
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
                 Review.published_at.isnot(None),
                 Review.published_at >= recent_review_cutoff_dt,
                 Review.published_at <= now,
@@ -994,7 +993,6 @@ async def cmd_backfill_game_columns(args):
                 ).where(
                     Review.game_id == game.id,
                     Review.score_normalized.isnot(None),
-                    Review.score_normalized > 0,
                 )
             )
             review_row = review_result.first()
@@ -1016,6 +1014,105 @@ async def cmd_backfill_game_columns(args):
 
         await db.commit()
         print(f"\nBackfill complete: {updated} games updated")
+
+
+async def cmd_recompute_scores(args):
+    """Recompute review.score_normalized from score_raw/score_scale in batches."""
+    from sqlalchemy import select, func, update
+
+    from app.models.models import Review
+    from app.services.score_normalizer import ScoreNormalizer
+
+    batch_size = max(1, args.batch_size)
+    max_reviews = args.max_reviews if args.max_reviews and args.max_reviews > 0 else None
+    dry_run = bool(args.dry_run)
+    write_all = bool(args.write_all)
+
+    async with async_session_maker() as db:
+        total_query = select(func.count()).select_from(Review)
+        total_reviews = (await db.execute(total_query)).scalar() or 0
+        if max_reviews is not None:
+            total_reviews = min(total_reviews, max_reviews)
+
+        if total_reviews == 0:
+            print("No reviews found.")
+            return
+
+        mode_label = "dry-run" if dry_run else "write"
+        write_behavior = "write-all" if write_all else "update-only-if-changed"
+        print(
+            f"Recomputing normalized scores for up to {total_reviews:,} reviews "
+            f"({mode_label}, {write_behavior}, batch_size={batch_size})"
+        )
+
+        processed = 0
+        changed = 0
+        unchanged = 0
+        recomputed_to_null = 0
+        writes = 0
+        last_id = 0
+
+        while processed < total_reviews:
+            remaining = total_reviews - processed
+            current_batch_size = min(batch_size, remaining)
+            rows = (
+                await db.execute(
+                    select(
+                        Review.id,
+                        Review.score_raw,
+                        Review.score_scale,
+                        Review.score_normalized,
+                    )
+                    .where(Review.id > last_id)
+                    .order_by(Review.id.asc())
+                    .limit(current_batch_size)
+                )
+            ).all()
+
+            if not rows:
+                break
+
+            updates: list[dict[str, object]] = []
+            for review_id, score_raw, score_scale, score_normalized in rows:
+                recomputed_score, _ = ScoreNormalizer.normalize(score_raw or "", score_scale)
+                if recomputed_score is None:
+                    recomputed_to_null += 1
+
+                is_changed = score_normalized != recomputed_score
+                if is_changed:
+                    changed += 1
+                else:
+                    unchanged += 1
+
+                if write_all or is_changed:
+                    updates.append(
+                        {
+                            "id": review_id,
+                            "score_normalized": recomputed_score,
+                        }
+                    )
+
+            if updates:
+                writes += len(updates)
+                if not dry_run:
+                    await db.execute(update(Review), updates)
+                    await db.commit()
+
+            processed += len(rows)
+            last_id = rows[-1][0]
+
+            if processed % 10000 == 0 or processed == total_reviews:
+                print(
+                    f"  Processed {processed:,}/{total_reviews:,} "
+                    f"(changed={changed:,}, unchanged={unchanged:,}, writes={writes:,})"
+                )
+
+        print("Recompute complete:")
+        print(f"  Processed: {processed:,}")
+        print(f"  Changed: {changed:,}")
+        print(f"  Unchanged: {unchanged:,}")
+        print(f"  Recomputed to NULL: {recomputed_to_null:,}")
+        print(f"  Rows written: {writes:,}" + (" (dry-run only)" if dry_run else ""))
 
 
 async def cmd_merge_games(args):
@@ -1419,6 +1516,34 @@ def main():
     # Backfill command
     subparsers.add_parser("backfill", help="Backfill denormalized Game columns from UserScore/Review data")
 
+    # Recompute scores command
+    recompute_parser = subparsers.add_parser(
+        "recompute-scores",
+        help="Recompute review score_normalized from score_raw/score_scale",
+    )
+    recompute_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would change without writing to the database",
+    )
+    recompute_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1000,
+        help="Number of reviews to process per batch (default: 1000)",
+    )
+    recompute_parser.add_argument(
+        "--max-reviews",
+        type=int,
+        default=None,
+        help="Optional cap on number of reviews to process",
+    )
+    recompute_parser.add_argument(
+        "--write-all",
+        action="store_true",
+        help="Write recomputed values even when unchanged (default is update-only-if-changed)",
+    )
+
     # Merge games command
     merge_parser = subparsers.add_parser("merge-games", help="Merge deprecated games into canonical records (from GAME_MERGES)")
     merge_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts")
@@ -1460,6 +1585,8 @@ def main():
         return asyncio.run(cmd_refresh_images(args))
     elif args.command == "backfill":
         return asyncio.run(cmd_backfill_game_columns(args))
+    elif args.command == "recompute-scores":
+        return asyncio.run(cmd_recompute_scores(args))
     elif args.command == "merge-games":
         return asyncio.run(cmd_merge_games(args))
     elif args.command == "news":

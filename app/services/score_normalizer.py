@@ -30,6 +30,13 @@ class ScoreNormalizer:
         "4": 25,      # 0-4 scale (stars) -> multiply by 25
     }
 
+    @staticmethod
+    def _format_scale(scale_value: float) -> str:
+        """Render numeric scale consistently without trailing .0."""
+        if scale_value.is_integer():
+            return str(int(scale_value))
+        return str(scale_value)
+
     @classmethod
     def normalize(
         cls,
@@ -96,15 +103,29 @@ class ScoreNormalizer:
             except ValueError:
                 pass
 
-        # Handle numeric score with known scale
+        # Handle numeric score
         try:
             value = float(raw_score)
 
-            # If scale is provided, use it
-            if scale and scale in cls.SCALE_MULTIPLIERS:
-                multiplier = cls.SCALE_MULTIPLIERS[scale]
-                normalized = value * multiplier
-                return Decimal(str(round(min(normalized, 100), 2))), scale
+            # If a numeric scale is provided, prefer ratio normalization.
+            if scale:
+                try:
+                    scale_value = float(scale)
+                except (TypeError, ValueError):
+                    scale_value = None
+
+                if scale_value and scale_value > 0:
+                    # Standard case: 7 on a 10-scale => 70.
+                    if 0 <= value <= scale_value:
+                        normalized = (value / scale_value) * 100
+                        return Decimal(str(round(normalized, 2))), cls._format_scale(scale_value)
+
+                    # Source sometimes reports a base of 10/20 while score is already 0-100.
+                    if value > scale_value and 0 <= value <= 100:
+                        return Decimal(str(round(value, 2))), "100"
+
+                    # Out-of-range values should be treated as unscored.
+                    return None, None
 
             # Try to detect scale from value range
             detected_scale = cls._detect_scale(value)

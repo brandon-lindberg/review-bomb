@@ -31,6 +31,7 @@ from app.schemas.schemas import (
     DisparitySnapshot as DisparitySnapshotSchema,
 )
 from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
+from app.services.review_score_correction import corrected_normalized_score
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -76,7 +77,7 @@ async def list_journalists(
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
     key_hash = cache_key(
-        "journalists:list:v3",
+        "journalists:list:v4",
         page=page,
         per_page=per_page,
         search=search,
@@ -205,6 +206,8 @@ async def list_journalists(
                 Review.game_id.label("game_id"),
                 Review.outlet_id.label("outlet_id"),
                 Review.snippet.label("snippet"),
+                Review.score_raw.label("score_raw"),
+                Review.score_scale.label("score_scale"),
                 Review.score_normalized.label("score_normalized"),
                 Review.published_at.label("published_at"),
                 func.row_number().over(
@@ -215,7 +218,6 @@ async def list_journalists(
             .where(
                 Review.journalist_id.in_(journalist_ids),
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
                 Review.published_at.isnot(None),
                 Review.published_at <= now,
             )
@@ -228,6 +230,8 @@ async def list_journalists(
                 ranked_reviews.c.review_id,
                 ranked_reviews.c.game_id,
                 ranked_reviews.c.snippet,
+                ranked_reviews.c.score_raw,
+                ranked_reviews.c.score_scale,
                 ranked_reviews.c.score_normalized,
                 ranked_reviews.c.published_at,
                 Game.title.label("game_title"),
@@ -239,8 +243,16 @@ async def list_journalists(
             .where(ranked_reviews.c.rn == 1)
         )
         latest_reviews_result = await db.execute(latest_reviews_query)
+        latest_review_corrections = 0
 
         for row in latest_reviews_result:
+            corrected_score, was_corrected = corrected_normalized_score(
+                score_raw=row.score_raw,
+                score_scale=row.score_scale,
+                stored_score_normalized=row.score_normalized,
+            )
+            if was_corrected:
+                latest_review_corrections += 1
             review_date = row.published_at.date() if row.published_at and hasattr(row.published_at, 'date') else row.published_at
             latest_review_lookup[row.journalist_id] = JournalistLatestReview(
                 review_id=row.review_id,
@@ -249,9 +261,15 @@ async def list_journalists(
                 game_release_date=row.game_release_date,
                 outlet_name=row.outlet_name,
                 snippet=row.snippet,
-                score_normalized=row.score_normalized,
+                score_normalized=corrected_score,
                 published_at=row.published_at,
                 review_timing=calculate_review_timing(review_date, row.game_release_date),
+            )
+
+        if latest_review_corrections:
+            print(
+                "Runtime score corrections (journalists list latest reviews): "
+                f"{latest_review_corrections}/{len(latest_review_lookup)}"
             )
 
     items = []
@@ -265,6 +283,7 @@ async def list_journalists(
                 opencritic_id=journalist.opencritic_id,
                 review_count=journalist.review_count_scored or 0,
                 avg_disparity=journalist.avg_disparity,
+                is_binary_reviewer=bool(journalist.is_binary_reviewer),
                 latest_review=latest_review_lookup.get(journalist.id),
             )
         )
@@ -291,7 +310,7 @@ async def get_journalist(
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalist detail with stats and outlet breakdown."""
-    cached = await get_cached(f"journalists:detail:v1:{journalist_id}")
+    cached = await get_cached(f"journalists:detail:v2:{journalist_id}")
     if cached:
         return JournalistDetail(**json.loads(cached))
 
@@ -362,7 +381,6 @@ async def get_journalist(
     ).select_from(Review).join(Game, Review.game_id == Game.id).where(
         Review.journalist_id == journalist_id,
         Review.score_normalized.isnot(None),  # Only scored reviews
-        Review.score_normalized > 0,  # Exclude 0 (indicates unscored/text-only review)
     )
 
     stats_result = await db.execute(stats_query)
@@ -415,7 +433,6 @@ async def get_journalist(
         .where(
             Review.journalist_id == journalist_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
         .group_by(Outlet.id, Outlet.name)
         .order_by(desc(func.count(Review.id)))
@@ -498,6 +515,7 @@ async def get_journalist(
         image_url=journalist.image_url,
         bio=journalist.bio,
         opencritic_id=journalist.opencritic_id,
+        is_binary_reviewer=bool(journalist.is_binary_reviewer),
         review_count=stats_row.total_reviews or 0,
         avg_disparity=journalist.avg_disparity if journalist.avg_disparity is not None else pipeline_disparity_combined,
         stats=stats,
@@ -507,7 +525,7 @@ async def get_journalist(
     )
 
     await set_cached(
-        f"journalists:detail:v1:{journalist_id}",
+        f"journalists:detail:v2:{journalist_id}",
         json.dumps(response.model_dump(mode="json")),
         CACHE_TTL_MEDIUM,
     )
@@ -531,20 +549,19 @@ async def get_journalist_reviews(
     if not journalist_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Journalist not found")
 
-    # Get total count (only reviews with actual scores, exclude 0 = unscored)
+    # Get total count (only reviews with parsed scores, including 0)
     count_query = (
         select(func.count())
         .select_from(Review)
         .where(
             Review.journalist_id == journalist_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Get reviews with game and outlet info (only reviews with actual scores)
+    # Get reviews with game and outlet info (only scored reviews, including 0)
     query = (
         select(Review, Game, Outlet)
         .join(Game, Review.game_id == Game.id)
@@ -552,7 +569,6 @@ async def get_journalist_reviews(
         .where(
             Review.journalist_id == journalist_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
         .order_by(desc(Review.published_at))
         .offset((page - 1) * per_page)
@@ -563,7 +579,16 @@ async def get_journalist_reviews(
     rows = result.all()
 
     items = []
+    corrected_count = 0
     for review, game, outlet in rows:
+        corrected_score, was_corrected = corrected_normalized_score(
+            score_raw=review.score_raw,
+            score_scale=review.score_scale,
+            stored_score_normalized=review.score_normalized,
+        )
+        if was_corrected:
+            corrected_count += 1
+
         steam_user_score = review.cached_steam_user_score
         metacritic_user_score = review.cached_metacritic_user_score
         disparity_steam = review.cached_disparity_steam
@@ -581,7 +606,7 @@ async def get_journalist_reviews(
                 outlet_id=review.outlet_id,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
-                score_normalized=review.score_normalized,
+                score_normalized=corrected_score,
                 review_url=review.review_url,
                 snippet=review.snippet,
                 published_at=review.published_at,
@@ -595,6 +620,12 @@ async def get_journalist_reviews(
                 is_launch_window=review_timing == "launch_window",  # Backward compatibility
                 review_timing=review_timing,
             )
+        )
+
+    if corrected_count:
+        print(
+            f"Runtime score corrections (journalist_id={journalist_id}): "
+            f"{corrected_count}/{len(rows)}"
         )
 
     return PaginatedResponse(

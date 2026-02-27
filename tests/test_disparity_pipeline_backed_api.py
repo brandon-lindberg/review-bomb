@@ -338,6 +338,78 @@ async def test_get_journalist_reviews_returns_cached_user_scores_and_disparities
 
 
 @pytest.mark.asyncio
+async def test_get_journalist_reviews_runtime_corrects_stale_score_for_travis_northup_highguard():
+    game = Game(id=99, title="Highguard", release_date=date(2026, 2, 20))
+    outlet = Outlet(id=8, name="IGN")
+    review = Review(
+        id=77,
+        journalist_id=42,
+        game_id=99,
+        outlet_id=8,
+        score_raw="70",
+        score_scale="10",
+        score_normalized=Decimal("100.00"),
+        cached_steam_user_score=Decimal("65.00"),
+        cached_metacritic_user_score=Decimal("70.00"),
+        published_at=_utc(2026, 2, 23),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=42),
+            FakeResult(scalar=1),
+            FakeResult(all_rows=[(review, game, outlet)]),
+        ]
+    )
+
+    resp = await get_journalist_reviews.__wrapped__(
+        request=SimpleNamespace(),
+        journalist_id=42,
+        page=1,
+        per_page=20,
+        db=db,
+    )
+
+    assert resp.total == 1
+    assert resp.items[0].score_normalized == Decimal("70")
+
+
+@pytest.mark.asyncio
+async def test_get_journalist_reviews_includes_valid_zero_score_rows():
+    game = Game(id=1, title="Zero Hero", release_date=date(2026, 2, 20))
+    outlet = Outlet(id=2, name="Outlet")
+    review = Review(
+        id=10,
+        journalist_id=3,
+        game_id=1,
+        outlet_id=2,
+        score_raw="0",
+        score_scale="10",
+        score_normalized=Decimal("0.00"),
+        published_at=_utc(2026, 2, 21),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=3),
+            FakeResult(scalar=1),
+            FakeResult(all_rows=[(review, game, outlet)]),
+        ]
+    )
+
+    resp = await get_journalist_reviews.__wrapped__(
+        request=SimpleNamespace(),
+        journalist_id=3,
+        page=1,
+        per_page=20,
+        db=db,
+    )
+
+    assert resp.total == 1
+    assert resp.items[0].score_normalized == Decimal("0")
+
+
+@pytest.mark.asyncio
 async def test_get_journalist_detail_uses_pipeline_snapshots_for_disparity_and_outlet_breakdown():
     now = _utc(2026, 2, 23)
     journalist = Journalist(
@@ -347,17 +419,6 @@ async def test_get_journalist_detail_uses_pipeline_snapshots_for_disparity_and_o
         created_at=now,
         updated_at=now,
     )
-    review = Review(
-        id=10,
-        journalist_id=2,
-        game_id=1,
-        outlet_id=3,
-        score_raw="8",
-        score_scale="10",
-        score_normalized=Decimal("80.00"),
-        published_at=_utc(2026, 2, 21),
-    )
-    game = Game(id=1, title="Example", release_date=date(2026, 2, 20))
     latest_snapshot = DisparitySnapshot(
         id=100,
         journalist_id=2,
@@ -382,6 +443,9 @@ async def test_get_journalist_detail_uses_pipeline_snapshots_for_disparity_and_o
         avg_score_given=Decimal("80.00"),
         min_score_given=Decimal("80.00"),
         max_score_given=Decimal("80.00"),
+        early_review_count=0,
+        launch_window_review_count=1,
+        late_review_count=0,
     )
     outlet_row = SimpleNamespace(
         outlet_id=3,
@@ -395,10 +459,16 @@ async def test_get_journalist_detail_uses_pipeline_snapshots_for_disparity_and_o
         results=[
             FakeResult(scalar_one_or_none=journalist),
             FakeResult(one=stats_row),
-            FakeResult(all_rows=[(review, game)]),
             FakeResult(scalar_one_or_none=latest_snapshot),
             FakeResult(all_rows=[outlet_row]),
-            FakeResult(scalars_all=[pair_snapshot]),
+            FakeResult(
+                all_rows=[
+                    SimpleNamespace(
+                        outlet_id=pair_snapshot.outlet_id,
+                        avg_disparity_combined=pair_snapshot.avg_disparity_combined,
+                    )
+                ]
+            ),
         ]
     )
 
@@ -409,6 +479,111 @@ async def test_get_journalist_detail_uses_pipeline_snapshots_for_disparity_and_o
     assert resp.stats.overall_disparity_metacritic == Decimal("17.75")
     assert resp.stats.overall_disparity_combined == Decimal("-1.15")
     assert resp.outlet_breakdown[0].avg_disparity == Decimal("2.90")
+
+
+@pytest.mark.asyncio
+async def test_entity_stats_separate_disparity_std_dev_from_score_std_dev():
+    db = FakeAsyncSession()
+    calc = DisparityCalculator(db)
+    calc._user_scores_cache = {
+        10: {"steam_score": Decimal("60.00"), "metacritic_score": None},
+        11: {"steam_score": Decimal("80.00"), "metacritic_score": None},
+    }
+    calc._reviews_by_journalist = {
+        1: [
+            (1, 10, 1, 2, Decimal("70.00")),
+            (2, 11, 1, 2, Decimal("90.00")),
+        ]
+    }
+    calc._reviews_by_outlet = {}
+    calc._reviews_by_game = {}
+
+    stats = calc._calculate_entity_disparity_from_cache("journalist", 1)
+
+    assert stats is not None
+    assert stats["std_deviation"] == Decimal("0")
+    assert stats["score_std_dev"] == Decimal("14.14")
+    assert stats["is_binary_profile"] is False
+
+
+@pytest.mark.asyncio
+async def test_generate_journalist_snapshots_persists_binary_and_score_std_dev():
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(all_rows=[(7, _utc(2026, 2, 23))]),
+            FakeResult(),
+        ]
+    )
+    calc = DisparityCalculator(db)
+    calc.ensure_detail_disparity_caches = AsyncMock(return_value=None)
+    calc._reviews_cache = [
+        (1, 1, 7, 3, Decimal("0.00")),
+        (2, 2, 7, 3, Decimal("100.00")),
+        (3, 3, 7, 3, Decimal("0.00")),
+        (4, 4, 7, 3, Decimal("100.00")),
+        (5, 5, 7, 3, Decimal("0.00")),
+        (6, 6, 7, 3, Decimal("100.00")),
+        (7, 7, 7, 3, Decimal("0.00")),
+        (8, 8, 7, 3, Decimal("100.00")),
+        (9, 9, 7, 3, Decimal("0.00")),
+        (10, 10, 7, 3, Decimal("100.00")),
+    ]
+    calc._reviews_by_journalist = {7: calc._reviews_cache}
+    calc._reviews_by_outlet = {3: calc._reviews_cache}
+    calc._reviews_by_game = {row[1]: [row] for row in calc._reviews_cache}
+    calc._user_scores_cache = {
+        row[1]: {"steam_score": None, "metacritic_score": None}
+        for row in calc._reviews_cache
+    }
+
+    count = await calc.generate_journalist_snapshots(date(2026, 2, 23))
+
+    assert count == 1
+    _stmt, params = db.execute_calls[1]
+    assert isinstance(params, list)
+    assert params[0]["id"] == 7
+    assert params[0]["is_binary_reviewer"] is True
+    assert params[0]["score_std_dev"] == Decimal("52.7")
+
+
+@pytest.mark.asyncio
+async def test_generate_outlet_snapshots_persists_binary_flag():
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(all_rows=[(3, _utc(2026, 2, 23))]),
+            FakeResult(all_rows=[(3, 1)]),
+            FakeResult(),
+        ]
+    )
+    calc = DisparityCalculator(db)
+    calc.ensure_detail_disparity_caches = AsyncMock(return_value=None)
+    calc._reviews_cache = [
+        (1, 1, 7, 3, Decimal("0.00")),
+        (2, 2, 7, 3, Decimal("100.00")),
+        (3, 3, 7, 3, Decimal("0.00")),
+        (4, 4, 7, 3, Decimal("100.00")),
+        (5, 5, 7, 3, Decimal("0.00")),
+        (6, 6, 7, 3, Decimal("100.00")),
+        (7, 7, 7, 3, Decimal("0.00")),
+        (8, 8, 7, 3, Decimal("100.00")),
+        (9, 9, 7, 3, Decimal("0.00")),
+        (10, 10, 7, 3, Decimal("100.00")),
+    ]
+    calc._reviews_by_journalist = {7: calc._reviews_cache}
+    calc._reviews_by_outlet = {3: calc._reviews_cache}
+    calc._reviews_by_game = {row[1]: [row] for row in calc._reviews_cache}
+    calc._user_scores_cache = {
+        row[1]: {"steam_score": None, "metacritic_score": None}
+        for row in calc._reviews_cache
+    }
+
+    count = await calc.generate_outlet_snapshots(date(2026, 2, 23))
+
+    assert count == 1
+    _stmt, params = db.execute_calls[2]
+    assert isinstance(params, list)
+    assert params[0]["id"] == 3
+    assert params[0]["is_binary_scorer"] is True
 
 
 @pytest.mark.asyncio

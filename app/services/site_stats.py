@@ -36,7 +36,7 @@ async def compute_site_stats_snapshot(db: AsyncSession) -> SiteStats:
 
     games_with_reviews = (
         select(Review.game_id)
-        .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+        .where(Review.score_normalized.isnot(None))
         .distinct()
         .subquery()
     )
@@ -46,7 +46,6 @@ async def compute_site_stats_snapshot(db: AsyncSession) -> SiteStats:
     review_count = await db.execute(
         select(func.count()).select_from(Review).where(
             Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
         )
     )
     total_reviews = review_count.scalar() or 0
@@ -117,4 +116,3 @@ async def refresh_site_stats_snapshot(db: AsyncSession, *, commit: bool = True) 
     snapshot = await compute_site_stats_snapshot(db)
     await store_site_stats_snapshot(db, snapshot, commit=commit)
     return snapshot
-

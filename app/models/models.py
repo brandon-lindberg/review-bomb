@@ -15,6 +15,7 @@ from typing import Optional, List
 from sqlalchemy import (
     String,
     Integer,
+    Boolean,
     Text,
     Numeric,
     Date,
@@ -25,6 +26,7 @@ from sqlalchemy import (
     Enum,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -73,6 +75,12 @@ class Outlet(Base):
     review_count_scored: Mapped[Optional[int]] = mapped_column(Integer, default=0)
     journalist_count: Mapped[Optional[int]] = mapped_column(Integer, default=0)
     score_std_dev: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    is_binary_scorer: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     last_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     
     created_at: Mapped[datetime] = mapped_column(
@@ -110,6 +118,12 @@ class Journalist(Base):
     avg_disparity: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
     review_count_scored: Mapped[Optional[int]] = mapped_column(Integer, default=0)
     score_std_dev: Mapped[Optional[Decimal]] = mapped_column(Numeric(6, 2))
+    is_binary_reviewer: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
     last_review_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     primary_outlet: Mapped[Optional[str]] = mapped_column(String(255))
     

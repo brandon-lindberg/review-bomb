@@ -21,6 +21,7 @@ from app.schemas.schemas import (
     PaginatedResponse,
     DisparitySnapshot as DisparitySnapshotSchema,
 )
+from app.services.review_score_correction import corrected_normalized_score
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -136,6 +137,7 @@ async def list_outlets(
             website_url=outlet.website_url,
             logo_url=outlet.logo_url,
             opencritic_id=outlet.opencritic_id,
+            is_binary_scorer=bool(outlet.is_binary_scorer),
             journalist_count=outlet.journalist_count or 0,
             review_count=outlet.review_count_scored or 0,
             avg_score=None,  # Not stored denormalized, not critical for list view
@@ -223,7 +225,6 @@ async def get_outlet(
     ).where(
         Review.outlet_id == outlet_id,
         Review.score_normalized.isnot(None),
-        Review.score_normalized > 0,
     )
     metrics_row = (await db.execute(metrics_query)).one()
 
@@ -256,6 +257,7 @@ async def get_outlet(
         website_url=outlet.website_url,
         logo_url=outlet.logo_url,
         opencritic_id=outlet.opencritic_id,
+        is_binary_scorer=bool(outlet.is_binary_scorer),
         journalist_count=outlet.journalist_count or 0,
         review_count=outlet.review_count_scored or 0,
         avg_disparity=outlet.avg_disparity,
@@ -296,7 +298,6 @@ async def get_outlet_journalists(
         .where(
             Review.outlet_id == outlet_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
         .group_by(Review.journalist_id)
         .subquery()
@@ -308,7 +309,6 @@ async def get_outlet_journalists(
         .where(
             Review.outlet_id == outlet_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
     )
     total_result = await db.execute(count_query)
@@ -333,6 +333,7 @@ async def get_outlet_journalists(
             image_url=row[0].image_url,
             bio=row[0].bio,
             opencritic_id=row[0].opencritic_id,
+            is_binary_reviewer=bool(row[0].is_binary_reviewer),
             review_count=row[1],
             avg_disparity=None,  # Would need per-outlet disparity
         )
@@ -365,20 +366,19 @@ async def get_outlet_reviews(
     if not outlet_result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    # Get total count (only scored reviews)
+    # Get total count (only scored reviews, including 0)
     count_query = (
         select(func.count())
         .select_from(Review)
         .where(
             Review.outlet_id == outlet_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
     )
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
-    # Get reviews (only scored reviews)
+    # Get reviews (only scored reviews, including 0)
     query = (
         select(Review, Journalist, Game)
         .join(Journalist, Review.journalist_id == Journalist.id)
@@ -386,7 +386,6 @@ async def get_outlet_reviews(
         .where(
             Review.outlet_id == outlet_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
         )
         .order_by(desc(Review.published_at))
         .offset((page - 1) * per_page)
@@ -397,7 +396,16 @@ async def get_outlet_reviews(
     rows = result.all()
 
     items = []
+    corrected_count = 0
     for review, journalist, game in rows:
+        corrected_score, was_corrected = corrected_normalized_score(
+            score_raw=review.score_raw,
+            score_scale=review.score_scale,
+            stored_score_normalized=review.score_normalized,
+        )
+        if was_corrected:
+            corrected_count += 1
+
         disparity_steam = review.cached_disparity_steam
         disparity_metacritic = review.cached_disparity_metacritic
 
@@ -413,7 +421,7 @@ async def get_outlet_reviews(
                 outlet_id=review.outlet_id,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
-                score_normalized=review.score_normalized,
+                score_normalized=corrected_score,
                 review_url=review.review_url,
                 snippet=review.snippet,
                 published_at=review.published_at,
@@ -427,6 +435,12 @@ async def get_outlet_reviews(
                 is_launch_window=review_timing == "launch_window",  # Backward compatibility
                 review_timing=review_timing,
             )
+        )
+
+    if corrected_count:
+        print(
+            f"Runtime score corrections (outlet_id={outlet_id}): "
+            f"{corrected_count}/{len(rows)}"
         )
 
     return PaginatedResponse(

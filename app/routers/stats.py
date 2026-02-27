@@ -12,6 +12,7 @@ from app.models.models import Journalist, Outlet, Game, Review
 from app.schemas.schemas import SiteStats, ReviewWithJournalist
 from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
+from app.services.review_score_correction import corrected_normalized_score
 
 router = APIRouter()
 
@@ -51,7 +52,6 @@ async def get_recent_reviews(
         .outerjoin(Outlet, Review.outlet_id == Outlet.id)
         .where(
             Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
             Review.published_at.isnot(None),
             Review.published_at <= today,
         )
@@ -65,7 +65,16 @@ async def get_recent_reviews(
         return []
 
     items = []
+    corrected_count = 0
     for review, journalist, game, outlet in rows:
+        corrected_score, was_corrected = corrected_normalized_score(
+            score_raw=review.score_raw,
+            score_scale=review.score_scale,
+            stored_score_normalized=review.score_normalized,
+        )
+        if was_corrected:
+            corrected_count += 1
+
         disparity_steam = review.cached_disparity_steam
         disparity_metacritic = review.cached_disparity_metacritic
 
@@ -91,7 +100,7 @@ async def get_recent_reviews(
                 outlet_id=review.outlet_id,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
-                score_normalized=review.score_normalized,
+                score_normalized=corrected_score,
                 review_url=review.review_url,
                 snippet=review.snippet,
                 published_at=review.published_at,
@@ -105,6 +114,12 @@ async def get_recent_reviews(
                 is_launch_window=is_launch_window,
                 review_timing=review_timing,
             )
+        )
+
+    if corrected_count:
+        print(
+            "Runtime score corrections (stats recent reviews): "
+            f"{corrected_count}/{len(rows)}"
         )
 
     # Cache the result for 60 seconds
@@ -123,7 +138,7 @@ async def get_sitemap_data(
         .where(
             Journalist.id.in_(
                 select(Review.journalist_id)
-                .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+                .where(Review.score_normalized.isnot(None))
                 .distinct()
             )
         )
@@ -139,7 +154,6 @@ async def get_sitemap_data(
                 .where(
                     Review.outlet_id.isnot(None),
                     Review.score_normalized.isnot(None),
-                    Review.score_normalized > 0,
                 )
                 .distinct()
             )
@@ -153,7 +167,7 @@ async def get_sitemap_data(
         .where(
             Game.id.in_(
                 select(Review.game_id)
-                .where(Review.score_normalized.isnot(None), Review.score_normalized > 0)
+                .where(Review.score_normalized.isnot(None))
                 .distinct()
             )
         )

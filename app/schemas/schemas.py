@@ -55,6 +55,7 @@ class OutletSummary(OutletBase):
 
     id: int
     opencritic_id: Optional[int] = None
+    is_binary_scorer: bool = False
 
 
 class OutletWithStats(OutletSummary):
@@ -118,6 +119,7 @@ class JournalistSummary(JournalistBase):
 
     id: int
     opencritic_id: Optional[int] = None
+    is_binary_reviewer: bool = False
     review_count: int = 0
     avg_disparity: Optional[Decimal] = None
     latest_review: Optional[JournalistLatestReview] = None

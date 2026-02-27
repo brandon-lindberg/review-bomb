@@ -459,7 +459,6 @@ class SyncOrchestrator:
             ).where(
                 Review.game_id == internal_game_id,
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
         )
         avg_score_raw, review_count = result.first() or (None, 0)
@@ -1251,7 +1250,6 @@ class SyncOrchestrator:
                 select(Review.game_id)
                 .where(
                     Review.score_normalized.isnot(None),
-                    Review.score_normalized > 0,
                     Review.published_at.isnot(None),
                     Review.published_at <= now,
                 )

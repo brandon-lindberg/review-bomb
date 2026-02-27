@@ -28,6 +28,7 @@ from app.models.models import (
 # Steam typically has more reviews, Metacritic has fewer
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
+MIN_BINARY_REVIEW_COUNT = 10
 
 
 class DisparityCalculator:
@@ -117,7 +118,6 @@ class DisparityCalculator:
             Review.score_normalized,
         ).where(
             Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
         )
 
         result = await self.db.execute(query)
@@ -275,7 +275,6 @@ class DisparityCalculator:
                 Review.cached_disparity_combined,
             ).where(
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
         )
         existing_cache: Dict[
@@ -450,7 +449,6 @@ class DisparityCalculator:
             .where(
                 Review.journalist_id == journalist_id,
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
         )
         result = await self.db.execute(query)
@@ -462,6 +460,7 @@ class DisparityCalculator:
         steam_disparities: List[float] = []
         metacritic_disparities: List[float] = []
         combined_disparities: List[float] = []
+        score_values: List[Decimal] = []
 
         for review, game in rows:
             user_scores = await self.get_game_user_scores(game.id)
@@ -477,10 +476,13 @@ class DisparityCalculator:
                 metacritic_disparities.append(float(disparity["disparity_metacritic"]))
             if disparity["disparity_combined"] is not None:
                 combined_disparities.append(float(disparity["disparity_combined"]))
+            score_values.append(review.score_normalized)
 
-        return self._compute_stats(
+        stats = self._compute_stats(
             steam_disparities, metacritic_disparities, combined_disparities, len(rows),
         )
+        stats.update(self._build_score_profile_metrics(score_values, len(rows)))
+        return stats
 
     # =========================================================================
     # Outlet Aggregations
@@ -506,7 +508,6 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id == outlet_id,
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
         )
         result = await self.db.execute(query)
@@ -518,6 +519,7 @@ class DisparityCalculator:
         steam_disparities: List[float] = []
         metacritic_disparities: List[float] = []
         combined_disparities: List[float] = []
+        score_values: List[Decimal] = []
 
         for review, game in rows:
             user_scores = await self.get_game_user_scores(game.id)
@@ -533,10 +535,13 @@ class DisparityCalculator:
                 metacritic_disparities.append(float(disparity["disparity_metacritic"]))
             if disparity["disparity_combined"] is not None:
                 combined_disparities.append(float(disparity["disparity_combined"]))
+            score_values.append(review.score_normalized)
 
-        return self._compute_stats(
+        stats = self._compute_stats(
             steam_disparities, metacritic_disparities, combined_disparities, len(rows),
         )
+        stats.update(self._build_score_profile_metrics(score_values, len(rows)))
+        return stats
 
     # =========================================================================
     # Game Aggregations
@@ -559,7 +564,6 @@ class DisparityCalculator:
         query = select(Review).where(
             Review.game_id == game_id,
             Review.score_normalized.isnot(None),
-            Review.score_normalized > 0,
         )
         result = await self.db.execute(query)
         reviews = result.scalars().all()
@@ -572,6 +576,7 @@ class DisparityCalculator:
         steam_disparities: List[float] = []
         metacritic_disparities: List[float] = []
         combined_disparities: List[float] = []
+        score_values: List[Decimal] = []
 
         for review in reviews:
             disparity = self.calculate_review_disparity(
@@ -586,10 +591,13 @@ class DisparityCalculator:
                 metacritic_disparities.append(float(disparity["disparity_metacritic"]))
             if disparity["disparity_combined"] is not None:
                 combined_disparities.append(float(disparity["disparity_combined"]))
+            score_values.append(review.score_normalized)
 
-        return self._compute_stats(
+        stats = self._compute_stats(
             steam_disparities, metacritic_disparities, combined_disparities, len(reviews),
         )
+        stats.update(self._build_score_profile_metrics(score_values, len(reviews)))
+        return stats
 
     # =========================================================================
     # In-Memory Disparity from Cache
@@ -620,6 +628,7 @@ class DisparityCalculator:
         steam_disparities: List[float] = []
         metacritic_disparities: List[float] = []
         combined_disparities: List[float] = []
+        score_values: List[Decimal] = []
 
         for _review_id, game_id, _journalist_id, _outlet_id, score_normalized in entity_reviews:
             user_scores = self._user_scores_cache.get(
@@ -637,13 +646,16 @@ class DisparityCalculator:
                 metacritic_disparities.append(float(disparity["disparity_metacritic"]))
             if disparity["disparity_combined"] is not None:
                 combined_disparities.append(float(disparity["disparity_combined"]))
+            score_values.append(score_normalized)
 
-        return self._compute_stats(
+        stats = self._compute_stats(
             steam_disparities,
             metacritic_disparities,
             combined_disparities,
             len(entity_reviews),
         )
+        stats.update(self._build_score_profile_metrics(score_values, len(entity_reviews)))
+        return stats
 
     # =========================================================================
     # Snapshot Generation (Optimized with Bulk Loading)
@@ -693,7 +705,6 @@ class DisparityCalculator:
             )
             .where(
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
             .group_by(Review.journalist_id, Review.outlet_id)
         )
@@ -719,7 +730,6 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id.isnot(None),
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
             .group_by(Review.outlet_id)
         )
@@ -753,7 +763,8 @@ class DisparityCalculator:
                 if journalist_obj:
                     journalist_obj.avg_disparity = stats["avg_disparity_combined"]
                     journalist_obj.review_count_scored = stats["review_count"]
-                    journalist_obj.score_std_dev = stats["std_deviation"]
+                    journalist_obj.score_std_dev = stats["score_std_dev"]
+                    journalist_obj.is_binary_reviewer = stats["is_binary_profile"]
                     journalist_obj.last_review_at = journalist_last_review.get(journalist_id)
 
             if i % 1000 == 0:
@@ -788,7 +799,8 @@ class DisparityCalculator:
                 if outlet_obj:
                     outlet_obj.avg_disparity = stats["avg_disparity_combined"]
                     outlet_obj.review_count_scored = stats["review_count"]
-                    outlet_obj.score_std_dev = stats["std_deviation"]
+                    outlet_obj.score_std_dev = stats["score_std_dev"]
+                    outlet_obj.is_binary_scorer = stats["is_binary_profile"]
                     outlet_obj.last_review_at = outlet_last_review.get(outlet_id)
                     outlet_obj.journalist_count = outlet_journalist_counts.get(outlet_id, 0)
 
@@ -864,7 +876,6 @@ class DisparityCalculator:
             )
             .where(
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
             .group_by(Review.journalist_id)
         )
@@ -900,7 +911,8 @@ class DisparityCalculator:
                     "id": journalist_id,
                     "avg_disparity": stats["avg_disparity_combined"],
                     "review_count_scored": stats["review_count"],
-                    "score_std_dev": stats["std_deviation"],
+                    "score_std_dev": stats["score_std_dev"],
+                    "is_binary_reviewer": stats["is_binary_profile"],
                     "last_review_at": journalist_last_review.get(journalist_id),
                 })
 
@@ -936,7 +948,6 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id.isnot(None),
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
             .group_by(Review.outlet_id)
         )
@@ -956,7 +967,6 @@ class DisparityCalculator:
             .where(
                 Review.outlet_id.isnot(None),
                 Review.score_normalized.isnot(None),
-                Review.score_normalized > 0,
             )
             .group_by(Review.outlet_id)
         )
@@ -992,7 +1002,8 @@ class DisparityCalculator:
                     "id": outlet_id,
                     "avg_disparity": stats["avg_disparity_combined"],
                     "review_count_scored": stats["review_count"],
-                    "score_std_dev": stats["std_deviation"],
+                    "score_std_dev": stats["score_std_dev"],
+                    "is_binary_scorer": stats["is_binary_profile"],
                     "last_review_at": outlet_last_review.get(outlet_id),
                     "journalist_count": outlet_journalist_counts.get(outlet_id, 0),
                 })
@@ -1063,6 +1074,37 @@ class DisparityCalculator:
     # =========================================================================
     # Helper Methods
     # =========================================================================
+
+    @staticmethod
+    def _compute_score_std_dev(score_values: List[Decimal]) -> Optional[Decimal]:
+        """Compute score spread (std-dev) from normalized critic scores only."""
+        if not score_values:
+            return None
+        if len(score_values) == 1:
+            return Decimal("0")
+        return Decimal(str(round(stdev(float(score) for score in score_values), 2)))
+
+    @staticmethod
+    def _is_binary_score_profile(
+        score_values: List[Decimal],
+        review_count: int,
+    ) -> bool:
+        """Return True when all scored reviews are strictly 0 or 100."""
+        if review_count < MIN_BINARY_REVIEW_COUNT or not score_values:
+            return False
+        allowed_scores = (Decimal("0"), Decimal("100"))
+        return all(score in allowed_scores for score in score_values)
+
+    @classmethod
+    def _build_score_profile_metrics(
+        cls,
+        score_values: List[Decimal],
+        review_count: int,
+    ) -> Dict[str, Any]:
+        return {
+            "score_std_dev": cls._compute_score_std_dev(score_values),
+            "is_binary_profile": cls._is_binary_score_profile(score_values, review_count),
+        }
 
     @staticmethod
     def _compute_stats(

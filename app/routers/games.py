@@ -19,6 +19,7 @@ from app.schemas.schemas import (
     NewsArticleSummary,
     PaginatedResponse,
 )
+from app.services.review_score_correction import corrected_normalized_score
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -350,14 +351,13 @@ async def get_game_reviews(
                 Review.published_at > game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS)
             )
 
-    # Get total count (only reviews with actual scores)
+    # Get total count (only scored reviews, including 0)
     count_query = (
         select(func.count())
         .select_from(Review)
         .where(
             Review.game_id == game_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
             *timing_conditions,
         )
     )
@@ -367,7 +367,7 @@ async def get_game_reviews(
     # Determine sort direction
     order = asc(Review.published_at) if sort_order == "asc" else desc(Review.published_at)
 
-    # Get reviews (only reviews with actual scores)
+    # Get reviews (only scored reviews, including 0)
     query = (
         select(Review, Journalist, Outlet)
         .join(Journalist, Review.journalist_id == Journalist.id)
@@ -375,7 +375,6 @@ async def get_game_reviews(
         .where(
             Review.game_id == game_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
-            Review.score_normalized > 0,  # Exclude unscored (0) reviews
             *timing_conditions,
         )
         .order_by(order)
@@ -387,7 +386,16 @@ async def get_game_reviews(
     rows = result.all()
 
     items = []
+    corrected_count = 0
     for review, journalist, outlet in rows:
+        corrected_score, was_corrected = corrected_normalized_score(
+            score_raw=review.score_raw,
+            score_scale=review.score_scale,
+            stored_score_normalized=review.score_normalized,
+        )
+        if was_corrected:
+            corrected_count += 1
+
         disparity_steam = review.cached_disparity_steam
         disparity_metacritic = review.cached_disparity_metacritic
 
@@ -403,7 +411,7 @@ async def get_game_reviews(
                 outlet_id=review.outlet_id,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
-                score_normalized=review.score_normalized,
+                score_normalized=corrected_score,
                 review_url=review.review_url,
                 snippet=review.snippet,
                 published_at=review.published_at,
@@ -417,6 +425,12 @@ async def get_game_reviews(
                 is_launch_window=review_timing == "launch_window",  # Backward compatibility
                 review_timing=review_timing,
             )
+        )
+
+    if corrected_count:
+        print(
+            f"Runtime score corrections (game_id={game_id}): "
+            f"{corrected_count}/{len(rows)}"
         )
 
     return PaginatedResponse(

@@ -785,9 +785,6 @@ async def _cleanup_unscored_reviews():
             # Check against known unscored values
             if raw in unscored_values:
                 should_nullify = True
-            # Check if raw score is 0 and normalized is also 0
-            elif review.score_normalized == 0:
-                should_nullify = True
             # Check if raw score looks numeric but resulted in exactly 100 from a non-100 scale
             # This catches cases where "10" on a 10-scale became 100
             elif review.score_normalized == 100 and review.score_scale != "100":
