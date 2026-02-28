@@ -17,6 +17,8 @@ jobs:
   lighthouse-seo:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_API_URL: ${{ vars.SEO_API_URL || 'https://reviewdisparity.com/api/v1' }}
 
     steps:
       - name: Checkout
@@ -62,5 +64,5 @@ jobs:
         with:
           name: lighthouse-seo-reports
           path: frontend/.lighthouseci
+          include-hidden-files: true
           if-no-files-found: ignore
-

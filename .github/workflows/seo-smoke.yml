@@ -17,6 +17,8 @@ jobs:
   seo-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      NEXT_PUBLIC_API_URL: ${{ vars.SEO_API_URL || 'https://reviewdisparity.com/api/v1' }}
 
     steps:
       - name: Checkout
@@ -57,4 +59,3 @@ jobs:
 
           curl -sf http://127.0.0.1:3000/ >/dev/null
           yarn test:seo
-
