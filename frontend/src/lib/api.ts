@@ -209,6 +209,13 @@ export async function getOutletHistory(
   return fetchAPI<DisparitySnapshot[]>(`/outlets/${id}/history?limit=${limit}`);
 }
 
+export async function getGameHistory(
+  id: number,
+  limit = 10000
+): Promise<DisparitySnapshot[]> {
+  return fetchAPI<DisparitySnapshot[]>(`/games/${id}/history?limit=${limit}`);
+}
+
 // All reviews for charts - fetches ALL reviews by paginating through all pages
 export async function getJournalistAllReviews(
   id: number

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { Journalist, Outlet } from "@/types";
+import type { Game, Journalist, Outlet } from "@/types";
 import { emitNavigationStart } from "@/lib/navigation-progress";
 
 interface SelectedItem {
@@ -12,7 +12,7 @@ interface SelectedItem {
 }
 
 interface CompareSelectorProps {
-  type: "journalists" | "outlets";
+  type: "journalists" | "outlets" | "games";
   selectedIds: number[];
   selectedItems: SelectedItem[];
   maxSelections: number;
@@ -66,12 +66,19 @@ export function CompareSelector({
                   image_url: j.image_url,
                   review_count: j.review_count,
                 }))
-              : data.outlets.map((o: Outlet) => ({
-                  id: o.id,
-                  name: o.name,
-                  image_url: o.logo_url,
-                  review_count: o.review_count,
-                }));
+              : type === "outlets"
+                ? data.outlets.map((o: Outlet) => ({
+                    id: o.id,
+                    name: o.name,
+                    image_url: o.logo_url,
+                    review_count: o.review_count,
+                  }))
+                : data.games.map((g: Game) => ({
+                    id: g.id,
+                    name: g.title,
+                    image_url: g.image_url,
+                    review_count: g.critic_review_count,
+                  }));
           // Filter out already selected items
           setResults(items.filter((item) => !selectedIds.includes(item.id)));
         }

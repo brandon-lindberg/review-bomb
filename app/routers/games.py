@@ -11,10 +11,11 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models.models import Game, Review, Journalist, Outlet, NewsArticle
+from app.models.models import Game, Review, Journalist, Outlet, NewsArticle, DisparitySnapshot
 from app.schemas.schemas import (
     GameDetail,
     GameWithScores,
+    DisparitySnapshot as DisparitySnapshotSchema,
     ReviewWithJournalist,
     NewsArticleSummary,
     PaginatedResponse,
@@ -361,6 +362,40 @@ async def get_game_news(
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+
+@router.get("/{game_id}/history", response_model=list[DisparitySnapshotSchema])
+async def get_game_history(
+    game_id: int,
+    limit: int = Query(10000, ge=1, le=10000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get historical disparity data for a game from pipeline snapshots."""
+    game_result = await db.execute(
+        select(Game.id).where(Game.id == game_id)
+    )
+    if not game_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    query = (
+        select(DisparitySnapshot)
+        .where(DisparitySnapshot.game_id == game_id)
+        .order_by(desc(DisparitySnapshot.snapshot_date))
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    snapshots = result.scalars().all()
+
+    return [
+        DisparitySnapshotSchema(
+            date=s.snapshot_date,
+            avg_disparity_steam=s.avg_disparity_steam,
+            avg_disparity_metacritic=s.avg_disparity_metacritic,
+            avg_disparity_combined=s.avg_disparity_combined,
+            review_count=s.review_count,
+        )
+        for s in reversed(snapshots)
+    ]
 
 
 # Anti-gaming constants

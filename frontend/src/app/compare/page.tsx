@@ -1,26 +1,48 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
+import { getGame, getGameHistory, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { MiniDisparityChart } from "@/components/DisparityChart";
 import { CompareSelector } from "@/components/CompareSelector";
-import type { JournalistDetail, OutletWithStats, DisparitySnapshot } from "@/types";
+import { ShareButtons } from "@/components/ShareButtons";
+import { getDisplayDisparity } from "@/lib/disparity-colors";
+import { getSiteUrl } from "@/lib/site-url";
+import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
 
-export const metadata: Metadata = {
-  title: "Compare Critics",
-  description:
-    "Compare game journalists and outlets side by side. See how their review scores and disparity trends differ over time.",
-  alternates: { canonical: "/compare" },
-  openGraph: {
-    title: "Compare Critics - ReviewDisparity",
-    description:
-      "Compare game journalists and outlets side by side. See how their review scores and disparity trends differ.",
-    url: "/compare",
-  },
+type CompareType = "journalists" | "outlets" | "games";
+
+const compareTypeLabel: Record<CompareType, string> = {
+  journalists: "journalists",
+  outlets: "outlets",
+  games: "games",
 };
+
+function normalizeCompareType(rawType?: string): CompareType {
+  if (rawType === "journalists" || rawType === "outlets" || rawType === "games") {
+    return rawType;
+  }
+  return "journalists";
+}
+
+function parseCompareIds(rawIds?: string): number[] {
+  if (!rawIds) return [];
+
+  const ids: number[] = [];
+  const seen = new Set<number>();
+
+  for (const token of rawIds.split(",")) {
+    const parsed = Number.parseInt(token.trim(), 10);
+    if (!Number.isInteger(parsed) || parsed <= 0 || seen.has(parsed)) continue;
+    seen.add(parsed);
+    ids.push(parsed);
+    if (ids.length >= 4) break;
+  }
+
+  return ids;
+}
 
 interface PageProps {
   searchParams: Promise<{
@@ -40,14 +62,98 @@ interface CompareData {
   linkHref: string;
 }
 
+async function getCompareNames(type: CompareType, ids: number[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+
+  if (type === "journalists") {
+    const results = await Promise.all(ids.map(async (id) => {
+      try {
+        const journalist = await getJournalist(id);
+        return journalist.name;
+      } catch {
+        return null;
+      }
+    }));
+    return results.filter((name): name is string => Boolean(name));
+  }
+
+  if (type === "outlets") {
+    const results = await Promise.all(ids.map(async (id) => {
+      try {
+        const outlet = await getOutlet(id);
+        return outlet.name;
+      } catch {
+        return null;
+      }
+    }));
+    return results.filter((name): name is string => Boolean(name));
+  }
+
+  const results = await Promise.all(ids.map(async (id) => {
+    try {
+      const game = await getGame(id);
+      return game.title;
+    } catch {
+      return null;
+    }
+  }));
+  return results.filter((name): name is string => Boolean(name));
+}
+
+export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
+  const params = await searchParams;
+  const type = normalizeCompareType(params.type);
+  const ids = parseCompareIds(params.ids);
+  const queryParams = new URLSearchParams({ type });
+  if (ids.length > 0) {
+    queryParams.set("ids", ids.join(","));
+  }
+
+  const names = await getCompareNames(type, ids);
+  const compareLabel = compareTypeLabel[type];
+  const title = names.length > 0
+    ? `Compare ${names.join(" vs ")}`
+    : `Compare ${compareLabel}`;
+  const description = names.length > 0
+    ? `${title} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
+    : "Compare game journalists, outlets, and games side by side. See how their review scores and disparity trends differ over time.";
+  const openGraphImage = `/api/og/compare?${queryParams.toString()}`;
+
+  return {
+    title,
+    description,
+    alternates: { canonical: "/compare" },
+    openGraph: {
+      title: `${title} - ReviewDisparity`,
+      description,
+      url: `/compare?${queryParams.toString()}`,
+      images: [
+        {
+          url: openGraphImage,
+          width: 1200,
+          height: 630,
+          alt: title,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [openGraphImage],
+    },
+  };
+}
+
 export default async function ComparePage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const type = params.type || "journalists";
-  const ids = params.ids ? params.ids.split(",").map((id) => parseInt(id)).filter((id) => !isNaN(id)) : [];
+  const type = normalizeCompareType(params.type);
+  const ids = parseCompareIds(params.ids);
 
   const tabs = [
     { id: "journalists", label: "Journalists" },
     { id: "outlets", label: "Outlets" },
+    { id: "games", label: "Games" },
   ];
 
   // Fetch data for selected items
@@ -113,6 +219,38 @@ export default async function ComparePage({ searchParams }: PageProps) {
             });
           }
         }
+      } else if (type === "games") {
+        const results = await Promise.all(
+          ids.slice(0, 4).map(async (id) => {
+            try {
+              const [game, history] = await Promise.all([
+                getGame(id),
+                getGameHistory(id),
+              ]);
+              return { game, history };
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        for (const result of results) {
+          if (result) {
+            compareData.push({
+              id: result.game.id,
+              name: result.game.title,
+              image_url: result.game.image_url,
+              review_count: result.game.critic_review_count ?? 0,
+              avg_disparity: getDisplayDisparity(
+                result.game.disparity_steam,
+                result.game.disparity_metacritic
+              ),
+              avg_score: result.game.avg_critic_score ?? null,
+              history: result.history,
+              linkHref: `/games/${result.game.id}`,
+            });
+          }
+        }
       }
     } catch (error) {
       console.error("Error fetching compare data:", error);
@@ -121,11 +259,22 @@ export default async function ComparePage({ searchParams }: PageProps) {
 
   // Brand colors for comparison charts
   const colors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
+  const compareIds = ids;
+  const shareUrl = compareIds.length
+    ? `${getSiteUrl()}/compare?${new URLSearchParams({ type, ids: compareIds.join(",") }).toString()}`
+    : `${getSiteUrl()}/compare?type=${type}`;
+  const comparedNames = compareData.slice(0, 4).map((item) => item.name);
+  const shareText = comparedNames.length > 0
+    ? `Compare ${comparedNames.join(" vs ")} on Review Disparity`
+    : `Compare ${type} on Review Disparity`;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Compare</h1>
+        {compareIds.length > 0 && (
+          <ShareButtons url={shareUrl} text={shareText} />
+        )}
       </div>
 
       {/* Tab Navigation */}
@@ -150,11 +299,11 @@ export default async function ComparePage({ searchParams }: PageProps) {
       {/* Selector */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Select {type === "journalists" ? "Journalists" : "Outlets"} to Compare
+          Select {type === "journalists" ? "Journalists" : type === "outlets" ? "Outlets" : "Games"} to Compare
         </h2>
         <Suspense fallback={<CompareSelectorFallback />}>
           <CompareSelector
-            type={type as "journalists" | "outlets"}
+            type={type}
             selectedIds={ids}
             selectedItems={compareData.map((item) => ({
               id: item.id,
@@ -226,7 +375,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 {/* Review Count Row */}
                 <tr className="bg-gray-50">
                   <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    Total Reviews
+                    {type === "games" ? "Total Critic Reviews" : "Total Reviews"}
                   </td>
                   {compareData.map((item) => (
                     <td
@@ -241,7 +390,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 {/* Avg Score Row */}
                 <tr>
                   <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    Avg Score Given
+                    {type === "games" ? "Avg Critic Score" : "Avg Score Given"}
                   </td>
                   {compareData.map((item) => (
                     <td
@@ -286,7 +435,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
       ) : (
         <div className="text-center py-12 bg-white rounded-lg shadow">
           <p className="text-gray-500">
-            Select up to 4 {type === "journalists" ? "journalists" : "outlets"} to
+            Select up to 4 {type === "journalists" ? "journalists" : type === "outlets" ? "outlets" : "games"} to
             compare their disparity metrics side by side.
           </p>
         </div>
