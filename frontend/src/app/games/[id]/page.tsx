@@ -30,6 +30,17 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
         : null;
     const disparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(0)}` : null;
+    const ogParams = new URLSearchParams({
+      kind: "game",
+      name: game.title,
+      subtitle: "Critic vs player score snapshot",
+      disparity: disparity != null ? Number(disparity).toFixed(1) : "",
+      reviews: (game.critic_review_count ?? 0).toString(),
+      score: criticScore ?? "N/A",
+      extra: userScore ? `User score ${userScore}` : "User score N/A",
+      card: "g1",
+    });
+    const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
     let description = `${game.title} critic vs user review scores.`;
     if (criticScore && userScore && disparityStr) {
@@ -43,17 +54,15 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
       openGraph: {
         title: `${game.title} - Critic vs User Scores | ReviewDisparity`,
         description,
-        url: `/games/${canonicalId}`,
+        url: `${siteUrl}/games/${canonicalId}`,
         type: "article",
-        images: game.image_url
-          ? [{ url: game.image_url, alt: game.title }]
-          : [{ url: `${siteUrl}/logo.png`, width: 900, height: 715, alt: "ReviewDisparity Logo" }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${game.title} review disparity snapshot` }],
       },
       twitter: {
-        card: game.image_url ? "summary_large_image" : "summary",
+        card: "summary_large_image",
         title: game.title,
         description,
-        images: [game.image_url ?? `${siteUrl}/logo.png`],
+        images: [openGraphImage],
       },
     };
   } catch {
@@ -109,7 +118,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     }),
   };
 
-  const shareUrl = `${getSiteUrl()}/games/${game.public_id}`;
+  const shareUrl = `${getSiteUrl()}/games/${game.public_id}?card=g1`;
   const shareDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;

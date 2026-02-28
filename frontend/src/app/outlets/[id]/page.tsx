@@ -28,6 +28,18 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const canonicalId = outlet.public_id;
     const disparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
+    const avgScore = outlet.avg_score != null ? Number(outlet.avg_score).toFixed(1) : "N/A";
+    const ogParams = new URLSearchParams({
+      kind: "outlet",
+      name: outlet.name,
+      subtitle: "Outlet review disparity profile",
+      disparity: disparity != null ? Number(disparity).toFixed(1) : "",
+      reviews: (outlet.review_count ?? 0).toString(),
+      score: avgScore,
+      extra: `${outlet.journalist_count ?? 0} journalists tracked`,
+      card: "o1",
+    });
+    const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
     let description = `${outlet.name} game review scores and critic-to-user disparity data.`;
     if (disparityStr) {
@@ -42,17 +54,15 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       openGraph: {
         title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `/outlets/${canonicalId}`,
+        url: `${siteUrl}/outlets/${canonicalId}`,
         type: "website",
-        images: outlet.logo_url
-          ? [{ url: outlet.logo_url, alt: outlet.name }]
-          : [{ url: `${siteUrl}/logo.png`, width: 900, height: 715, alt: "ReviewDisparity Logo" }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${outlet.name} review disparity snapshot` }],
       },
       twitter: {
-        card: "summary",
+        card: "summary_large_image",
         title: outlet.name,
         description,
-        images: [outlet.logo_url ?? `${siteUrl}/logo.png`],
+        images: [openGraphImage],
       },
     };
   } catch {
@@ -80,7 +90,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     redirect(`/outlets/${outlet.public_id}`);
   }
 
-  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}`;
+  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o1`;
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${outlet.name} on Review Disparity`];

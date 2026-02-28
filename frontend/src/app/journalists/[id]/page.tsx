@@ -28,6 +28,18 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const canonicalId = journalist.public_id;
     const disparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
+    const avgScore = journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given).toFixed(1) : "N/A";
+    const ogParams = new URLSearchParams({
+      kind: "journalist",
+      name: journalist.name,
+      subtitle: "Review disparity profile",
+      disparity: disparity != null ? Number(disparity).toFixed(1) : "",
+      reviews: journalist.review_count.toString(),
+      score: avgScore,
+      extra: `${journalist.review_count} reviews analyzed`,
+      card: "j1",
+    });
+    const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
     let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
     if (disparityStr) {
@@ -42,17 +54,15 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       openGraph: {
         title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `/journalists/${canonicalId}`,
+        url: `${siteUrl}/journalists/${canonicalId}`,
         type: "profile",
-        images: journalist.image_url
-          ? [{ url: journalist.image_url, alt: journalist.name }]
-          : [{ url: `${siteUrl}/logo.png`, width: 900, height: 715, alt: "ReviewDisparity Logo" }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${journalist.name} review disparity snapshot` }],
       },
       twitter: {
-        card: "summary",
+        card: "summary_large_image",
         title: journalist.name,
         description,
-        images: [journalist.image_url ?? `${siteUrl}/logo.png`],
+        images: [openGraphImage],
       },
     };
   } catch {
@@ -82,7 +92,7 @@ export default async function JournalistDetailPage({
     redirect(`/journalists/${journalist.public_id}`);
   }
 
-  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}`;
+  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?card=j1`;
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
