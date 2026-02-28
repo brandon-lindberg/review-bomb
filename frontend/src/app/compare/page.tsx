@@ -62,62 +62,26 @@ interface CompareData {
   linkHref: string;
 }
 
-async function getCompareNames(type: CompareType, ids: number[]): Promise<string[]> {
-  if (ids.length === 0) return [];
-
-  if (type === "journalists") {
-    const results = await Promise.all(ids.map(async (id) => {
-      try {
-        const journalist = await getJournalist(id);
-        return journalist.name;
-      } catch {
-        return null;
-      }
-    }));
-    return results.filter((name): name is string => Boolean(name));
-  }
-
-  if (type === "outlets") {
-    const results = await Promise.all(ids.map(async (id) => {
-      try {
-        const outlet = await getOutlet(id);
-        return outlet.name;
-      } catch {
-        return null;
-      }
-    }));
-    return results.filter((name): name is string => Boolean(name));
-  }
-
-  const results = await Promise.all(ids.map(async (id) => {
-    try {
-      const game = await getGame(id);
-      return game.title;
-    } catch {
-      return null;
-    }
-  }));
-  return results.filter((name): name is string => Boolean(name));
-}
-
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const params = await searchParams;
   const type = normalizeCompareType(params.type);
   const ids = parseCompareIds(params.ids);
+  const siteUrl = getSiteUrl();
   const queryParams = new URLSearchParams({ type });
   if (ids.length > 0) {
     queryParams.set("ids", ids.join(","));
   }
 
-  const names = await getCompareNames(type, ids);
   const compareLabel = compareTypeLabel[type];
-  const title = names.length > 0
-    ? `Compare ${names.join(" vs ")}`
+  const compareCount = ids.length;
+  const title = compareCount > 0
+    ? `Compare ${compareCount} ${compareLabel}`
     : `Compare ${compareLabel}`;
-  const description = names.length > 0
-    ? `${title} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
+  const description = compareCount > 0
+    ? `Compare selected ${compareLabel} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
     : "Compare game journalists, outlets, and games side by side. See how their review scores and disparity trends differ over time.";
-  const openGraphImage = `/api/og/compare?${queryParams.toString()}`;
+  const comparePath = `/compare?${queryParams.toString()}`;
+  const openGraphImage = `${siteUrl}/api/og/compare?${queryParams.toString()}`;
 
   return {
     title,
@@ -126,7 +90,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     openGraph: {
       title: `${title} - ReviewDisparity`,
       description,
-      url: `/compare?${queryParams.toString()}`,
+      url: `${siteUrl}${comparePath}`,
       images: [
         {
           url: openGraphImage,
@@ -260,9 +224,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
   // Brand colors for comparison charts
   const colors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
   const compareIds = ids;
-  const shareUrl = compareIds.length
-    ? `${getSiteUrl()}/compare?${new URLSearchParams({ type, ids: compareIds.join(",") }).toString()}`
-    : `${getSiteUrl()}/compare?type=${type}`;
+  const shareQuery = compareIds.length
+    ? `type=${type}&ids=${compareIds.join(",")}&card=v2`
+    : `type=${type}&card=v2`;
+  const shareUrl = `${getSiteUrl()}/compare?${shareQuery}`;
   const comparedNames = compareData.slice(0, 4).map((item) => item.name);
   const shareText = comparedNames.length > 0
     ? `Compare ${comparedNames.join(" vs ")} on Review Disparity`
