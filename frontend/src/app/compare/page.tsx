@@ -49,6 +49,7 @@ interface PageProps {
     type?: string;
     ids?: string;
     card?: string;
+    labels?: string;
   }>;
 }
 
@@ -63,10 +64,20 @@ interface CompareData {
   linkHref: string;
 }
 
+function parseCompareLabels(rawLabels?: string): string[] {
+  if (!rawLabels) return [];
+  return rawLabels
+    .split("|")
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0)
+    .slice(0, 4);
+}
+
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const params = await searchParams;
   const type = normalizeCompareType(params.type);
   const ids = parseCompareIds(params.ids);
+  const labels = parseCompareLabels(params.labels);
   const siteUrl = getSiteUrl();
   const queryParams = new URLSearchParams({ type });
   if (ids.length > 0) {
@@ -75,11 +86,16 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   if (params.card) {
     queryParams.set("card", params.card);
   }
+  if (labels.length > 0) {
+    queryParams.set("labels", labels.join("|"));
+  }
 
   const compareLabel = compareTypeLabel[type];
-  const compareCount = ids.length;
-  const title = compareCount > 0
-    ? `Compare ${compareCount} ${compareLabel}`
+  const compareCount = Math.max(ids.length, labels.length);
+  const title = labels.length > 0
+    ? `Compare ${labels.join(" vs ")}`
+    : compareCount > 0
+      ? `Compare ${compareCount} ${compareLabel}`
     : `Compare ${compareLabel}`;
   const description = compareCount > 0
     ? `Compare selected ${compareLabel} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
@@ -228,11 +244,18 @@ export default async function ComparePage({ searchParams }: PageProps) {
   // Brand colors for comparison charts
   const colors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
   const compareIds = ids;
-  const shareQuery = compareIds.length
-    ? `type=${type}&ids=${compareIds.join(",")}&card=v2`
-    : `type=${type}&card=v2`;
-  const shareUrl = `${getSiteUrl()}/compare?${shareQuery}`;
   const comparedNames = compareData.slice(0, 4).map((item) => item.name);
+  const shareParams = new URLSearchParams({
+    type,
+    card: "v3",
+  });
+  if (compareIds.length > 0) {
+    shareParams.set("ids", compareIds.join(","));
+  }
+  if (comparedNames.length > 0) {
+    shareParams.set("labels", comparedNames.join("|"));
+  }
+  const shareUrl = `${getSiteUrl()}/compare?${shareParams.toString()}`;
   const shareText = comparedNames.length > 0
     ? `Compare ${comparedNames.join(" vs ")} on Review Disparity`
     : `Compare ${type} on Review Disparity`;

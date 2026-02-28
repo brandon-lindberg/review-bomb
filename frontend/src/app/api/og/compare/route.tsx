@@ -14,7 +14,7 @@ interface SnapshotItem {
   id: number;
   name: string;
   disparity: number | null;
-  reviewCount: number;
+  reviewCount: number | null;
   avgScore: number | null;
 }
 
@@ -60,6 +60,30 @@ function formatScore(value: number | null): string {
   return Number(value).toFixed(1);
 }
 
+function formatReviewCount(value: number | null): string {
+  if (value == null) return "N/A";
+  return value.toLocaleString();
+}
+
+function parseLabels(rawLabels?: string | null): string[] {
+  if (!rawLabels) return [];
+  return rawLabels
+    .split("|")
+    .map((label) => label.trim())
+    .filter((label) => label.length > 0)
+    .slice(0, 4);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(null))
+      .finally(() => clearTimeout(timer));
+  });
+}
+
 async function getSnapshotItems(type: CompareType, ids: number[]): Promise<SnapshotItem[]> {
   if (ids.length === 0) return [];
 
@@ -78,7 +102,11 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
         return null;
       }
     }));
-    return results.filter((result): result is SnapshotItem => result != null);
+    const items: SnapshotItem[] = [];
+    for (const result of results) {
+      if (result) items.push(result);
+    }
+    return items;
   }
 
   if (type === "outlets") {
@@ -96,7 +124,11 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
         return null;
       }
     }));
-    return results.filter((result): result is SnapshotItem => result != null);
+    const items: SnapshotItem[] = [];
+    for (const result of results) {
+      if (result) items.push(result);
+    }
+    return items;
   }
 
   const results = await Promise.all(ids.map(async (id) => {
@@ -114,7 +146,11 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
     }
   }));
 
-  return results.filter((result): result is SnapshotItem => result != null);
+  const items: SnapshotItem[] = [];
+  for (const result of results) {
+    if (result) items.push(result);
+  }
+  return items;
 }
 
 export async function GET(request: Request) {
@@ -122,8 +158,26 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const type = normalizeCompareType(searchParams.get("type") ?? undefined);
     const ids = parseCompareIds(searchParams.get("ids") ?? undefined);
+    const labels = parseLabels(searchParams.get("labels"));
 
-    const items = await getSnapshotItems(type, ids);
+    const quickItems: SnapshotItem[] = ids.map((id, index) => ({
+      id,
+      name: labels[index] ?? `Item ${index + 1}`,
+      disparity: null,
+      reviewCount: null,
+      avgScore: null,
+    }));
+
+    const loadedItems = ids.length > 0
+      ? await withTimeout(getSnapshotItems(type, ids), 1800)
+      : [];
+
+    const merged = (loadedItems ?? []).map((item, index) => ({
+      ...item,
+      name: labels[index] ?? item.name,
+    }));
+    const items = merged.length > 0 ? merged : quickItems;
+
     const typeLabel = getTypeLabel(type);
     const title = items.length > 0
       ? `Compare ${items.map((item) => truncate(item.name, 20)).join(" vs ")}`
@@ -242,7 +296,7 @@ export async function GET(request: Request) {
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20 }}>
                       <span style={{ color: "#CFC5B8" }}>Total reviews</span>
                       <span style={{ color: "#F7F2E7", fontWeight: 700 }}>
-                        {item.reviewCount.toLocaleString()}
+                        {formatReviewCount(item.reviewCount)}
                       </span>
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 20 }}>
