@@ -11,6 +11,7 @@ export interface PaginatedResponse<T> {
 // Journalist Types
 export interface Journalist {
   id: number;
+  public_id: string;
   name: string;
   image_url: string | null;
   bio: string | null;
@@ -62,6 +63,7 @@ export interface JournalistStats {
 
 export interface OutletBreakdown {
   outlet_id: number;
+  outlet_public_id: string;
   outlet_name: string;
   review_count: number;
   avg_disparity: number | null;
@@ -80,6 +82,7 @@ export interface JournalistDetail extends Journalist {
 // Outlet Types
 export interface Outlet {
   id: number;
+  public_id: string;
   name: string;
   website_url: string | null;
   logo_url: string | null;
@@ -110,6 +113,7 @@ export interface OutletWithStats extends Outlet {
 // Game Types
 export interface Game {
   id: number;
+  public_id: string;
   title: string;
   release_date: string | null;
   description: string | null;
@@ -141,8 +145,11 @@ export interface GameWithScores extends Game {
 export interface Review {
   id: number;
   journalist_id: number;
+  journalist_public_id?: string | null;
   game_id: number;
+  game_public_id?: string | null;
   outlet_id: number | null;
+  outlet_public_id?: string | null;
   score_raw: string;
   score_scale: string | null;
   score_normalized: number | null;
@@ -183,6 +190,7 @@ export interface ReviewWithJournalist extends Review {
 export interface JournalistRanking {
   rank: number;
   journalist_id: number;
+  journalist_public_id: string;
   journalist_name: string;
   journalist_image_url: string | null;
   outlet_name: string | null;
@@ -196,6 +204,7 @@ export interface JournalistRanking {
 export interface OutletRanking {
   rank: number;
   outlet_id: number;
+  outlet_public_id: string;
   outlet_name: string;
   outlet_logo_url: string | null;
   avg_disparity: number;
@@ -209,6 +218,7 @@ export interface OutletRanking {
 export interface GameRanking {
   rank: number;
   game_id: number;
+  game_public_id: string;
   game_title: string;
   game_image_url: string | null;
   release_date: string | null;

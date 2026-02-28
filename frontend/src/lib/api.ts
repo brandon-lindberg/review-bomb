@@ -16,7 +16,7 @@ import type {
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
-const outletAllReviewsCache = new Map<number, Promise<ReviewWithJournalist[]>>();
+const outletAllReviewsCache = new Map<string, Promise<ReviewWithJournalist[]>>();
 
 type NextFetchOptions = RequestInit & {
   next?: {
@@ -85,12 +85,12 @@ export async function getJournalists(
   return fetchAPI<PaginatedResponse<Journalist>>(url);
 }
 
-export async function getJournalist(id: number): Promise<JournalistDetail> {
+export async function getJournalist(id: string | number): Promise<JournalistDetail> {
   return fetchAPI<JournalistDetail>(`/journalists/${id}`);
 }
 
 export async function getJournalistReviews(
-  id: number,
+  id: string | number,
   page = 1,
   perPage = 20
 ): Promise<PaginatedResponse<ReviewWithDisparity>> {
@@ -112,12 +112,12 @@ export async function getOutlets(
   return fetchAPI<PaginatedResponse<OutletWithStats>>(url);
 }
 
-export async function getOutlet(id: number): Promise<OutletWithStats> {
+export async function getOutlet(id: string | number): Promise<OutletWithStats> {
   return fetchAPI<OutletWithStats>(`/outlets/${id}`);
 }
 
 export async function getOutletReviews(
-  id: number,
+  id: string | number,
   page = 1,
   perPage = 20
 ): Promise<PaginatedResponse<ReviewWithJournalist>> {
@@ -141,12 +141,12 @@ export async function getGames(
   return fetchAPI<PaginatedResponse<GameWithScores>>(url);
 }
 
-export async function getGame(id: number): Promise<GameWithScores> {
+export async function getGame(id: string | number): Promise<GameWithScores> {
   return fetchAPI<GameWithScores>(`/games/${id}`);
 }
 
 export async function getGameReviews(
-  id: number,
+  id: string | number,
   page = 1,
   perPage = 20,
   reviewTiming?: string,
@@ -196,21 +196,21 @@ export async function search(query: string, limit = 10): Promise<SearchResult> {
 
 // History (for charts) - returns full career timeline
 export async function getJournalistHistory(
-  id: number,
+  id: string | number,
   limit = 10000
 ): Promise<DisparitySnapshot[]> {
   return fetchAPI<DisparitySnapshot[]>(`/journalists/${id}/history?limit=${limit}`);
 }
 
 export async function getOutletHistory(
-  id: number,
+  id: string | number,
   limit = 10000
 ): Promise<DisparitySnapshot[]> {
   return fetchAPI<DisparitySnapshot[]>(`/outlets/${id}/history?limit=${limit}`);
 }
 
 export async function getGameHistory(
-  id: number,
+  id: string | number,
   limit = 10000
 ): Promise<DisparitySnapshot[]> {
   return fetchAPI<DisparitySnapshot[]>(`/games/${id}/history?limit=${limit}`);
@@ -218,7 +218,7 @@ export async function getGameHistory(
 
 // All reviews for charts - fetches ALL reviews by paginating through all pages
 export async function getJournalistAllReviews(
-  id: number
+  id: string | number
 ): Promise<ReviewWithDisparity[]> {
   const allReviews: ReviewWithDisparity[] = [];
   let page = 1;
@@ -237,11 +237,12 @@ export async function getJournalistAllReviews(
 }
 
 export async function getOutletAllReviews(
-  id: number
+  id: string | number
 ): Promise<ReviewWithJournalist[]> {
+  const cacheKey = String(id);
   const isBrowser = typeof window !== "undefined";
   if (isBrowser) {
-    const cached = outletAllReviewsCache.get(id);
+    const cached = outletAllReviewsCache.get(cacheKey);
     if (cached) {
       return cached;
     }
@@ -265,21 +266,21 @@ export async function getOutletAllReviews(
   })();
 
   if (isBrowser) {
-    outletAllReviewsCache.set(id, request);
+    outletAllReviewsCache.set(cacheKey, request);
   }
 
   try {
     return await request;
   } catch (error) {
     if (isBrowser) {
-      outletAllReviewsCache.delete(id);
+      outletAllReviewsCache.delete(cacheKey);
     }
     throw error;
   }
 }
 
 export async function getGameAllReviews(
-  id: number
+  id: string | number
 ): Promise<ReviewWithJournalist[]> {
   const allReviews: ReviewWithJournalist[] = [];
   let page = 1;
@@ -313,7 +314,7 @@ export async function getNewsSources(): Promise<string[]> {
 }
 
 export async function getGameNews(
-  gameId: number,
+  gameId: string | number,
   page = 1,
   perPage = 5
 ): Promise<PaginatedResponse<NewsArticle>> {

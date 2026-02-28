@@ -82,7 +82,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
               {outlets.items.map((outlet) => (
                 <Link
                   key={outlet.id}
-                  href={`/outlets/${outlet.id}`}
+                  href={`/outlets/${outlet.public_id}`}
                   className="block p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-center justify-between">

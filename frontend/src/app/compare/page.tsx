@@ -150,7 +150,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               avg_disparity: result.journalist.avg_disparity,
               avg_score: result.journalist.stats?.avg_score_given ?? null,
               history: result.history,
-              linkHref: `/journalists/${result.journalist.id}`,
+              linkHref: `/journalists/${result.journalist.public_id}`,
             });
           }
         }
@@ -179,7 +179,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               avg_disparity: result.outlet.avg_disparity ?? null,
               avg_score: result.outlet.avg_score ?? null,
               history: result.history,
-              linkHref: `/outlets/${result.outlet.id}`,
+              linkHref: `/outlets/${result.outlet.public_id}`,
             });
           }
         }
@@ -211,7 +211,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               ),
               avg_score: result.game.avg_critic_score ?? null,
               history: result.history,
-              linkHref: `/games/${result.game.id}`,
+              linkHref: `/games/${result.game.public_id}`,
             });
           }
         }

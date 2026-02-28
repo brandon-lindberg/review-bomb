@@ -27,6 +27,7 @@ from app.models.models import (
     Game, Journalist, Outlet, Review, SyncState, SyncLog,
     SyncSource, SyncType, SyncStatus,
 )
+from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.game_matcher import GameMatcher
@@ -172,7 +173,7 @@ class SyncOrchestrator:
             return None
 
         transformed = OpenCriticService.transform_outlet(outlet_data)
-        stmt = insert(Outlet).values(**transformed)
+        stmt = insert(Outlet).values(public_id=generate_public_id(), **transformed)
         stmt = stmt.on_conflict_do_update(
             index_elements=["opencritic_id"],
             set_={
@@ -196,7 +197,7 @@ class SyncOrchestrator:
             return None
 
         transformed = OpenCriticService.transform_critic(author_data)
-        stmt = insert(Journalist).values(**transformed)
+        stmt = insert(Journalist).values(public_id=generate_public_id(), **transformed)
         stmt = stmt.on_conflict_do_update(
             index_elements=["opencritic_id"],
             set_={
@@ -250,6 +251,7 @@ class SyncOrchestrator:
 
         if synthetic_oc_id is not None:
             stmt = insert(Journalist).values(
+                public_id=generate_public_id(),
                 name=pseudo_name,
                 opencritic_id=synthetic_oc_id,
                 image_url=None,
@@ -279,6 +281,7 @@ class SyncOrchestrator:
             return existing_id
 
         stmt = insert(Journalist).values(
+            public_id=generate_public_id(),
             name=pseudo_name,
             opencritic_id=None,
             image_url=None,
@@ -295,7 +298,7 @@ class SyncOrchestrator:
     async def _upsert_game(self, game_data: Dict[str, Any]) -> Optional[int]:
         """Insert/update game and return internal ID."""
         transformed = OpenCriticService.transform_game(game_data)
-        stmt = insert(Game).values(**transformed)
+        stmt = insert(Game).values(public_id=generate_public_id(), **transformed)
         today = datetime.now(timezone.utc).date()
         incoming_release_date = stmt.excluded.release_date
         preserve_existing_released_date = and_(

@@ -97,7 +97,7 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
-                        href={`/journalists/${review.journalist_id}`}
+                        href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
                         className="relative z-10 font-medium text-gray-900 hover:text-blue-600"
                       >
                         {review.journalist_name}
@@ -106,7 +106,7 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                         <>
                           <span className="text-gray-400">at</span>
                           <Link
-                            href={`/outlets/${review.outlet_id}`}
+                            href={`/outlets/${review.outlet_public_id ?? review.outlet_id}`}
                             className="relative z-10 text-gray-600 hover:text-blue-600"
                           >
                             {review.outlet_name}

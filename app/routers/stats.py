@@ -96,8 +96,11 @@ async def get_recent_reviews(
             ReviewWithJournalist(
                 id=review.id,
                 journalist_id=review.journalist_id,
+                journalist_public_id=journalist.public_id or str(journalist.id),
                 game_id=review.game_id,
+                game_public_id=game.public_id or str(game.id),
                 outlet_id=review.outlet_id,
+                outlet_public_id=(outlet.public_id or str(outlet.id)) if outlet else None,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
                 score_normalized=corrected_score,
@@ -132,9 +135,9 @@ async def get_recent_reviews(
 async def get_sitemap_data(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get all entity IDs for sitemap generation."""
+    """Get all entity identifiers for sitemap generation."""
     journalist_query = (
-        select(Journalist.id)
+        select(Journalist.id, Journalist.public_id)
         .where(
             Journalist.id.in_(
                 select(Review.journalist_id)
@@ -144,10 +147,12 @@ async def get_sitemap_data(
         )
     )
     journalist_result = await db.execute(journalist_query)
-    journalist_ids = [row[0] for row in journalist_result.all()]
+    journalist_rows = journalist_result.all()
+    journalist_ids = [row[0] for row in journalist_rows]
+    journalist_public_ids = [row[1] or str(row[0]) for row in journalist_rows]
 
     outlet_query = (
-        select(Outlet.id)
+        select(Outlet.id, Outlet.public_id)
         .where(
             Outlet.id.in_(
                 select(Review.outlet_id)
@@ -160,10 +165,12 @@ async def get_sitemap_data(
         )
     )
     outlet_result = await db.execute(outlet_query)
-    outlet_ids = [row[0] for row in outlet_result.all()]
+    outlet_rows = outlet_result.all()
+    outlet_ids = [row[0] for row in outlet_rows]
+    outlet_public_ids = [row[1] or str(row[0]) for row in outlet_rows]
 
     game_query = (
-        select(Game.id)
+        select(Game.id, Game.public_id)
         .where(
             Game.id.in_(
                 select(Review.game_id)
@@ -173,10 +180,15 @@ async def get_sitemap_data(
         )
     )
     game_result = await db.execute(game_query)
-    game_ids = [row[0] for row in game_result.all()]
+    game_rows = game_result.all()
+    game_ids = [row[0] for row in game_rows]
+    game_public_ids = [row[1] or str(row[0]) for row in game_rows]
 
     return {
         "journalist_ids": journalist_ids,
+        "journalist_public_ids": journalist_public_ids,
         "outlet_ids": outlet_ids,
+        "outlet_public_ids": outlet_public_ids,
         "game_ids": game_ids,
+        "game_public_ids": game_public_ids,
     }

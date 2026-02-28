@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getJournalist } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -24,7 +24,8 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const siteUrl = getSiteUrl();
 
   try {
-    const journalist = await getJournalist(parseInt(id));
+    const journalist = await getJournalist(id);
+    const canonicalId = journalist.public_id;
     const disparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
 
@@ -36,12 +37,12 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: `${journalist.name} - Review Scores & Disparity`,
       description,
-      alternates: { canonical: `/journalists/${id}` },
+      alternates: { canonical: `/journalists/${canonicalId}` },
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `/journalists/${id}`,
+        url: `/journalists/${canonicalId}`,
         type: "profile",
         images: journalist.image_url
           ? [{ url: journalist.image_url, alt: journalist.name }]
@@ -67,7 +68,7 @@ export default async function JournalistDetailPage({
   let journalist = null;
 
   try {
-    journalist = await getJournalist(parseInt(id));
+    journalist = await getJournalist(id);
   } catch (error) {
     console.error("Error fetching journalist:", error);
     notFound();
@@ -77,7 +78,11 @@ export default async function JournalistDetailPage({
     notFound();
   }
 
-  const shareUrl = `${getSiteUrl()}/journalists/${id}`;
+  if (id !== journalist.public_id) {
+    redirect(`/journalists/${journalist.public_id}`);
+  }
+
+  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}`;
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
@@ -88,7 +93,7 @@ export default async function JournalistDetailPage({
     "@context": "https://schema.org",
     "@type": "Person",
     name: journalist.name,
-    url: `/journalists/${id}`,
+    url: `/journalists/${journalist.public_id}`,
     ...(journalist.image_url && { image: journalist.image_url }),
     ...(journalist.bio && { description: journalist.bio }),
     jobTitle: "Game Journalist",
@@ -309,7 +314,7 @@ export default async function JournalistDetailPage({
                 {journalist.outlet_breakdown.map((outlet) => (
                   <Link
                     key={outlet.outlet_id}
-                    href={`/outlets/${outlet.outlet_id}`}
+                    href={`/outlets/${outlet.outlet_public_id ?? outlet.outlet_id}`}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
@@ -331,7 +336,7 @@ export default async function JournalistDetailPage({
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection
         entityType="journalist"
-        entityId={parseInt(id)}
+        entityId={journalist.public_id}
         timingCounts={{
           early: journalist.stats?.early_review_count ?? 0,
           launchWindow: journalist.stats?.launch_window_review_count ?? 0,
@@ -340,7 +345,7 @@ export default async function JournalistDetailPage({
       />
 
       {/* Reviews - client-side with filtering */}
-      <JournalistReviewsSection journalistId={parseInt(id)} />
+      <JournalistReviewsSection journalistId={journalist.public_id} />
     </div>
   );
 }

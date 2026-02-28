@@ -19,7 +19,7 @@ const FILTER_OPTIONS: { value: ReviewFilter; label: string }[] = [
 const PER_PAGE = 20;
 
 interface OutletReviewsSectionProps {
-  outletId: number;
+  outletId: string | number;
 }
 
 export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
@@ -147,7 +147,7 @@ export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Link
-                          href={`/games/${review.game_id}`}
+                          href={`/games/${review.game_public_id ?? review.game_id}`}
                           className="relative z-10 font-medium hover:opacity-80"
                           style={{ color: "var(--foreground)" }}
                         >
@@ -157,7 +157,7 @@ export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
                           <>
                             <span style={{ color: "var(--foreground-muted)" }}>by</span>
                             <Link
-                              href={`/journalists/${review.journalist_id}`}
+                              href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
                               className="relative z-10 hover:opacity-80"
                               style={{ color: "var(--foreground-muted)" }}
                             >

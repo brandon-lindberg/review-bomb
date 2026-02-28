@@ -27,24 +27,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     const data = await response.json();
 
-    const gamePages: MetadataRoute.Sitemap = (data.game_ids || []).map(
-      (id: number) => ({
+    const gameIds: string[] = data.game_public_ids || data.game_ids || [];
+    const gamePages: MetadataRoute.Sitemap = gameIds.map(
+      (id: string) => ({
         url: `${siteUrl}/games/${id}`,
         changeFrequency: "weekly" as const,
         priority: 0.7,
       })
     );
 
-    const journalistPages: MetadataRoute.Sitemap = (
-      data.journalist_ids || []
-    ).map((id: number) => ({
+    const journalistIds: string[] = data.journalist_public_ids || data.journalist_ids || [];
+    const journalistPages: MetadataRoute.Sitemap = journalistIds.map((id: string) => ({
       url: `${siteUrl}/journalists/${id}`,
       changeFrequency: "weekly" as const,
       priority: 0.7,
     }));
 
-    const outletPages: MetadataRoute.Sitemap = (data.outlet_ids || []).map(
-      (id: number) => ({
+    const outletIds: string[] = data.outlet_public_ids || data.outlet_ids || [];
+    const outletPages: MetadataRoute.Sitemap = outletIds.map(
+      (id: string) => ({
         url: `${siteUrl}/outlets/${id}`,
         changeFrequency: "weekly" as const,
         priority: 0.7,

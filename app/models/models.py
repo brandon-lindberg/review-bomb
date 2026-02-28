@@ -29,6 +29,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from app.public_ids import generate_public_id
 
 
 class Base(DeclarativeBase):
@@ -65,6 +66,9 @@ class Outlet(Base):
     __tablename__ = "outlets"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    public_id: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, nullable=False, default=generate_public_id
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     opencritic_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, index=True)
     website_url: Mapped[Optional[str]] = mapped_column(String(512))
@@ -109,6 +113,9 @@ class Journalist(Base):
     __tablename__ = "journalists"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    public_id: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, nullable=False, default=generate_public_id
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     opencritic_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, index=True)
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
@@ -152,6 +159,9 @@ class Game(Base):
     __tablename__ = "games"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    public_id: Mapped[str] = mapped_column(
+        String(32), unique=True, index=True, nullable=False, default=generate_public_id
+    )
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     opencritic_id: Mapped[Optional[int]] = mapped_column(Integer, unique=True, index=True)
     steam_app_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)

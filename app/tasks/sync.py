@@ -19,6 +19,7 @@ from app.models.models import (
     Journalist, Outlet, Game, Review, UserScore, SyncLog,
     SyncSource, SyncType, SyncStatus, UserScoreSource,
 )
+from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
 from app.services.steam import SteamService
 from app.services.metacritic import MetacriticService
@@ -120,7 +121,7 @@ async def _sync_opencritic_full():
             outlets = await service.get_all_outlets()
             for outlet_data in outlets:
                 transformed = OpenCriticService.transform_outlet(outlet_data)
-                stmt = insert(Outlet).values(**transformed)
+                stmt = insert(Outlet).values(public_id=generate_public_id(), **transformed)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["opencritic_id"],
                     set_={
@@ -141,7 +142,7 @@ async def _sync_opencritic_full():
             critics = await service.get_all_critics()
             for critic_data in critics:
                 transformed = OpenCriticService.transform_critic(critic_data)
-                stmt = insert(Journalist).values(**transformed)
+                stmt = insert(Journalist).values(public_id=generate_public_id(), **transformed)
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["opencritic_id"],
                     set_={
@@ -180,7 +181,7 @@ async def _sync_opencritic_full():
                 if match_result["metacritic_slug"]:
                     transformed["metacritic_slug"] = match_result["metacritic_slug"]
 
-                stmt = insert(Game).values(**transformed)
+                stmt = insert(Game).values(public_id=generate_public_id(), **transformed)
                 today = datetime.now(timezone.utc).date()
                 incoming_release_date = stmt.excluded.release_date
                 preserve_existing_released_date = and_(

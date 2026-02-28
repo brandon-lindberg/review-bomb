@@ -54,6 +54,7 @@ class OutletSummary(OutletBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    public_id: str
     opencritic_id: Optional[int] = None
     is_binary_scorer: bool = False
 
@@ -104,6 +105,7 @@ class JournalistLatestReview(BaseModel):
     """Most recent scored review summary for journalist list pages."""
     review_id: int
     game_id: int
+    game_public_id: str
     game_title: str
     game_release_date: Optional[date] = None
     outlet_name: Optional[str] = None
@@ -118,6 +120,7 @@ class JournalistSummary(JournalistBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    public_id: str
     opencritic_id: Optional[int] = None
     is_binary_reviewer: bool = False
     review_count: int = 0
@@ -157,6 +160,7 @@ class JournalistStats(BaseModel):
 class JournalistOutletBreakdown(BaseModel):
     """Journalist's stats at a specific outlet."""
     outlet_id: int
+    outlet_public_id: str
     outlet_name: str
     review_count: int
     avg_disparity: Optional[Decimal] = None
@@ -197,6 +201,7 @@ class GameSummary(GameBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    public_id: str
     opencritic_id: Optional[int] = None
     steam_app_id: Optional[int] = None
     critic_review_count: int = 0
@@ -255,8 +260,11 @@ class ReviewSummary(ReviewBase):
 
     id: int
     journalist_id: int
+    journalist_public_id: Optional[str] = None
     game_id: int
+    game_public_id: Optional[str] = None
     outlet_id: Optional[int] = None
+    outlet_public_id: Optional[str] = None
 
 
 class ReviewWithDisparity(ReviewSummary):
@@ -340,6 +348,7 @@ class JournalistRanking(BaseModel):
     """Journalist in leaderboard."""
     rank: int
     journalist_id: int
+    journalist_public_id: str
     journalist_name: str
     journalist_image_url: Optional[str] = None
     outlet_name: Optional[str] = None  # Most recent outlet
@@ -351,6 +360,7 @@ class OutletRanking(BaseModel):
     """Outlet in leaderboard."""
     rank: int
     outlet_id: int
+    outlet_public_id: str
     outlet_name: str
     outlet_logo_url: Optional[str] = None
     avg_disparity: Decimal
@@ -362,6 +372,7 @@ class GameRanking(BaseModel):
     """Game in leaderboard (most divisive)."""
     rank: int
     game_id: int
+    game_public_id: str
     game_title: str
     game_image_url: Optional[str] = None
     release_date: Optional[date] = None

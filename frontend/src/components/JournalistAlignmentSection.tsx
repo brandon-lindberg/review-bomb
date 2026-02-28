@@ -8,6 +8,7 @@ type PlatformFilter = "combined" | "steam" | "metacritic";
 
 export interface AlignmentJournalist {
   id: number;
+  publicId: string;
   name: string;
   imageUrl: string | null;
   outletName: string | null;
@@ -105,7 +106,7 @@ export function JournalistAlignmentSection({ journalists }: JournalistAlignmentS
     return (
       <Link
         key={j.id}
-        href={`/journalists/${j.id}`}
+        href={`/journalists/${j.publicId}`}
         className="flex items-center justify-between p-3 rounded-lg transition-colors"
         style={{ backgroundColor: "transparent" }}
         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.hoverBg}

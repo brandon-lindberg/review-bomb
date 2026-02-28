@@ -81,7 +81,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.journalists.map((journalist) => (
                   <Link
                     key={journalist.id}
-                    href={`/journalists/${journalist.id}`}
+                    href={`/journalists/${journalist.public_id}`}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
@@ -126,7 +126,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.outlets.map((outlet) => (
                   <Link
                     key={outlet.id}
-                    href={`/outlets/${outlet.id}`}
+                    href={`/outlets/${outlet.public_id}`}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
@@ -171,7 +171,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.games.map((game) => (
                   <Link
                     key={game.id}
-                    href={`/games/${game.id}`}
+                    href={`/games/${game.public_id}`}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">

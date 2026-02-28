@@ -31,6 +31,7 @@ from app.schemas.schemas import (
     DisparitySnapshot as DisparitySnapshotSchema,
 )
 from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
+from app.public_ids import resolve_entity_by_identifier
 from app.services.review_score_correction import corrected_normalized_score
 
 router = APIRouter()
@@ -77,7 +78,7 @@ async def list_journalists(
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
     key_hash = cache_key(
-        "journalists:list:v4",
+        "journalists:list:v5",
         page=page,
         per_page=per_page,
         search=search,
@@ -235,6 +236,7 @@ async def list_journalists(
                 ranked_reviews.c.score_normalized,
                 ranked_reviews.c.published_at,
                 Game.title.label("game_title"),
+                Game.public_id.label("game_public_id"),
                 Game.release_date.label("game_release_date"),
                 Outlet.name.label("outlet_name"),
             )
@@ -257,6 +259,7 @@ async def list_journalists(
             latest_review_lookup[row.journalist_id] = JournalistLatestReview(
                 review_id=row.review_id,
                 game_id=row.game_id,
+                game_public_id=row.game_public_id or str(row.game_id),
                 game_title=row.game_title,
                 game_release_date=row.game_release_date,
                 outlet_name=row.outlet_name,
@@ -277,6 +280,7 @@ async def list_journalists(
         items.append(
             JournalistSummary(
                 id=journalist.id,
+                public_id=journalist.public_id or str(journalist.id),
                 name=journalist.name,
                 image_url=journalist.image_url,
                 bio=journalist.bio,
@@ -306,22 +310,18 @@ async def list_journalists(
 
 @router.get("/{journalist_id}", response_model=JournalistDetail)
 async def get_journalist(
-    journalist_id: int,
+    journalist_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalist detail with stats and outlet breakdown."""
-    cached = await get_cached(f"journalists:detail:v2:{journalist_id}")
-    if cached:
-        return JournalistDetail(**json.loads(cached))
-
-    # Get journalist
-    result = await db.execute(
-        select(Journalist).where(Journalist.id == journalist_id)
-    )
-    journalist = result.scalar_one_or_none()
-
+    journalist = await resolve_entity_by_identifier(db, Journalist, str(journalist_id))
     if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
+
+    journalist_id = journalist.id
+    cached = await get_cached(f"journalists:detail:v3:{journalist_id}")
+    if cached:
+        return JournalistDetail(**json.loads(cached))
 
     # Get review stats and timing counts in a single aggregate query.
     stats_query = select(
@@ -424,6 +424,7 @@ async def get_journalist(
     outlet_breakdown_query = (
         select(
             Outlet.id.label("outlet_id"),
+            Outlet.public_id.label("outlet_public_id"),
             Outlet.name.label("outlet_name"),
             func.count(Review.id).label("review_count"),
             func.min(Review.published_at).label("date_range_start"),
@@ -434,7 +435,7 @@ async def get_journalist(
             Review.journalist_id == journalist_id,
             Review.score_normalized.isnot(None),  # Only scored reviews
         )
-        .group_by(Outlet.id, Outlet.name)
+        .group_by(Outlet.id, Outlet.public_id, Outlet.name)
         .order_by(desc(func.count(Review.id)))
     )
     outlet_result = await db.execute(outlet_breakdown_query)
@@ -469,6 +470,7 @@ async def get_journalist(
     outlet_breakdown = [
         JournalistOutletBreakdown(
             outlet_id=row.outlet_id,
+            outlet_public_id=getattr(row, "outlet_public_id", None) or str(row.outlet_id),
             outlet_name=row.outlet_name,
             review_count=row.review_count,
             avg_disparity=outlet_disparity_lookup.get(row.outlet_id),
@@ -511,6 +513,7 @@ async def get_journalist(
 
     response = JournalistDetail(
         id=journalist.id,
+        public_id=journalist.public_id or str(journalist.id),
         name=journalist.name,
         image_url=journalist.image_url,
         bio=journalist.bio,
@@ -525,7 +528,7 @@ async def get_journalist(
     )
 
     await set_cached(
-        f"journalists:detail:v2:{journalist_id}",
+        f"journalists:detail:v3:{journalist_id}",
         json.dumps(response.model_dump(mode="json")),
         CACHE_TTL_MEDIUM,
     )
@@ -536,18 +539,16 @@ async def get_journalist(
 @limiter.limit("60/minute")
 async def get_journalist_reviews(
     request: Request,
-    journalist_id: int,
+    journalist_id: str,
     page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """Get paginated reviews for a journalist, newest first."""
-    # Verify journalist exists
-    journalist_result = await db.execute(
-        select(Journalist.id).where(Journalist.id == journalist_id)
-    )
-    if not journalist_result.scalar_one_or_none():
+    journalist = await resolve_entity_by_identifier(db, Journalist, str(journalist_id))
+    if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
+    journalist_id = journalist.id
 
     # Get total count (only reviews with parsed scores, including 0)
     count_query = (
@@ -602,8 +603,11 @@ async def get_journalist_reviews(
             ReviewWithDisparity(
                 id=review.id,
                 journalist_id=review.journalist_id,
+                journalist_public_id=journalist.public_id or str(journalist.id),
                 game_id=review.game_id,
+                game_public_id=game.public_id or str(game.id),
                 outlet_id=review.outlet_id,
+                outlet_public_id=(outlet.public_id or str(outlet.id)) if outlet else None,
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
                 score_normalized=corrected_score,
@@ -639,17 +643,15 @@ async def get_journalist_reviews(
 
 @router.get("/{journalist_id}/history", response_model=list[DisparitySnapshotSchema])
 async def get_journalist_history(
-    journalist_id: int,
+    journalist_id: str,
     limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
     """Get historical disparity data for charts from pipeline snapshots."""
-    # Verify journalist exists
-    journalist_result = await db.execute(
-        select(Journalist.id).where(Journalist.id == journalist_id)
-    )
-    if not journalist_result.scalar_one_or_none():
+    journalist = await resolve_entity_by_identifier(db, Journalist, str(journalist_id))
+    if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
+    journalist_id = journalist.id
 
     query = (
         select(DisparitySnapshot)

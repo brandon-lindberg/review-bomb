@@ -100,7 +100,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               {games.items.map((game) => (
                 <Link
                   key={game.id}
-                  href={`/games/${game.id}`}
+                  href={`/games/${game.public_id}`}
                   className="block p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

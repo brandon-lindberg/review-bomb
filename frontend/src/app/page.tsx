@@ -163,7 +163,7 @@ export default async function Home() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                           <Link
-                            href={`/games/${review.game_id}`}
+                            href={`/games/${review.game_public_id ?? review.game_id}`}
                             className="font-medium hover:underline block truncate flex-1"
                             style={{ color: "var(--foreground)" }}
                             title={review.game_title ?? undefined}
@@ -178,7 +178,7 @@ export default async function Home() {
                         </div>
                         <div className="flex items-center gap-2 text-sm min-w-0 overflow-hidden" style={{ color: "var(--foreground-muted)" }}>
                           <Link
-                            href={`/journalists/${review.journalist_id}`}
+                            href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
                             className="hover:underline truncate shrink-0 max-w-[45%]"
                           >
                             {review.journalist_name}
@@ -238,7 +238,7 @@ export default async function Home() {
               {sortedRecentGames.map((game) => (
                 <Link
                   key={game.id}
-                  href={`/games/${game.id}`}
+                  href={`/games/${game.public_id}`}
                   className="flex items-center justify-between p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   <div className="flex-1 min-w-0">

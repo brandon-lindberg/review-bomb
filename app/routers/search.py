@@ -45,6 +45,7 @@ async def search(
     journalist_items = [
         JournalistSummary(
             id=j.id,
+            public_id=j.public_id or str(j.id),
             name=j.name,
             image_url=j.image_url,
             bio=j.bio,
@@ -67,6 +68,7 @@ async def search(
     outlet_items = [
         OutletSummary(
             id=o.id,
+            public_id=o.public_id or str(o.id),
             name=o.name,
             website_url=o.website_url,
             logo_url=o.logo_url,
@@ -88,6 +90,7 @@ async def search(
     game_items = [
         GameSummary(
             id=g.id,
+            public_id=g.public_id or str(g.id),
             title=g.title,
             release_date=g.release_date,
             description=g.description,

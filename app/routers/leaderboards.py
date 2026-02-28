@@ -82,6 +82,7 @@ async def journalist_leaderboard(
             JournalistRanking(
                 rank=start_rank + i,
                 journalist_id=journalist.id,
+                journalist_public_id=journalist.public_id or str(journalist.id),
                 journalist_name=journalist.name,
                 journalist_image_url=journalist.image_url,
                 outlet_name=journalist.primary_outlet,
@@ -159,6 +160,7 @@ async def outlet_leaderboard(
             OutletRanking(
                 rank=start_rank + i,
                 outlet_id=outlet.id,
+                outlet_public_id=outlet.public_id or str(outlet.id),
                 outlet_name=outlet.name,
                 outlet_logo_url=outlet.logo_url,
                 avg_disparity=outlet.avg_disparity,
@@ -262,6 +264,7 @@ async def game_leaderboard(
             GameRanking(
                 rank=start_rank + i,
                 game_id=game.id,
+                game_public_id=game.public_id or str(game.id),
                 game_title=game.title,
                 game_image_url=game.image_url,
                 release_date=game.release_date,

@@ -350,15 +350,15 @@ function getAutoDetailPathsFromSitemap(locs) {
       continue;
     }
 
-    if (/^\/games\/\d+\/?$/.test(pathname)) {
+    if (/^\/games\/[^/]+\/?$/.test(pathname)) {
       byType.games.push(pathname);
       continue;
     }
-    if (/^\/journalists\/\d+\/?$/.test(pathname)) {
+    if (/^\/journalists\/[^/]+\/?$/.test(pathname)) {
       byType.journalists.push(pathname);
       continue;
     }
-    if (/^\/outlets\/\d+\/?$/.test(pathname)) {
+    if (/^\/outlets\/[^/]+\/?$/.test(pathname)) {
       byType.outlets.push(pathname);
       continue;
     }

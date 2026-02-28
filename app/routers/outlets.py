@@ -12,6 +12,7 @@ from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.models import Outlet, Review, Journalist, Game, DisparitySnapshot
+from app.public_ids import resolve_entity_by_identifier
 from app.schemas.schemas import (
     OutletSummary,
     OutletDetail,
@@ -133,6 +134,7 @@ async def list_outlets(
     items = [
         OutletWithStats(
             id=outlet.id,
+            public_id=outlet.public_id or str(outlet.id),
             name=outlet.name,
             website_url=outlet.website_url,
             logo_url=outlet.logo_url,
@@ -160,17 +162,14 @@ async def list_outlets(
 
 @router.get("/{outlet_id}", response_model=OutletWithStats)
 async def get_outlet(
-    outlet_id: int,
+    outlet_id: str,
     db: AsyncSession = Depends(get_db),
 ):
     """Get outlet detail using denormalized columns - fast!"""
-    result = await db.execute(
-        select(Outlet).where(Outlet.id == outlet_id)
-    )
-    outlet = result.scalar_one_or_none()
-
+    outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
+    outlet_id = outlet.id
 
     # Get score and timing metrics in one aggregate query.
     review_date_expr = cast(Review.published_at, Date)
@@ -253,6 +252,7 @@ async def get_outlet(
 
     return OutletWithStats(
         id=outlet.id,
+        public_id=outlet.public_id or str(outlet.id),
         name=outlet.name,
         website_url=outlet.website_url,
         logo_url=outlet.logo_url,
@@ -276,18 +276,16 @@ async def get_outlet(
 
 @router.get("/{outlet_id}/journalists", response_model=PaginatedResponse[JournalistSummary])
 async def get_outlet_journalists(
-    outlet_id: int,
+    outlet_id: str,
     page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalists who have written for this outlet."""
-    # Verify outlet exists
-    outlet_result = await db.execute(
-        select(Outlet.id).where(Outlet.id == outlet_id)
-    )
-    if not outlet_result.scalar_one_or_none():
+    outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
+    if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
+    outlet_id = outlet.id
 
     # Subquery for journalists at this outlet with review count (only scored reviews)
     journalist_stats_subq = (
@@ -329,6 +327,7 @@ async def get_outlet_journalists(
     items = [
         JournalistSummary(
             id=row[0].id,
+            public_id=row[0].public_id or str(row[0].id),
             name=row[0].name,
             image_url=row[0].image_url,
             bio=row[0].bio,
@@ -353,18 +352,16 @@ async def get_outlet_journalists(
 @limiter.limit("60/minute")
 async def get_outlet_reviews(
     request: Request,
-    outlet_id: int,
+    outlet_id: str,
     page: int = Query(1, ge=1, le=100),
     per_page: int = Query(20, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all reviews from this outlet."""
-    # Verify outlet exists
-    outlet_result = await db.execute(
-        select(Outlet.id).where(Outlet.id == outlet_id)
-    )
-    if not outlet_result.scalar_one_or_none():
+    outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
+    if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
+    outlet_id = outlet.id
 
     # Get total count (only scored reviews, including 0)
     count_query = (
@@ -417,8 +414,11 @@ async def get_outlet_reviews(
             ReviewWithJournalist(
                 id=review.id,
                 journalist_id=review.journalist_id,
+                journalist_public_id=journalist.public_id or str(journalist.id),
                 game_id=review.game_id,
+                game_public_id=game.public_id or str(game.id),
                 outlet_id=review.outlet_id,
+                outlet_public_id=outlet.public_id or str(outlet.id),
                 score_raw=review.score_raw,
                 score_scale=review.score_scale,
                 score_normalized=corrected_score,
@@ -454,17 +454,15 @@ async def get_outlet_reviews(
 
 @router.get("/{outlet_id}/history", response_model=list[DisparitySnapshotSchema])
 async def get_outlet_history(
-    outlet_id: int,
+    outlet_id: str,
     limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
     """Get historical disparity data for charts. Returns full timeline."""
-    # Verify outlet exists
-    outlet_result = await db.execute(
-        select(Outlet.id).where(Outlet.id == outlet_id)
-    )
-    if not outlet_result.scalar_one_or_none():
+    outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
+    if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
+    outlet_id = outlet.id
 
     query = (
         select(DisparitySnapshot)

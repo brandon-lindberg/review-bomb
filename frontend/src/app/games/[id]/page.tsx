@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getGame, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
@@ -20,7 +20,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { id } = await params;
   const siteUrl = getSiteUrl();
   try {
-    const game = await getGame(parseInt(id));
+    const game = await getGame(id);
+    const canonicalId = game.public_id;
     const criticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
     const userScore = game.steam_user_score != null
       ? Number(game.steam_user_score).toFixed(0)
@@ -38,11 +39,11 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     return {
       title: `${game.title} - Critic vs User Scores`,
       description,
-      alternates: { canonical: `/games/${id}` },
+      alternates: { canonical: `/games/${canonicalId}` },
       openGraph: {
         title: `${game.title} - Critic vs User Scores | ReviewDisparity`,
         description,
-        url: `/games/${id}`,
+        url: `/games/${canonicalId}`,
         type: "article",
         images: game.image_url
           ? [{ url: game.image_url, alt: game.title }]
@@ -68,7 +69,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   let newsTotalPages = 0;
 
   try {
-    game = await getGame(parseInt(id));
+    game = await getGame(id);
   } catch (error) {
     console.error("Error fetching game:", error);
     notFound();
@@ -78,8 +79,12 @@ export default async function GameDetailPage({ params }: PageProps) {
     notFound();
   }
 
+  if (id !== game.public_id) {
+    redirect(`/games/${game.public_id}`);
+  }
+
   try {
-    const newsResponse = await getGameNews(game.id, 1, 5);
+    const newsResponse = await getGameNews(game.public_id, 1, 5);
     newsArticles = newsResponse.items;
     newsTotalPages = newsResponse.total_pages;
   } catch {
@@ -90,7 +95,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "VideoGame",
     name: game.title,
-    url: `/games/${id}`,
+    url: `/games/${game.public_id}`,
     ...(game.release_date && { datePublished: game.release_date }),
     ...(game.description && { description: game.description }),
     ...(game.avg_critic_score != null && {
@@ -104,7 +109,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     }),
   };
 
-  const shareUrl = `${getSiteUrl()}/games/${id}`;
+  const shareUrl = `${getSiteUrl()}/games/${game.public_id}`;
   const shareDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
@@ -237,7 +242,7 @@ export default async function GameDetailPage({ params }: PageProps) {
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
       <LazyChartSection
         entityType="game"
-        entityId={parseInt(id)}
+        entityId={game.public_id}
         gameTitle={game.title}
         newsArticles={newsArticles}
         newsTotalPages={newsTotalPages}

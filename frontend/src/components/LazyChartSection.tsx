@@ -15,7 +15,7 @@ type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
 
 interface LazyChartSectionProps {
   entityType: "journalist" | "outlet" | "game";
-  entityId: number;
+  entityId: string | number;
   gameTitle?: string;
   newsArticles?: NewsArticle[];
   newsTotalPages?: number;
@@ -256,6 +256,7 @@ function buildJournalistAlignment(reviews: ReviewWithJournalist[]) {
 
     journalistMap.set(review.journalist_id, {
       id: review.journalist_id,
+      publicId: review.journalist_public_id ?? String(review.journalist_id),
       name: review.journalist_name,
       imageUrl: review.journalist_image_url,
       outletName: review.outlet_name,

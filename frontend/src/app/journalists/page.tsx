@@ -112,7 +112,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                 return (
                   <Link
                     key={journalist.id}
-                    href={`/journalists/${journalist.id}`}
+                    href={`/journalists/${journalist.public_id}`}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-3">

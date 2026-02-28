@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { getOutlet } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
@@ -24,7 +24,8 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const siteUrl = getSiteUrl();
 
   try {
-    const outlet = await getOutlet(parseInt(id));
+    const outlet = await getOutlet(id);
+    const canonicalId = outlet.public_id;
     const disparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
 
@@ -36,12 +37,12 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: `${outlet.name} - Review Scores & Disparity`,
       description,
-      alternates: { canonical: `/outlets/${id}` },
+      alternates: { canonical: `/outlets/${canonicalId}` },
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `/outlets/${id}`,
+        url: `/outlets/${canonicalId}`,
         type: "website",
         images: outlet.logo_url
           ? [{ url: outlet.logo_url, alt: outlet.name }]
@@ -65,7 +66,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
   let outlet = null;
 
   try {
-    outlet = await getOutlet(parseInt(id));
+    outlet = await getOutlet(id);
   } catch (error) {
     console.error("Error fetching outlet:", error);
     notFound();
@@ -75,7 +76,11 @@ export default async function OutletDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  const shareUrl = `${getSiteUrl()}/outlets/${id}`;
+  if (id !== outlet.public_id) {
+    redirect(`/outlets/${outlet.public_id}`);
+  }
+
+  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}`;
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${outlet.name} on Review Disparity`];
@@ -86,7 +91,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: outlet.name,
-    url: `/outlets/${id}`,
+    url: `/outlets/${outlet.public_id}`,
     ...(outlet.logo_url && { logo: outlet.logo_url }),
     ...(outlet.website_url && { sameAs: [outlet.website_url] }),
   };
@@ -248,7 +253,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
             {outlet.journalists.map((journalist) => (
               <Link
                 key={journalist.id}
-                href={`/journalists/${journalist.id}`}
+                href={`/journalists/${journalist.public_id}`}
                 className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-3">
@@ -284,7 +289,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection
         entityType="outlet"
-        entityId={parseInt(id)}
+        entityId={outlet.public_id}
         timingCounts={{
           early: outlet.early_review_count ?? 0,
           launchWindow: outlet.launch_window_review_count ?? 0,
@@ -293,7 +298,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
       />
 
       {/* Reviews with filters */}
-      <OutletReviewsSection outletId={parseInt(id)} />
+      <OutletReviewsSection outletId={outlet.public_id} />
     </div>
   );
 }

@@ -135,7 +135,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
 
                 if (tab === "journalists" && "journalist_id" in item) {
                   id = item.journalist_id;
-                  linkHref = `/journalists/${id}`;
+                  linkHref = `/journalists/${item.journalist_public_id}`;
                   name = item.journalist_name;
                   subtitle = item.outlet_name || null;
                   imageUrl = item.journalist_image_url;
@@ -145,7 +145,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
                 } else if (tab === "outlets" && "outlet_id" in item) {
                   id = item.outlet_id;
-                  linkHref = `/outlets/${id}`;
+                  linkHref = `/outlets/${item.outlet_public_id}`;
                   name = item.outlet_name;
                   imageUrl = item.outlet_logo_url;
                   reviewCount = item.review_count;
@@ -154,7 +154,7 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   combinedDisparity = item.avg_disparity_combined ?? item.avg_disparity;
                 } else if (tab === "games" && "game_id" in item) {
                   id = item.game_id;
-                  linkHref = `/games/${id}`;
+                  linkHref = `/games/${item.game_public_id}`;
                   name = item.game_title;
                   subtitle = item.release_date
                     ? new Date(item.release_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
