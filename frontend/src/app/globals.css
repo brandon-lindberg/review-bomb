@@ -177,6 +177,17 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Prevent iOS Safari auto-zoom on focus for small form controls */
+@supports (-webkit-touch-callout: none) {
+  @media (pointer: coarse) {
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+  }
+}
+
 /* Custom utility classes for brand colors */
 .bg-rust { background-color: var(--color-rust); }
 .bg-orange { background-color: var(--color-orange); }
