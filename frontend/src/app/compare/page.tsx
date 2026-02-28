@@ -48,6 +48,7 @@ interface PageProps {
   searchParams: Promise<{
     type?: string;
     ids?: string;
+    card?: string;
   }>;
 }
 
@@ -71,6 +72,9 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   if (ids.length > 0) {
     queryParams.set("ids", ids.join(","));
   }
+  if (params.card) {
+    queryParams.set("card", params.card);
+  }
 
   const compareLabel = compareTypeLabel[type];
   const compareCount = ids.length;
@@ -81,7 +85,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     ? `Compare selected ${compareLabel} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
     : "Compare game journalists, outlets, and games side by side. See how their review scores and disparity trends differ over time.";
   const comparePath = `/compare?${queryParams.toString()}`;
-  const openGraphImage = `${siteUrl}/api/og/compare?${queryParams.toString()}`;
+  const openGraphImage = `${siteUrl}/compare/og?${queryParams.toString()}`;
 
   return {
     title,

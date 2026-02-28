@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      NEXT_PUBLIC_API_URL: ${{ vars.SEO_API_URL || 'https://reviewdisparity.com/api/v1' }}
+      NEXT_PUBLIC_API_URL: ${{ vars.SEO_API_URL || vars.NEXT_PUBLIC_API_URL || secrets.NEXT_PUBLIC_API_URL || '' }}
 
     steps:
       - name: Checkout
@@ -34,6 +34,17 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: yarn install --frozen-lockfile
+
+      - name: Validate API URL for frontend data fetches
+        run: |
+          if [ -z "${NEXT_PUBLIC_API_URL}" ]; then
+            echo "::error::Missing NEXT_PUBLIC_API_URL. Set repo var SEO_API_URL (or NEXT_PUBLIC_API_URL) to your backend origin, e.g. https://api.example.com/api/v1"
+            exit 1
+          fi
+          if ! curl -fsS "${NEXT_PUBLIC_API_URL}/stats" >/dev/null; then
+            echo "::error::NEXT_PUBLIC_API_URL is unreachable or invalid: ${NEXT_PUBLIC_API_URL}"
+            exit 1
+          fi
 
       - name: Build frontend
         working-directory: frontend
