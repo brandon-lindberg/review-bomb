@@ -31,13 +31,14 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const avgScore = outlet.avg_score != null ? Number(outlet.avg_score).toFixed(1) : "N/A";
     const ogParams = new URLSearchParams({
       kind: "outlet",
+      id: canonicalId,
       name: outlet.name,
       subtitle: "Outlet review disparity profile",
       disparity: disparity != null ? Number(disparity).toFixed(1) : "",
       reviews: (outlet.review_count ?? 0).toString(),
       score: avgScore,
       extra: `${outlet.journalist_count ?? 0} journalists tracked`,
-      card: "o1",
+      card: "o2",
     });
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
@@ -90,7 +91,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     redirect(`/outlets/${outlet.public_id}`);
   }
 
-  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o1`;
+  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o2`;
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
   const shareTextParts = [`${outlet.name} on Review Disparity`];
