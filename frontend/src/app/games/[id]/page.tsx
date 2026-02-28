@@ -198,10 +198,55 @@ export default async function GameDetailPage({ params }: PageProps) {
             combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
           />
         </div>
+
+        {/* Review Timing Breakdown */}
+        {(game.early_review_count != null || game.launch_window_review_count != null || game.late_review_count != null) && (() => {
+          const early = game.early_review_count ?? 0;
+          const launchWindow = game.launch_window_review_count ?? 0;
+          const late = game.late_review_count ?? 0;
+          const timingTotal = early + launchWindow + late;
+          if (timingTotal === 0) return null;
+          const pct = (n: number) => timingTotal > 0 ? ((n / timingTotal) * 100).toFixed(0) : "0";
+
+          return (
+            <div className="mt-6 pt-6 border-t border-gray-200">
+              <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground)" }}>
+                Review Timing
+              </h2>
+              <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--foreground-muted)" }}>
+                {early > 0 && (
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    {early} early ({pct(early)}%)
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                  {launchWindow} launch window ({pct(launchWindow)}%)
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                  {late} late ({pct(late)}%)
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
-      <LazyChartSection entityType="game" entityId={parseInt(id)} gameTitle={game.title} newsArticles={newsArticles} newsTotalPages={newsTotalPages} />
+      <LazyChartSection
+        entityType="game"
+        entityId={parseInt(id)}
+        gameTitle={game.title}
+        newsArticles={newsArticles}
+        newsTotalPages={newsTotalPages}
+        timingCounts={{
+          early: game.early_review_count ?? 0,
+          launchWindow: game.launch_window_review_count ?? 0,
+          late: game.late_review_count ?? 0,
+        }}
+      />
     </div>
   );
 }

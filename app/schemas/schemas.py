@@ -218,6 +218,9 @@ class GameDetail(GameWithScores):
     """Full game details."""
     tier: Optional[str] = None
     percent_recommended: Optional[Decimal] = None
+    early_review_count: int = 0
+    launch_window_review_count: int = 0
+    late_review_count: int = 0
     created_at: datetime
     updated_at: datetime
     recent_news: list["NewsArticleSummary"] = []

@@ -97,6 +97,20 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
     }
   };
 
+  const computedTimingCounts = reviews
+    ? reviews.reduce(
+        (acc, review) => {
+          if (review.review_timing === "early") acc.early += 1;
+          else if (review.review_timing === "launch_window") acc.launchWindow += 1;
+          else if (review.review_timing === "late") acc.late += 1;
+          return acc;
+        },
+        { early: 0, launchWindow: 0, late: 0 }
+      )
+    : undefined;
+
+  const effectiveTimingCounts = timingCounts ?? computedTimingCounts;
+
   return (
     <div ref={sentinelRef} className="space-y-8">
       {/* Loading state */}
@@ -127,8 +141,8 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
       {reviews && reviews.length > 0 && (
         <>
           <section className="bg-white rounded-lg shadow">
-            {/* Tab bar for journalist/outlet pages */}
-            {entityType !== "game" && timingCounts && (
+            {/* Tab bar for disparity and review timing */}
+            {effectiveTimingCounts && (
               <div className="border-b" style={{ borderColor: "var(--border)" }}>
                 <nav className="flex gap-2 sm:gap-4 px-4 sm:px-6 overflow-x-auto">
                   <button
@@ -156,7 +170,7 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
             )}
 
             <div className="p-6">
-              {(entityType === "game" || chartTab === "disparity") && (
+              {(!effectiveTimingCounts || chartTab === "disparity") && (
                 <>
                   {entityType === "game" && (
                     <h2 className="text-xl font-semibold text-gray-900 mb-4">Review Disparities</h2>
@@ -174,11 +188,11 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
                 </>
               )}
 
-              {entityType !== "game" && chartTab === "timing" && timingCounts && (
+              {chartTab === "timing" && effectiveTimingCounts && (
                 <ReviewTimingChart
-                  early={timingCounts.early}
-                  launchWindow={timingCounts.launchWindow}
-                  late={timingCounts.late}
+                  early={effectiveTimingCounts.early}
+                  launchWindow={effectiveTimingCounts.launchWindow}
+                  late={effectiveTimingCounts.late}
                 />
               )}
             </div>

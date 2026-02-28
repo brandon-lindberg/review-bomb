@@ -225,6 +225,67 @@ async def get_game(
         and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
     )
 
+    # Review timing aggregates (pre-release / launch window / late)
+    early_review_count = 0
+    launch_window_review_count = 0
+    late_review_count = 0
+    if game.release_date is not None:
+        timing_counts_query = select(
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Review.published_at.isnot(None),
+                                Review.published_at < game.release_date,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("early_review_count"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Review.published_at.isnot(None),
+                                Review.published_at >= game.release_date,
+                                Review.published_at <= game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS),
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("launch_window_review_count"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            and_(
+                                Review.published_at.isnot(None),
+                                Review.published_at > game.release_date + timedelta(days=LAUNCH_WINDOW_DAYS),
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("late_review_count"),
+        ).where(
+            Review.game_id == game_id,
+            Review.score_normalized.isnot(None),
+        )
+        timing_counts_row = (await db.execute(timing_counts_query)).one()
+        early_review_count = int(timing_counts_row.early_review_count or 0)
+        launch_window_review_count = int(timing_counts_row.launch_window_review_count or 0)
+        late_review_count = int(timing_counts_row.late_review_count or 0)
+
     # Fetch the 5 most recent news articles for this game
     news_result = await db.execute(
         select(NewsArticle)
@@ -253,6 +314,9 @@ async def get_game(
         disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
         tier=game.tier,
         percent_recommended=game.percent_recommended,
+        early_review_count=early_review_count,
+        launch_window_review_count=launch_window_review_count,
+        late_review_count=late_review_count,
         created_at=game.created_at,
         updated_at=game.updated_at,
         recent_news=[NewsArticleSummary.model_validate(a) for a in recent_news],

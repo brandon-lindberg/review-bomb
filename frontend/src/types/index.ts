@@ -132,6 +132,9 @@ export interface GameWithScores extends Game {
   disparity_metacritic: number | null;
   tier: string | null;
   percent_recommended: number | null;
+  early_review_count?: number;
+  launch_window_review_count?: number;
+  late_review_count?: number;
 }
 
 // Review Types
