@@ -2,7 +2,7 @@ import { ImageResponse } from "next/og";
 import { formatDisparity, getDisparityColor } from "@/lib/disparity-colors";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 300;
+export const revalidate = 0;
 
 const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 630;
@@ -40,6 +40,8 @@ export async function GET(request: Request) {
   const disparity = parseNumber(searchParams.get("disparity"));
   const reviews = searchParams.get("reviews")?.trim() || "N/A";
   const score = searchParams.get("score")?.trim() || "N/A";
+  const steamScore = searchParams.get("steam")?.trim() || "N/A";
+  const metacriticScore = searchParams.get("mc")?.trim() || "N/A";
   const extra = truncate(searchParams.get("extra")?.trim() || "", 72);
   const sectionTitle = kind === "game"
     ? "Game Snapshot"
@@ -96,16 +98,35 @@ export async function GET(request: Request) {
             <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>Total reviews</div>
             <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{reviews}</div>
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>{metricLabelForKind(kind)}</div>
-            <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{score}</div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 420 }}>
-            <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>Details</div>
-            <div style={{ display: "flex", fontSize: 28, fontWeight: 600 }}>
-              {extra || "reviewdisparity.com"}
-            </div>
-          </div>
+          {kind === "game" ? (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>{metricLabelForKind(kind)}</div>
+                <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{score}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>Steam user score</div>
+                <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{steamScore}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>Metacritic user score</div>
+                <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{metacriticScore}</div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>{metricLabelForKind(kind)}</div>
+                <div style={{ display: "flex", fontSize: 42, fontWeight: 700 }}>{score}</div>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 420 }}>
+                <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8" }}>Details</div>
+                <div style={{ display: "flex", fontSize: 28, fontWeight: 600 }}>
+                  {extra || "reviewdisparity.com"}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         <div style={{ display: "flex", fontSize: 24, color: "#A69C8F" }}>
@@ -113,6 +134,12 @@ export async function GET(request: Request) {
         </div>
       </div>
     ),
-    { width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
+    {
+      width: IMAGE_WIDTH,
+      height: IMAGE_HEIGHT,
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
   );
 }

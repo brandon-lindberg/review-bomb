@@ -91,9 +91,15 @@ export default async function OutletDetailPage({ params }: PageProps) {
     redirect(`/outlets/${outlet.public_id}`);
   }
 
-  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o2`;
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
+  const shareSnapshotVersion = [
+    (outlet.review_count ?? 0).toString(),
+    (outlet.journalist_count ?? 0).toString(),
+    outlet.avg_score != null ? Number(outlet.avg_score).toFixed(2) : "na",
+    shareDisparity != null ? Number(shareDisparity).toFixed(2) : "na",
+  ].join("-");
+  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o2&v=${encodeURIComponent(shareSnapshotVersion)}`;
   const shareTextParts = [`${outlet.name} on Review Disparity`];
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${outlet.review_count ?? 0} reviews`);
   const shareText = shareTextParts.join(" — ");

@@ -92,9 +92,14 @@ export default async function JournalistDetailPage({
     redirect(`/journalists/${journalist.public_id}`);
   }
 
-  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?card=j1`;
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
+  const shareSnapshotVersion = [
+    journalist.review_count.toString(),
+    journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given).toFixed(2) : "na",
+    shareDisparity != null ? Number(shareDisparity).toFixed(2) : "na",
+  ].join("-");
+  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?card=j1&v=${encodeURIComponent(shareSnapshotVersion)}`;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${journalist.review_count} reviews`);
   const shareText = shareTextParts.join(" — ");
