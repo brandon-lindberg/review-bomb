@@ -10,7 +10,16 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
 
 export const revalidate = 60;
-const GAME_CARD_VERSION = "g5";
+const GAME_CARD_VERSION = "g14";
+
+function hashSnapshotKey(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
 
 function buildGameSnapshotVersion(game: {
   critic_review_count?: number | null;
@@ -44,11 +53,16 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const canonicalId = game.public_id;
     const requestedCardVersion = query.card?.trim() || GAME_CARD_VERSION;
     const snapshotVersion = query.v?.trim() || buildGameSnapshotVersion(game);
-    const isCardShareUrl = query.card != null || query.v != null;
-    const sharePageUrl = `${siteUrl}/games/${canonicalId}?${new URLSearchParams({
+    const shareNonce = query.sx?.trim()?.slice(0, 24) || undefined;
+    const isCardShareUrl = query.card != null || query.v != null || query.sx != null;
+    const shareUrlParams = new URLSearchParams({
       card: requestedCardVersion,
       v: snapshotVersion,
-    }).toString()}`;
+    });
+    if (shareNonce) {
+      shareUrlParams.set("sx", shareNonce);
+    }
+    const sharePageUrl = `${siteUrl}/games/${canonicalId}?${shareUrlParams.toString()}`;
     const criticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
     const steamUserScore = game.steam_user_score != null ? Number(game.steam_user_score).toFixed(0) : null;
     const metacriticUserScore = game.metacritic_user_score != null ? Number(game.metacritic_user_score).toFixed(0) : null;
@@ -62,20 +76,20 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const disparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(0)}` : null;
     const ogParams = new URLSearchParams({
-      kind: "game",
       name: game.title,
-      subtitle: "Critic vs player score snapshot",
-      disparity: disparity != null ? Number(disparity).toFixed(1) : "",
-      reviews: (game.critic_review_count ?? 0).toString(),
-      score: criticScore ?? "N/A",
+      critic: criticScore ?? "N/A",
       steam: steamUserScore ?? "N/A",
       mc: metacriticUserScore ?? "N/A",
-      extra: userScoreSummary ? `User scores ${userScoreSummary}` : "User scores N/A",
+      disparity: disparity != null ? Number(disparity).toFixed(1) : "",
+      reviews: (game.critic_review_count ?? 0).toString(),
       card: requestedCardVersion,
       v: snapshotVersion,
     });
-    const imageKey = encodeURIComponent(`${requestedCardVersion}-${snapshotVersion}`);
-    const openGraphImage = `${siteUrl}/og/entity/${imageKey}?${ogParams.toString()}`;
+    const imageKeySource = shareNonce
+      ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
+      : `${canonicalId}|${snapshotVersion}`;
+    const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
+    const openGraphImage = `${siteUrl}/og/game-card/${imageCacheKey}?${ogParams.toString()}`;
 
     let description = `${game.title} critic vs user review scores.`;
     if (criticScore && userScoreSummary && disparityStr) {

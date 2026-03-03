@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 interface ShareButtonsProps {
   url: string;
@@ -34,8 +34,17 @@ const CheckIcon = () => (
 
 export function ShareButtons({ url, text }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
+  const xShareUrl = useMemo(() => {
+    try {
+      const parsed = new URL(url);
+      parsed.searchParams.set('sx', `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  }, [url]);
 
-  const xUrl = `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url }).toString()}`;
+  const xUrl = `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url: xShareUrl }).toString()}`;
   const redditUrl = `https://reddit.com/submit?${new URLSearchParams({ url, title: text }).toString()}`;
 
   const handleCopy = async () => {
