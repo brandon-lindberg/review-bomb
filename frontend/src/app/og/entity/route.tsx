@@ -36,18 +36,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const kind = normalizeKind(searchParams.get("kind"));
   const name = truncate(searchParams.get("name")?.trim() || "ReviewDisparity", 64);
-  const subtitle = truncate(searchParams.get("subtitle")?.trim() || "Review disparity snapshot", 80);
   const disparity = parseNumber(searchParams.get("disparity"));
   const reviews = searchParams.get("reviews")?.trim() || "N/A";
   const score = searchParams.get("score")?.trim() || "N/A";
   const steamScore = searchParams.get("steam")?.trim() || "N/A";
   const metacriticScore = searchParams.get("mc")?.trim() || "N/A";
   const extra = truncate(searchParams.get("extra")?.trim() || "", 72);
-  const sectionTitle = kind === "game"
-    ? "Game Snapshot"
-    : kind === "journalist"
-      ? "Journalist Snapshot"
-      : "Outlet Snapshot";
 
   return new ImageResponse(
     (
@@ -67,14 +61,8 @@ export async function GET(request: Request) {
           <div style={{ display: "flex", fontSize: 30, color: "#D8C593", fontWeight: 700 }}>
             ReviewDisparity
           </div>
-          <div style={{ display: "flex", fontSize: 20, color: "#B8AFA3", fontWeight: 600 }}>
-            {sectionTitle}
-          </div>
           <div style={{ display: "flex", fontSize: 64, fontWeight: 800, lineHeight: 1.05, maxWidth: 1080 }}>
             {truncate(name, 40)}
-          </div>
-          <div style={{ display: "flex", fontSize: 28, color: "#CFC5B8" }}>
-            {subtitle}
           </div>
         </div>
 

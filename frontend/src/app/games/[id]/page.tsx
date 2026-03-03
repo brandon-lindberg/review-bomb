@@ -10,7 +10,7 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
 
 export const revalidate = 60;
-const GAME_CARD_VERSION = "g4";
+const GAME_CARD_VERSION = "g5";
 
 function buildGameSnapshotVersion(game: {
   critic_review_count?: number | null;
@@ -74,7 +74,8 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       card: requestedCardVersion,
       v: snapshotVersion,
     });
-    const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
+    const imageKey = encodeURIComponent(`${requestedCardVersion}-${snapshotVersion}`);
+    const openGraphImage = `${siteUrl}/og/entity/${imageKey}?${ogParams.toString()}`;
 
     let description = `${game.title} critic vs user review scores.`;
     if (criticScore && userScoreSummary && disparityStr) {
