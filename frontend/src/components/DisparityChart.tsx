@@ -51,6 +51,40 @@ const getThemeColors = (isDark: boolean) => ({
   border: isDark ? "#3D3A35" : "#e5e7eb",
 });
 
+function parseSnapshotDate(dateValue: string): Date | null {
+  // API returns date-only strings (YYYY-MM-DD); parse in local time to avoid UTC shift.
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateValue);
+  if (dateMatch) {
+    const year = Number.parseInt(dateMatch[1], 10);
+    const month = Number.parseInt(dateMatch[2], 10) - 1;
+    const day = Number.parseInt(dateMatch[3], 10);
+    return new Date(year, month, day);
+  }
+
+  const parsed = new Date(dateValue);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+  return parsed;
+}
+
+function formatSnapshotDate(dateValue: string, options: Intl.DateTimeFormatOptions): string {
+  const parsed = parseSnapshotDate(dateValue);
+  if (!parsed) {
+    return dateValue;
+  }
+  return parsed.toLocaleDateString("en-US", options);
+}
+
+function normalizeSnapshotSeries(data: DisparitySnapshot[]): DisparitySnapshot[] {
+  // Keep the latest entry for each snapshot date, then sort chronologically.
+  const byDate = new Map<string, DisparitySnapshot>();
+  for (const point of data) {
+    byDate.set(String(point.date), point);
+  }
+  return [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
+}
+
 interface DisparityChartProps {
   data: DisparitySnapshot[];
   height?: number;
@@ -77,9 +111,11 @@ export function DisparityChart({
     );
   }
 
+  const normalizedData = normalizeSnapshotSeries(data);
+
   // Transform data for the chart
-  const chartData = data.map((point) => ({
-    date: new Date(point.date).toLocaleDateString("en-US", {
+  const chartData = normalizedData.map((point) => ({
+    date: formatSnapshotDate(String(point.date), {
       month: "short",
       day: "numeric",
     }),
@@ -196,9 +232,11 @@ export function MiniDisparityChart({
     );
   }
 
-  const chartData = data.map((point) => ({
+  const normalizedData = normalizeSnapshotSeries(data);
+
+  const chartData = normalizedData.map((point) => ({
     date: point.date,
-    dateFormatted: new Date(point.date).toLocaleDateString("en-US", {
+    dateFormatted: formatSnapshotDate(String(point.date), {
       month: "short",
       year: "numeric",
     }),

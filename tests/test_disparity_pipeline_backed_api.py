@@ -17,9 +17,12 @@ from app.models.models import (
     Review,
 )
 from app.routers.games import get_game, get_game_reviews
-from app.routers.journalists import get_journalist, get_journalist_reviews
-from app.routers.outlets import get_outlet, get_outlet_reviews
+from app.routers.games import get_game_history
+from app.routers.journalists import get_journalist, get_journalist_history, get_journalist_reviews
+from app.routers.outlets import get_outlet, get_outlet_history, get_outlet_reviews
+from app.schemas.schemas import DisparitySnapshot as ChartDisparitySnapshot
 from app.services.disparity import DisparityCalculator
+from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 
 
 _UNSET = object()
@@ -663,3 +666,191 @@ async def test_get_game_detail_returns_stored_denormalized_disparities():
 
     assert resp.disparity_steam == Decimal("-3.25")
     assert resp.disparity_metacritic == Decimal("1.75")
+
+
+@pytest.mark.asyncio
+async def test_build_disparity_timeline_from_reviews_uses_review_dates_and_cumulative_values():
+    rows = [
+        SimpleNamespace(
+            timeline_date=date(2024, 6, 1),
+            day_review_count=1,
+            day_steam_sum=Decimal("10.00"),
+            day_steam_count=1,
+            day_metacritic_sum=Decimal("20.00"),
+            day_metacritic_count=1,
+            day_combined_sum=Decimal("15.00"),
+            day_combined_count=1,
+        ),
+        SimpleNamespace(
+            timeline_date=date(2024, 6, 3),
+            day_review_count=2,
+            day_steam_sum=Decimal("5.00"),
+            day_steam_count=1,
+            day_metacritic_sum=None,
+            day_metacritic_count=0,
+            day_combined_sum=Decimal("5.00"),
+            day_combined_count=1,
+        ),
+    ]
+    db = FakeAsyncSession(results=[FakeResult(all_rows=rows)])
+
+    timeline = await build_disparity_timeline_from_reviews(
+        db=db,
+        entity_filter=(Review.game_id == 1),
+        limit=10000,
+    )
+
+    assert [point.date for point in timeline] == [date(2024, 6, 1), date(2024, 6, 3)]
+    assert [point.review_count for point in timeline] == [1, 3]
+    assert timeline[0].avg_disparity_steam == Decimal("10.00")
+    assert timeline[0].avg_disparity_metacritic == Decimal("20.00")
+    assert timeline[0].avg_disparity_combined == Decimal("15.00")
+    assert timeline[1].avg_disparity_steam == Decimal("7.50")
+    assert timeline[1].avg_disparity_metacritic == Decimal("20.00")
+    assert timeline[1].avg_disparity_combined == Decimal("10.00")
+
+
+@pytest.mark.asyncio
+async def test_build_disparity_timeline_from_reviews_respects_limit_from_end():
+    rows = [
+        SimpleNamespace(
+            timeline_date=date(2024, 1, 1),
+            day_review_count=1,
+            day_steam_sum=Decimal("1.00"),
+            day_steam_count=1,
+            day_metacritic_sum=Decimal("1.00"),
+            day_metacritic_count=1,
+            day_combined_sum=Decimal("1.00"),
+            day_combined_count=1,
+        ),
+        SimpleNamespace(
+            timeline_date=date(2024, 1, 2),
+            day_review_count=1,
+            day_steam_sum=Decimal("2.00"),
+            day_steam_count=1,
+            day_metacritic_sum=Decimal("2.00"),
+            day_metacritic_count=1,
+            day_combined_sum=Decimal("2.00"),
+            day_combined_count=1,
+        ),
+        SimpleNamespace(
+            timeline_date=date(2024, 1, 3),
+            day_review_count=1,
+            day_steam_sum=Decimal("3.00"),
+            day_steam_count=1,
+            day_metacritic_sum=Decimal("3.00"),
+            day_metacritic_count=1,
+            day_combined_sum=Decimal("3.00"),
+            day_combined_count=1,
+        ),
+    ]
+    db = FakeAsyncSession(results=[FakeResult(all_rows=rows)])
+
+    timeline = await build_disparity_timeline_from_reviews(
+        db=db,
+        entity_filter=(Review.game_id == 1),
+        limit=2,
+    )
+
+    assert [point.date for point in timeline] == [date(2024, 1, 2), date(2024, 1, 3)]
+    assert [point.review_count for point in timeline] == [2, 3]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("history_fn", "patch_target", "entity_obj", "id_param"),
+    [
+        (get_game_history, "app.routers.games.build_disparity_timeline_from_reviews", Game(id=11, title="X"), "game_id"),
+        (get_journalist_history, "app.routers.journalists.build_disparity_timeline_from_reviews", Journalist(id=12, name="J"), "journalist_id"),
+        (get_outlet_history, "app.routers.outlets.build_disparity_timeline_from_reviews", Outlet(id=13, name="O"), "outlet_id"),
+    ],
+)
+async def test_history_endpoints_prefer_review_timeline(
+    monkeypatch: pytest.MonkeyPatch,
+    history_fn,
+    patch_target: str,
+    entity_obj,
+    id_param: str,
+):
+    expected_timeline = [
+        ChartDisparitySnapshot(
+            date=date(2023, 10, 1),
+            avg_disparity_steam=Decimal("2.00"),
+            avg_disparity_metacritic=Decimal("4.00"),
+            avg_disparity_combined=Decimal("3.00"),
+            review_count=10,
+        )
+    ]
+    fake_builder = AsyncMock(return_value=expected_timeline)
+    monkeypatch.setattr(patch_target, fake_builder)
+    db = FakeAsyncSession(results=[FakeResult(scalar_one_or_none=entity_obj)])
+
+    kwargs = {id_param: str(entity_obj.id), "limit": 50, "db": db}
+    response = await history_fn(**kwargs)
+
+    assert response == expected_timeline
+    assert len(db.execute_calls) == 1
+    fake_builder.assert_awaited_once()
+    assert fake_builder.await_args.kwargs["limit"] == 50
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("history_fn", "patch_target", "entity_obj", "id_param", "entity_key"),
+    [
+        (get_game_history, "app.routers.games.build_disparity_timeline_from_reviews", Game(id=21, title="X"), "game_id", "game_id"),
+        (get_journalist_history, "app.routers.journalists.build_disparity_timeline_from_reviews", Journalist(id=22, name="J"), "journalist_id", "journalist_id"),
+        (get_outlet_history, "app.routers.outlets.build_disparity_timeline_from_reviews", Outlet(id=23, name="O"), "outlet_id", "outlet_id"),
+    ],
+)
+async def test_history_endpoints_fallback_dedupes_snapshot_dates(
+    monkeypatch: pytest.MonkeyPatch,
+    history_fn,
+    patch_target: str,
+    entity_obj,
+    id_param: str,
+    entity_key: str,
+):
+    monkeypatch.setattr(patch_target, AsyncMock(return_value=[]))
+
+    snapshot_latest = DisparitySnapshot(
+        id=300,
+        snapshot_date=date(2026, 2, 23),
+        avg_disparity_combined=Decimal("9.00"),
+        review_count=100,
+        **{entity_key: entity_obj.id},
+    )
+    snapshot_duplicate_same_day = DisparitySnapshot(
+        id=299,
+        snapshot_date=date(2026, 2, 23),
+        avg_disparity_combined=Decimal("8.00"),
+        review_count=99,
+        **{entity_key: entity_obj.id},
+    )
+    snapshot_prior_day = DisparitySnapshot(
+        id=250,
+        snapshot_date=date(2026, 2, 22),
+        avg_disparity_combined=Decimal("7.00"),
+        review_count=90,
+        **{entity_key: entity_obj.id},
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=entity_obj),
+            FakeResult(
+                scalars_all=[
+                    snapshot_latest,
+                    snapshot_duplicate_same_day,
+                    snapshot_prior_day,
+                ]
+            ),
+        ]
+    )
+
+    kwargs = {id_param: str(entity_obj.id), "limit": 10, "db": db}
+    response = await history_fn(**kwargs)
+
+    assert [point.date for point in response] == [date(2026, 2, 22), date(2026, 2, 23)]
+    assert [point.review_count for point in response] == [90, 100]
+    assert response[-1].avg_disparity_combined == Decimal("9.00")

@@ -33,6 +33,7 @@ from app.schemas.schemas import (
 from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
 from app.public_ids import resolve_entity_by_identifier
 from app.services.review_score_correction import corrected_normalized_score
+from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -647,20 +648,40 @@ async def get_journalist_history(
     limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get historical disparity data for charts from pipeline snapshots."""
+    """Get historical disparity data for charts from review timeline."""
     journalist = await resolve_entity_by_identifier(db, Journalist, str(journalist_id))
     if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
     journalist_id = journalist.id
 
+    timeline = await build_disparity_timeline_from_reviews(
+        db=db,
+        entity_filter=(Review.journalist_id == journalist_id),
+        limit=limit,
+    )
+    if timeline:
+        return timeline
+
+    # Fallback for legacy/edge cases where review dates are unavailable.
     query = (
         select(DisparitySnapshot)
         .where(DisparitySnapshot.journalist_id == journalist_id)
-        .order_by(desc(DisparitySnapshot.snapshot_date))
-        .limit(limit)
+        .order_by(desc(DisparitySnapshot.snapshot_date), desc(DisparitySnapshot.id))
+        .limit(min(limit * 5, 10000))
     )
     result = await db.execute(query)
     snapshots = result.scalars().all()
+
+    # Deduplicate same-day reruns and keep the latest snapshot for each date.
+    unique_snapshots: list[DisparitySnapshot] = []
+    seen_dates = set()
+    for snapshot in snapshots:
+        if snapshot.snapshot_date in seen_dates:
+            continue
+        seen_dates.add(snapshot.snapshot_date)
+        unique_snapshots.append(snapshot)
+        if len(unique_snapshots) >= limit:
+            break
 
     return [
         DisparitySnapshotSchema(
@@ -670,5 +691,5 @@ async def get_journalist_history(
             avg_disparity_combined=s.avg_disparity_combined,
             review_count=s.review_count,
         )
-        for s in reversed(snapshots)
+        for s in reversed(unique_snapshots)
     ]

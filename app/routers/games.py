@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     PaginatedResponse,
 )
 from app.services.review_score_correction import corrected_normalized_score
+from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -375,20 +376,40 @@ async def get_game_history(
     limit: int = Query(10000, ge=1, le=10000),
     db: AsyncSession = Depends(get_db),
 ):
-    """Get historical disparity data for a game from pipeline snapshots."""
+    """Get historical disparity data for a game from real review timeline."""
     game = await resolve_entity_by_identifier(db, Game, str(game_id))
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     game_id = game.id
 
+    timeline = await build_disparity_timeline_from_reviews(
+        db=db,
+        entity_filter=(Review.game_id == game_id),
+        limit=limit,
+    )
+    if timeline:
+        return timeline
+
+    # Fallback for legacy/edge cases where review dates are unavailable.
     query = (
         select(DisparitySnapshot)
         .where(DisparitySnapshot.game_id == game_id)
-        .order_by(desc(DisparitySnapshot.snapshot_date))
-        .limit(limit)
+        .order_by(desc(DisparitySnapshot.snapshot_date), desc(DisparitySnapshot.id))
+        .limit(min(limit * 5, 10000))
     )
     result = await db.execute(query)
     snapshots = result.scalars().all()
+
+    # Deduplicate same-day reruns and keep the latest snapshot for each date.
+    unique_snapshots: list[DisparitySnapshot] = []
+    seen_dates = set()
+    for snapshot in snapshots:
+        if snapshot.snapshot_date in seen_dates:
+            continue
+        seen_dates.add(snapshot.snapshot_date)
+        unique_snapshots.append(snapshot)
+        if len(unique_snapshots) >= limit:
+            break
 
     return [
         DisparitySnapshotSchema(
@@ -398,7 +419,7 @@ async def get_game_history(
             avg_disparity_combined=s.avg_disparity_combined,
             review_count=s.review_count,
         )
-        for s in reversed(snapshots)
+        for s in reversed(unique_snapshots)
     ]
 
 
