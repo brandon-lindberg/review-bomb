@@ -60,6 +60,8 @@ interface CompareData {
   review_count: number;
   avg_disparity: number | null;
   avg_score: number | null;
+  steam_user_score: number | null;
+  metacritic_user_score: number | null;
   history: DisparitySnapshot[];
   linkHref: string;
 }
@@ -169,6 +171,8 @@ export default async function ComparePage({ searchParams }: PageProps) {
               review_count: result.journalist.review_count,
               avg_disparity: result.journalist.avg_disparity,
               avg_score: result.journalist.stats?.avg_score_given ?? null,
+              steam_user_score: null,
+              metacritic_user_score: null,
               history: result.history,
               linkHref: `/journalists/${result.journalist.public_id}`,
             });
@@ -198,6 +202,8 @@ export default async function ComparePage({ searchParams }: PageProps) {
               review_count: result.outlet.review_count ?? 0,
               avg_disparity: result.outlet.avg_disparity ?? null,
               avg_score: result.outlet.avg_score ?? null,
+              steam_user_score: null,
+              metacritic_user_score: null,
               history: result.history,
               linkHref: `/outlets/${result.outlet.public_id}`,
             });
@@ -230,6 +236,8 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 result.game.disparity_metacritic
               ),
               avg_score: result.game.avg_critic_score ?? null,
+              steam_user_score: result.game.steam_user_score ?? null,
+              metacritic_user_score: result.game.metacritic_user_score ?? null,
               history: result.history,
               linkHref: `/games/${result.game.public_id}`,
             });
@@ -395,6 +403,44 @@ export default async function ComparePage({ searchParams }: PageProps) {
                     </td>
                   ))}
                 </tr>
+
+                {/* Steam Score Row (games only) */}
+                {type === "games" && (
+                  <tr className="bg-gray-50">
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      Steam User Score
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.steam_user_score != null
+                          ? Number(item.steam_user_score).toFixed(1)
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {/* Metacritic Score Row (games only) */}
+                {type === "games" && (
+                  <tr>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      Metacritic User Score
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.metacritic_user_score != null
+                          ? Number(item.metacritic_user_score).toFixed(1)
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
 
                 {/* Trend Chart Row */}
                 <tr className="bg-gray-50">
