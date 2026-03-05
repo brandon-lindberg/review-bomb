@@ -126,11 +126,19 @@ export function LazyChartSection({
     : undefined;
 
   const effectiveTimingCounts = timingCounts ?? computedTimingCounts;
-  const showTimingShare = Boolean(
+  const hasTimingShare = Boolean(
     timingChartShareUrl
     && timingChartShareText
     && effectiveTimingCounts
   );
+  const isTimingTabActive = chartTab === "timing" && hasTimingShare;
+  const activeShareUrl = isTimingTabActive
+    ? timingChartShareUrl
+    : disparityChartShareUrl ?? timingChartShareUrl;
+  const activeShareText = isTimingTabActive
+    ? timingChartShareText
+    : disparityChartShareText ?? timingChartShareText;
+  const activeShareLabel = isTimingTabActive ? "Timing snapshot" : "Disparity snapshot";
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -191,18 +199,12 @@ export function LazyChartSection({
             )}
 
             <div className="p-6">
-              {disparityChartShareUrl && disparityChartShareText && (
-                <div className="mb-5 flex flex-col gap-3 sm:items-end">
+              {activeShareUrl && activeShareText && (
+                <div className="mb-5 flex justify-end">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="text-xs font-medium text-gray-500">Disparity snapshot</span>
-                    <ShareButtons url={disparityChartShareUrl} text={disparityChartShareText} />
+                    <span className="text-xs font-medium text-gray-500">{activeShareLabel}</span>
+                    <ShareButtons url={activeShareUrl} text={activeShareText} />
                   </div>
-                  {showTimingShare && (
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                      <span className="text-xs font-medium text-gray-500">Timing snapshot</span>
-                      <ShareButtons url={timingChartShareUrl!} text={timingChartShareText!} />
-                    </div>
-                  )}
                 </div>
               )}
 
