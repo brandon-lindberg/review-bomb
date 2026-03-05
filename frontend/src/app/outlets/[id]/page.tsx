@@ -184,27 +184,38 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
+    const timingSummary = `Early ${snapshotTiming.early}, Launch ${snapshotTiming.launch}, Late ${snapshotTiming.late}`;
+    const modeTitle = shareMode === "timing"
+      ? `${outlet.name} - Review Timing Snapshot`
+      : shareMode === "chart"
+        ? `${outlet.name} - Disparity Trend Snapshot`
+        : `${outlet.name} - Review Scores & Disparity`;
+
     let description = `${outlet.name} game review scores and critic-to-user disparity data.`;
-    if (disparityStr) {
+    if (shareMode === "timing") {
+      description = `${outlet.name} review timing snapshot (${timingSummary}) across ${outlet.review_count || 0} reviews.${disparityStr ? ` Avg disparity ${disparityStr}.` : ""}`;
+    } else if (shareMode === "chart") {
+      description = `${outlet.name} disparity trend snapshot across ${outlet.review_count || 0} reviews.${disparityStr ? ` Avg disparity ${disparityStr}.` : ""}`;
+    } else if (disparityStr) {
       description = `${outlet.name} has a ${disparityStr} average review disparity across ${outlet.review_count || 0} reviews from ${outlet.journalist_count || 0} journalists.`;
     }
 
     return {
-      title: `${outlet.name} - Review Scores & Disparity`,
+      title: modeTitle,
       description,
       alternates: isCardShareUrl ? undefined : { canonical: `/outlets/${canonicalId}` },
       ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
-        title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
+        title: `${modeTitle} | ReviewDisparity`,
         description,
         url: isCardShareUrl ? sharePageUrl : `${siteUrl}/outlets/${canonicalId}`,
         type: "website",
-        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${outlet.name} review disparity snapshot` }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${outlet.name} ${shareMode === "timing" ? "review timing" : "review disparity"} snapshot` }],
       },
       twitter: {
         card: "summary_large_image",
-        title: outlet.name,
+        title: modeTitle,
         description,
         images: [openGraphImage],
       },

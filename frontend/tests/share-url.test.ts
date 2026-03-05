@@ -187,15 +187,15 @@ test("share surfaces use the centralized share-url builders", () => {
     },
     {
       file: "src/app/games/[id]/page.tsx",
-      snippets: ["buildEntitySnapshotShareUrl("],
+      snippets: ["buildEntitySnapshotShareUrl(", "Review Timing Snapshot"],
     },
     {
       file: "src/app/journalists/[id]/page.tsx",
-      snippets: ["buildEntitySnapshotShareUrl("],
+      snippets: ["buildEntitySnapshotShareUrl(", "Review Timing Snapshot"],
     },
     {
       file: "src/app/outlets/[id]/page.tsx",
-      snippets: ["buildEntitySnapshotShareUrl("],
+      snippets: ["buildEntitySnapshotShareUrl(", "Review Timing Snapshot"],
     },
     {
       file: "src/app/compare/page.tsx",

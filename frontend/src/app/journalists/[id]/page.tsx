@@ -195,27 +195,38 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
+    const timingSummary = `Early ${snapshotTiming.early}, Launch ${snapshotTiming.launch}, Late ${snapshotTiming.late}`;
+    const modeTitle = shareMode === "timing"
+      ? `${journalist.name} - Review Timing Snapshot`
+      : shareMode === "chart"
+        ? `${journalist.name} - Disparity Trend Snapshot`
+        : `${journalist.name} - Review Scores & Disparity`;
+
     let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
-    if (disparityStr) {
+    if (shareMode === "timing") {
+      description = `${journalist.name} review timing snapshot (${timingSummary}) across ${journalist.review_count} reviews.${disparityStr ? ` Avg disparity ${disparityStr}.` : ""}`;
+    } else if (shareMode === "chart") {
+      description = `${journalist.name} disparity trend snapshot across ${journalist.review_count} reviews.${disparityStr ? ` Avg disparity ${disparityStr}.` : ""}`;
+    } else if (disparityStr) {
       description = `${journalist.name} has a ${disparityStr} average review disparity across ${journalist.review_count} reviews. See full scoring patterns and trends.`;
     }
 
     return {
-      title: `${journalist.name} - Review Scores & Disparity`,
+      title: modeTitle,
       description,
       alternates: isCardShareUrl ? undefined : { canonical: `/journalists/${canonicalId}` },
       ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
-        title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
+        title: `${modeTitle} | ReviewDisparity`,
         description,
         url: isCardShareUrl ? sharePageUrl : `${siteUrl}/journalists/${canonicalId}`,
         type: "profile",
-        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${journalist.name} review disparity snapshot` }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${journalist.name} ${shareMode === "timing" ? "review timing" : "review disparity"} snapshot` }],
       },
       twitter: {
         card: "summary_large_image",
-        title: journalist.name,
+        title: modeTitle,
         description,
         images: [openGraphImage],
       },

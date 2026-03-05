@@ -170,26 +170,44 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/game-card?${ogParams.toString()}`;
 
+    const timingSummary = `Early ${snapshotTiming.early}, Launch ${snapshotTiming.launch}, Late ${snapshotTiming.late}`;
+    const scoreSummary = criticScore && userScoreSummary
+      ? `Critic ${criticScore} vs ${userScoreSummary}`
+      : criticScore
+        ? `Critic ${criticScore}`
+        : userScoreSummary
+          ? userScoreSummary
+          : "Snapshot";
+    const modeTitle = shareMode === "timing"
+      ? `${game.title} - Review Timing Snapshot`
+      : shareMode === "chart"
+        ? `${game.title} - Disparity Trend Snapshot`
+        : `${game.title} - Critic vs User Scores`;
+
     let description = `${game.title} critic vs user review scores.`;
-    if (criticScore && userScoreSummary && disparityStr) {
+    if (shareMode === "timing") {
+      description = `${game.title}: review timing snapshot (${timingSummary}). ${scoreSummary}${disparityStr ? ` (${disparityStr} disparity).` : "."}`;
+    } else if (shareMode === "chart") {
+      description = `${game.title}: disparity trend snapshot. ${scoreSummary}${disparityStr ? ` (${disparityStr} disparity).` : "."}`;
+    } else if (criticScore && userScoreSummary && disparityStr) {
       description = `${game.title}: critic score ${criticScore} vs ${userScoreSummary} (${disparityStr} disparity). See all ${game.critic_review_count || 0} critic reviews.`;
     }
 
     return {
-      title: `${game.title} - Critic vs User Scores`,
+      title: modeTitle,
       description,
       alternates: isCardShareUrl ? undefined : { canonical: `/games/${canonicalId}` },
       ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       openGraph: {
-        title: `${game.title} - Critic vs User Scores | ReviewDisparity`,
+        title: `${modeTitle} | ReviewDisparity`,
         description,
         url: isCardShareUrl ? sharePageUrl : `${siteUrl}/games/${canonicalId}`,
         type: "article",
-        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${game.title} review disparity snapshot` }],
+        images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${game.title} ${shareMode === "timing" ? "review timing" : "review disparity"} snapshot` }],
       },
       twitter: {
         card: "summary_large_image",
-        title: game.title,
+        title: modeTitle,
         description,
         images: [openGraphImage],
       },
