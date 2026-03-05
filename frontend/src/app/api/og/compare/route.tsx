@@ -192,7 +192,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
   if (ids.length === 0) return [];
 
   if (type === "journalists") {
-    const results = await Promise.all(ids.map(async (id) => {
+    const results: Array<SnapshotItem | null> = await Promise.all(ids.map(async (id): Promise<SnapshotItem | null> => {
       try {
         const [journalist, history] = await Promise.all([
           getJournalist(id),
@@ -220,7 +220,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           steamScore,
           metacriticScore,
           trend: toTrendSnapshot(history),
-        } satisfies SnapshotItem;
+        };
       } catch {
         return null;
       }
@@ -230,7 +230,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
   }
 
   if (type === "outlets") {
-    const results = await Promise.all(ids.map(async (id) => {
+    const results: Array<SnapshotItem | null> = await Promise.all(ids.map(async (id): Promise<SnapshotItem | null> => {
       try {
         const [outlet, history] = await Promise.all([
           getOutlet(id),
@@ -250,7 +250,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           steamScore,
           metacriticScore,
           trend: toTrendSnapshot(history),
-        } satisfies SnapshotItem;
+        };
       } catch {
         return null;
       }
@@ -259,7 +259,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
     return results.filter((item): item is SnapshotItem => item != null);
   }
 
-  const results = await Promise.all(ids.map(async (id) => {
+  const results: Array<SnapshotItem | null> = await Promise.all(ids.map(async (id): Promise<SnapshotItem | null> => {
     try {
       const [game, history] = await Promise.all([
         getGame(id),
@@ -274,7 +274,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
         steamScore: game.steam_user_score ?? null,
         metacriticScore: game.metacritic_user_score ?? null,
         trend: toTrendSnapshot(history),
-      } satisfies SnapshotItem;
+      };
     } catch {
       return null;
     }
