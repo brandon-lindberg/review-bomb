@@ -65,6 +65,7 @@ function metricTile(
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const mode = searchParams.get("mode")?.trim() === "chart" ? "chart" : "default";
   const name = truncate(searchParams.get("name")?.trim() || "ReviewDisparity", 48);
   const critic = searchParams.get("critic")?.trim() || "N/A";
   const steam = searchParams.get("steam")?.trim() || "N/A";
@@ -88,8 +89,11 @@ export async function GET(request: Request) {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", fontSize: 30, color: "#D8C593", fontWeight: 700 }}>
-            ReviewDisparity
+          <div style={{ display: "flex", fontSize: 30, color: "#D8C593", fontWeight: 700, justifyContent: "space-between", width: "100%" }}>
+            <span>ReviewDisparity</span>
+            {mode === "chart" && (
+              <span style={{ fontSize: 20, color: "#B8AFA3", fontWeight: 600 }}>Chart Snapshot</span>
+            )}
           </div>
           <div style={{ display: "flex", fontSize: 64, fontWeight: 800, lineHeight: 1.04, maxWidth: 1080 }}>
             {name}

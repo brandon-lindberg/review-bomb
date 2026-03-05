@@ -9,37 +9,123 @@ import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
+import {
+  deriveSourceScoreFromDisparity,
+  encodeSnapshotMetric,
+  formatSnapshotDisplay,
+  hashSnapshotKey,
+  readSnapshotMetric,
+} from "@/lib/share-snapshot";
 
 export const revalidate = 60;
+const OUTLET_CARD_VERSION = "o3";
+const OUTLET_CHART_CARD_VERSION = "oc1";
+
+function buildOutletSnapshotVersion(values: {
+  reviewCount: number;
+  criticScore: number | null | undefined;
+  steamScore: number | null | undefined;
+  metacriticScore: number | null | undefined;
+  combinedDisparity: number | null | undefined;
+}): string {
+  return [
+    values.reviewCount.toString(),
+    encodeSnapshotMetric(values.criticScore),
+    encodeSnapshotMetric(values.steamScore),
+    encodeSnapshotMetric(values.metacriticScore),
+    encodeSnapshotMetric(values.combinedDisparity),
+  ].join(",");
+}
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    card?: string;
+    v?: string;
+    sx?: string;
+    mode?: string;
+    critic?: string;
+    steam?: string;
+    mc?: string;
+    disp?: string;
+  }>;
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
+  const query = await searchParams;
+  const { page: pageParam } = query;
   const page = parseInt(pageParam || "1");
   const siteUrl = getSiteUrl();
 
   try {
     const outlet = await getOutlet(id);
     const canonicalId = outlet.public_id;
-    const disparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
+    const requestedCardVersion = query.card?.trim() || OUTLET_CARD_VERSION;
+    const shareMode = query.mode?.trim() === "chart" ? "chart" : "default";
+    const liveCombinedDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
+    const liveCriticScore = outlet.avg_score != null ? Number(outlet.avg_score) : null;
+    const liveSteamScore = deriveSourceScoreFromDisparity(liveCriticScore, outlet.avg_disparity_steam);
+    const liveMetacriticScore = deriveSourceScoreFromDisparity(liveCriticScore, outlet.avg_disparity_metacritic);
+    const snapshotCriticMetric = readSnapshotMetric(query.critic);
+    const snapshotSteamMetric = readSnapshotMetric(query.steam);
+    const snapshotMetacriticMetric = readSnapshotMetric(query.mc);
+    const snapshotDisparityMetric = readSnapshotMetric(query.disp);
+    const snapshotCriticScore = snapshotCriticMetric !== undefined ? snapshotCriticMetric : liveCriticScore;
+    const snapshotSteamScore = snapshotSteamMetric !== undefined ? snapshotSteamMetric : liveSteamScore;
+    const snapshotMetacriticScore = snapshotMetacriticMetric !== undefined ? snapshotMetacriticMetric : liveMetacriticScore;
+    const snapshotCombinedDisparity = snapshotDisparityMetric !== undefined ? snapshotDisparityMetric : liveCombinedDisparity;
+    const snapshotVersion = query.v?.trim() || buildOutletSnapshotVersion({
+      reviewCount: outlet.review_count ?? 0,
+      criticScore: snapshotCriticScore,
+      steamScore: snapshotSteamScore,
+      metacriticScore: snapshotMetacriticScore,
+      combinedDisparity: snapshotCombinedDisparity,
+    });
+    const shareNonce = query.sx?.trim()?.slice(0, 24) || undefined;
+    const isCardShareUrl = query.card != null
+      || query.v != null
+      || query.sx != null
+      || query.mode != null
+      || query.critic != null
+      || query.steam != null
+      || query.mc != null
+      || query.disp != null;
+    const shareUrlParams = new URLSearchParams({
+      card: requestedCardVersion,
+      v: snapshotVersion,
+      critic: encodeSnapshotMetric(snapshotCriticScore),
+      steam: encodeSnapshotMetric(snapshotSteamScore),
+      mc: encodeSnapshotMetric(snapshotMetacriticScore),
+      disp: encodeSnapshotMetric(snapshotCombinedDisparity),
+    });
+    if (shareNonce) {
+      shareUrlParams.set("sx", shareNonce);
+    }
+    if (shareMode === "chart") {
+      shareUrlParams.set("mode", "chart");
+    }
+    const sharePageUrl = `${siteUrl}/outlets/${canonicalId}?${shareUrlParams.toString()}`;
+    const disparity = snapshotCombinedDisparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
-    const avgScore = outlet.avg_score != null ? Number(outlet.avg_score).toFixed(1) : "N/A";
     const ogParams = new URLSearchParams({
       kind: "outlet",
-      id: canonicalId,
       name: outlet.name,
-      subtitle: "Outlet review disparity profile",
       disparity: disparity != null ? Number(disparity).toFixed(1) : "",
       reviews: (outlet.review_count ?? 0).toString(),
-      score: avgScore,
-      extra: `${outlet.journalist_count ?? 0} journalists tracked`,
-      card: "o2",
+      critic: formatSnapshotDisplay(snapshotCriticScore),
+      steam: formatSnapshotDisplay(snapshotSteamScore),
+      mc: formatSnapshotDisplay(snapshotMetacriticScore),
+      card: requestedCardVersion,
+      v: snapshotVersion,
+      mode: shareMode,
     });
+    const imageKeySource = shareNonce
+      ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
+      : `${canonicalId}|${snapshotVersion}`;
+    const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
+    ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
     let description = `${outlet.name} game review scores and critic-to-user disparity data.`;
@@ -50,12 +136,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: `${outlet.name} - Review Scores & Disparity`,
       description,
-      alternates: { canonical: `/outlets/${canonicalId}` },
+      alternates: isCardShareUrl ? undefined : { canonical: `/outlets/${canonicalId}` },
+      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${outlet.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `${siteUrl}/outlets/${canonicalId}`,
+        url: isCardShareUrl ? sharePageUrl : `${siteUrl}/outlets/${canonicalId}`,
         type: "website",
         images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${outlet.name} review disparity snapshot` }],
       },
@@ -93,16 +180,47 @@ export default async function OutletDetailPage({ params }: PageProps) {
 
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
-  const shareSnapshotVersion = [
-    (outlet.review_count ?? 0).toString(),
-    (outlet.journalist_count ?? 0).toString(),
-    outlet.avg_score != null ? Number(outlet.avg_score).toFixed(2) : "na",
-    shareDisparity != null ? Number(shareDisparity).toFixed(2) : "na",
-  ].join("-");
-  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?card=o2&v=${encodeURIComponent(shareSnapshotVersion)}`;
+  const shareCriticScore = outlet.avg_score != null ? Number(outlet.avg_score) : null;
+  const shareSteamScore = deriveSourceScoreFromDisparity(shareCriticScore, outlet.avg_disparity_steam);
+  const shareMetacriticScore = deriveSourceScoreFromDisparity(shareCriticScore, outlet.avg_disparity_metacritic);
+  const shareSnapshotVersion = buildOutletSnapshotVersion({
+    reviewCount: outlet.review_count ?? 0,
+    criticScore: shareCriticScore,
+    steamScore: shareSteamScore,
+    metacriticScore: shareMetacriticScore,
+    combinedDisparity: shareDisparity,
+  });
+  const shareUrlParams = new URLSearchParams({
+    card: OUTLET_CARD_VERSION,
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(shareCriticScore),
+    steam: encodeSnapshotMetric(shareSteamScore),
+    mc: encodeSnapshotMetric(shareMetacriticScore),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const shareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?${shareUrlParams.toString()}`;
+  const chartShareUrlParams = new URLSearchParams({
+    card: OUTLET_CHART_CARD_VERSION,
+    mode: "chart",
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(shareCriticScore),
+    steam: encodeSnapshotMetric(shareSteamScore),
+    mc: encodeSnapshotMetric(shareMetacriticScore),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const chartShareUrl = `${getSiteUrl()}/outlets/${outlet.public_id}?${chartShareUrlParams.toString()}`;
   const shareTextParts = [`${outlet.name} on Review Disparity`];
+  if (shareCriticScore != null) shareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
+  if (shareSteamScore != null) shareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
+  if (shareMetacriticScore != null) shareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${outlet.review_count ?? 0} reviews`);
   const shareText = shareTextParts.join(" — ");
+  const chartShareTextParts = [`${outlet.name} disparity trend snapshot on Review Disparity`];
+  if (shareCriticScore != null) chartShareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
+  if (shareSteamScore != null) chartShareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
+  if (shareMetacriticScore != null) chartShareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
+  if (shareDisparityStr) chartShareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const chartShareText = chartShareTextParts.join(" — ");
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -307,6 +425,8 @@ export default async function OutletDetailPage({ params }: PageProps) {
       <LazyChartSection
         entityType="outlet"
         entityId={outlet.public_id}
+        chartShareUrl={chartShareUrl}
+        chartShareText={chartShareText}
         timingCounts={{
           early: outlet.early_review_count ?? 0,
           launchWindow: outlet.launch_window_review_count ?? 0,

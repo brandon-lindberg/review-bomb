@@ -9,36 +9,134 @@ import { JournalistReviewsSection } from "@/components/JournalistReviewsSection"
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
+import {
+  deriveSourceScoreFromDisparity,
+  encodeSnapshotMetric,
+  formatSnapshotDisplay,
+  hashSnapshotKey,
+  readSnapshotMetric,
+} from "@/lib/share-snapshot";
 
 export const revalidate = 60;
+const JOURNALIST_CARD_VERSION = "j2";
+const JOURNALIST_CHART_CARD_VERSION = "jc1";
+
+function buildJournalistSnapshotVersion(values: {
+  reviewCount: number;
+  criticScore: number | null | undefined;
+  steamScore: number | null | undefined;
+  metacriticScore: number | null | undefined;
+  combinedDisparity: number | null | undefined;
+}): string {
+  return [
+    values.reviewCount.toString(),
+    encodeSnapshotMetric(values.criticScore),
+    encodeSnapshotMetric(values.steamScore),
+    encodeSnapshotMetric(values.metacriticScore),
+    encodeSnapshotMetric(values.combinedDisparity),
+  ].join(",");
+}
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ page?: string }>;
+  searchParams: Promise<{
+    page?: string;
+    card?: string;
+    v?: string;
+    sx?: string;
+    mode?: string;
+    critic?: string;
+    steam?: string;
+    mc?: string;
+    disp?: string;
+  }>;
 }
 
 export async function generateMetadata({ params, searchParams }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const { page: pageParam } = await searchParams;
+  const query = await searchParams;
+  const { page: pageParam } = query;
   const page = parseInt(pageParam || "1");
   const siteUrl = getSiteUrl();
 
   try {
     const journalist = await getJournalist(id);
     const canonicalId = journalist.public_id;
-    const disparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
+    const requestedCardVersion = query.card?.trim() || JOURNALIST_CARD_VERSION;
+    const shareMode = query.mode?.trim() === "chart" ? "chart" : "default";
+    const liveCombinedDisparity =
+      journalist.stats?.overall_disparity_combined
+      ?? journalist.avg_disparity
+      ?? journalist.stats?.avg_disparity_combined;
+    const liveCriticScore = journalist.stats?.avg_score_given != null
+      ? Number(journalist.stats.avg_score_given)
+      : null;
+    const liveSteamScore = deriveSourceScoreFromDisparity(
+      liveCriticScore,
+      journalist.stats?.overall_disparity_steam ?? journalist.stats?.avg_disparity_steam
+    );
+    const liveMetacriticScore = deriveSourceScoreFromDisparity(
+      liveCriticScore,
+      journalist.stats?.overall_disparity_metacritic ?? journalist.stats?.avg_disparity_metacritic
+    );
+    const snapshotCriticMetric = readSnapshotMetric(query.critic);
+    const snapshotSteamMetric = readSnapshotMetric(query.steam);
+    const snapshotMetacriticMetric = readSnapshotMetric(query.mc);
+    const snapshotDisparityMetric = readSnapshotMetric(query.disp);
+    const snapshotCriticScore = snapshotCriticMetric !== undefined ? snapshotCriticMetric : liveCriticScore;
+    const snapshotSteamScore = snapshotSteamMetric !== undefined ? snapshotSteamMetric : liveSteamScore;
+    const snapshotMetacriticScore = snapshotMetacriticMetric !== undefined ? snapshotMetacriticMetric : liveMetacriticScore;
+    const snapshotCombinedDisparity = snapshotDisparityMetric !== undefined ? snapshotDisparityMetric : liveCombinedDisparity;
+    const snapshotVersion = query.v?.trim() || buildJournalistSnapshotVersion({
+      reviewCount: journalist.review_count,
+      criticScore: snapshotCriticScore,
+      steamScore: snapshotSteamScore,
+      metacriticScore: snapshotMetacriticScore,
+      combinedDisparity: snapshotCombinedDisparity,
+    });
+    const shareNonce = query.sx?.trim()?.slice(0, 24) || undefined;
+    const isCardShareUrl = query.card != null
+      || query.v != null
+      || query.sx != null
+      || query.mode != null
+      || query.critic != null
+      || query.steam != null
+      || query.mc != null
+      || query.disp != null;
+    const shareUrlParams = new URLSearchParams({
+      card: requestedCardVersion,
+      v: snapshotVersion,
+      critic: encodeSnapshotMetric(snapshotCriticScore),
+      steam: encodeSnapshotMetric(snapshotSteamScore),
+      mc: encodeSnapshotMetric(snapshotMetacriticScore),
+      disp: encodeSnapshotMetric(snapshotCombinedDisparity),
+    });
+    if (shareNonce) {
+      shareUrlParams.set("sx", shareNonce);
+    }
+    if (shareMode === "chart") {
+      shareUrlParams.set("mode", "chart");
+    }
+    const sharePageUrl = `${siteUrl}/journalists/${canonicalId}?${shareUrlParams.toString()}`;
+    const disparity = snapshotCombinedDisparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
-    const avgScore = journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given).toFixed(1) : "N/A";
     const ogParams = new URLSearchParams({
       kind: "journalist",
       name: journalist.name,
-      subtitle: "Review disparity profile",
       disparity: disparity != null ? Number(disparity).toFixed(1) : "",
       reviews: journalist.review_count.toString(),
-      score: avgScore,
-      extra: `${journalist.review_count} reviews analyzed`,
-      card: "j1",
+      critic: formatSnapshotDisplay(snapshotCriticScore),
+      steam: formatSnapshotDisplay(snapshotSteamScore),
+      mc: formatSnapshotDisplay(snapshotMetacriticScore),
+      card: requestedCardVersion,
+      v: snapshotVersion,
+      mode: shareMode,
     });
+    const imageKeySource = shareNonce
+      ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
+      : `${canonicalId}|${snapshotVersion}`;
+    const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
+    ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
 
     let description = `${journalist.name}'s game review scores and critic-to-user disparity data.`;
@@ -49,12 +147,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: `${journalist.name} - Review Scores & Disparity`,
       description,
-      alternates: { canonical: `/journalists/${canonicalId}` },
+      alternates: isCardShareUrl ? undefined : { canonical: `/journalists/${canonicalId}` },
+      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${journalist.name} - Review Scores & Disparity | ReviewDisparity`,
         description,
-        url: `${siteUrl}/journalists/${canonicalId}`,
+        url: isCardShareUrl ? sharePageUrl : `${siteUrl}/journalists/${canonicalId}`,
         type: "profile",
         images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${journalist.name} review disparity snapshot` }],
       },
@@ -94,15 +193,53 @@ export default async function JournalistDetailPage({
 
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
-  const shareSnapshotVersion = [
-    journalist.review_count.toString(),
-    journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given).toFixed(2) : "na",
-    shareDisparity != null ? Number(shareDisparity).toFixed(2) : "na",
-  ].join("-");
-  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?card=j1&v=${encodeURIComponent(shareSnapshotVersion)}`;
+  const shareCriticScore = journalist.stats?.avg_score_given != null ? Number(journalist.stats.avg_score_given) : null;
+  const shareSteamScore = deriveSourceScoreFromDisparity(
+    shareCriticScore,
+    journalist.stats?.overall_disparity_steam ?? journalist.stats?.avg_disparity_steam
+  );
+  const shareMetacriticScore = deriveSourceScoreFromDisparity(
+    shareCriticScore,
+    journalist.stats?.overall_disparity_metacritic ?? journalist.stats?.avg_disparity_metacritic
+  );
+  const shareSnapshotVersion = buildJournalistSnapshotVersion({
+    reviewCount: journalist.review_count,
+    criticScore: shareCriticScore,
+    steamScore: shareSteamScore,
+    metacriticScore: shareMetacriticScore,
+    combinedDisparity: shareDisparity,
+  });
+  const shareUrlParams = new URLSearchParams({
+    card: JOURNALIST_CARD_VERSION,
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(shareCriticScore),
+    steam: encodeSnapshotMetric(shareSteamScore),
+    mc: encodeSnapshotMetric(shareMetacriticScore),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?${shareUrlParams.toString()}`;
+  const chartShareUrlParams = new URLSearchParams({
+    card: JOURNALIST_CHART_CARD_VERSION,
+    mode: "chart",
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(shareCriticScore),
+    steam: encodeSnapshotMetric(shareSteamScore),
+    mc: encodeSnapshotMetric(shareMetacriticScore),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const chartShareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?${chartShareUrlParams.toString()}`;
   const shareTextParts = [`${journalist.name} on Review Disparity`];
+  if (shareCriticScore != null) shareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
+  if (shareSteamScore != null) shareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
+  if (shareMetacriticScore != null) shareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
   if (shareDisparityStr) shareTextParts.push(`Avg disparity: ${shareDisparityStr} across ${journalist.review_count} reviews`);
   const shareText = shareTextParts.join(" — ");
+  const chartShareTextParts = [`${journalist.name} disparity trend snapshot on Review Disparity`];
+  if (shareCriticScore != null) chartShareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
+  if (shareSteamScore != null) chartShareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
+  if (shareMetacriticScore != null) chartShareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
+  if (shareDisparityStr) chartShareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const chartShareText = chartShareTextParts.join(" — ");
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -352,6 +489,8 @@ export default async function JournalistDetailPage({
       <LazyChartSection
         entityType="journalist"
         entityId={journalist.public_id}
+        chartShareUrl={chartShareUrl}
+        chartShareText={chartShareText}
         timingCounts={{
           early: journalist.stats?.early_review_count ?? 0,
           launchWindow: journalist.stats?.launch_window_review_count ?? 0,

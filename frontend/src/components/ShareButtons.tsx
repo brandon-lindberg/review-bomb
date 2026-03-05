@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 
 interface ShareButtonsProps {
   url: string;
@@ -34,18 +34,24 @@ const CheckIcon = () => (
 
 export function ShareButtons({ url, text }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
-  const xShareUrl = useMemo(() => {
+  const redditUrl = `https://reddit.com/submit?${new URLSearchParams({ url, title: text }).toString()}`;
+
+  const buildXIntentUrl = () => {
+    let xShareUrl = url;
     try {
       const parsed = new URL(url);
       parsed.searchParams.set('sx', `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
-      return parsed.toString();
+      xShareUrl = parsed.toString();
     } catch {
-      return url;
+      xShareUrl = url;
     }
-  }, [url]);
+    return `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url: xShareUrl }).toString()}`;
+  };
 
-  const xUrl = `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url: xShareUrl }).toString()}`;
-  const redditUrl = `https://reddit.com/submit?${new URLSearchParams({ url, title: text }).toString()}`;
+  const handleShareX = () => {
+    const xIntentUrl = buildXIntentUrl();
+    window.open(xIntentUrl, '_blank', 'noopener,noreferrer');
+  };
 
   const handleCopy = async () => {
     try {
@@ -86,15 +92,14 @@ export function ShareButtons({ url, text }: ShareButtonsProps) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-      <a
-        href={xUrl}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={handleShareX}
         style={{ ...baseStyle, padding: '5px 8px' }}
         aria-label="Share on X"
       >
         <XIcon />
-      </a>
+      </button>
 
       <a
         href={redditUrl}

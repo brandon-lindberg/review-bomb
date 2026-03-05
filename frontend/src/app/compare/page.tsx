@@ -8,6 +8,7 @@ import { CompareSelector } from "@/components/CompareSelector";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { getSiteUrl } from "@/lib/site-url";
+import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
 import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
@@ -50,6 +51,7 @@ interface PageProps {
     ids?: string;
     card?: string;
     labels?: string;
+    snap?: string;
   }>;
 }
 
@@ -75,6 +77,38 @@ function parseCompareLabels(rawLabels?: string): string[] {
     .slice(0, 4);
 }
 
+function toTrendSnapshot(history: DisparitySnapshot[]): number[] {
+  if (!history || history.length === 0) return [];
+
+  const values = history
+    .map((point) => {
+      const combined = point.avg_disparity_combined != null
+        ? Number(point.avg_disparity_combined)
+        : point.avg_disparity_steam != null && point.avg_disparity_metacritic != null
+          ? (Number(point.avg_disparity_steam) + Number(point.avg_disparity_metacritic)) / 2
+          : point.avg_disparity_steam ?? point.avg_disparity_metacritic ?? null;
+      if (combined == null || !Number.isFinite(Number(combined))) return null;
+      return Number(Number(combined).toFixed(1));
+    })
+    .filter((value): value is number => value != null);
+
+  return values.slice(-16);
+}
+
+function buildCompareSnapshotPayload(items: CompareData[]): string {
+  return JSON.stringify(
+    items.slice(0, 4).map((item) => ({
+      n: item.name,
+      c: item.avg_score,
+      s: item.steam_user_score,
+      m: item.metacritic_user_score,
+      d: item.avg_disparity,
+      r: item.review_count,
+      t: toTrendSnapshot(item.history),
+    }))
+  );
+}
+
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const params = await searchParams;
   const type = normalizeCompareType(params.type);
@@ -90,6 +124,9 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   }
   if (labels.length > 0) {
     queryParams.set("labels", labels.join("|"));
+  }
+  if (params.snap?.trim()) {
+    queryParams.set("snap", params.snap.trim());
   }
 
   const compareLabel = compareTypeLabel[type];
@@ -164,15 +201,27 @@ export default async function ComparePage({ searchParams }: PageProps) {
 
         for (const result of results) {
           if (result) {
+            const criticScore = result.journalist.stats?.avg_score_given ?? null;
+            const steamScore = deriveSourceScoreFromDisparity(
+              criticScore,
+              result.journalist.stats?.overall_disparity_steam ?? result.journalist.stats?.avg_disparity_steam
+            );
+            const metacriticScore = deriveSourceScoreFromDisparity(
+              criticScore,
+              result.journalist.stats?.overall_disparity_metacritic ?? result.journalist.stats?.avg_disparity_metacritic
+            );
+            const combinedDisparity = result.journalist.stats?.overall_disparity_combined
+              ?? result.journalist.avg_disparity
+              ?? result.journalist.stats?.avg_disparity_combined;
             compareData.push({
               id: result.journalist.id,
               name: result.journalist.name,
               image_url: result.journalist.image_url,
               review_count: result.journalist.review_count,
-              avg_disparity: result.journalist.avg_disparity,
-              avg_score: result.journalist.stats?.avg_score_given ?? null,
-              steam_user_score: null,
-              metacritic_user_score: null,
+              avg_disparity: combinedDisparity,
+              avg_score: criticScore,
+              steam_user_score: steamScore,
+              metacritic_user_score: metacriticScore,
               history: result.history,
               linkHref: `/journalists/${result.journalist.public_id}`,
             });
@@ -195,15 +244,19 @@ export default async function ComparePage({ searchParams }: PageProps) {
 
         for (const result of results) {
           if (result) {
+            const criticScore = result.outlet.avg_score ?? null;
+            const steamScore = deriveSourceScoreFromDisparity(criticScore, result.outlet.avg_disparity_steam);
+            const metacriticScore = deriveSourceScoreFromDisparity(criticScore, result.outlet.avg_disparity_metacritic);
+            const combinedDisparity = result.outlet.avg_disparity_combined ?? result.outlet.avg_disparity ?? null;
             compareData.push({
               id: result.outlet.id,
               name: result.outlet.name,
               image_url: result.outlet.logo_url,
               review_count: result.outlet.review_count ?? 0,
-              avg_disparity: result.outlet.avg_disparity ?? null,
-              avg_score: result.outlet.avg_score ?? null,
-              steam_user_score: null,
-              metacritic_user_score: null,
+              avg_disparity: combinedDisparity,
+              avg_score: criticScore,
+              steam_user_score: steamScore,
+              metacritic_user_score: metacriticScore,
               history: result.history,
               linkHref: `/outlets/${result.outlet.public_id}`,
             });
@@ -255,13 +308,16 @@ export default async function ComparePage({ searchParams }: PageProps) {
   const comparedNames = compareData.slice(0, 4).map((item) => item.name);
   const shareParams = new URLSearchParams({
     type,
-    card: "v3",
+    card: "v5",
   });
   if (compareIds.length > 0) {
     shareParams.set("ids", compareIds.join(","));
   }
   if (comparedNames.length > 0) {
     shareParams.set("labels", comparedNames.join("|"));
+  }
+  if (compareData.length > 0) {
+    shareParams.set("snap", buildCompareSnapshotPayload(compareData));
   }
   const shareUrl = `${getSiteUrl()}/compare?${shareParams.toString()}`;
   const shareText = comparedNames.length > 0

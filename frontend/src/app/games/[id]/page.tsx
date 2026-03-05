@@ -8,18 +8,15 @@ import { JsonLd } from "@/components/JsonLd";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
+import {
+  encodeSnapshotMetric,
+  hashSnapshotKey,
+  readSnapshotMetric,
+} from "@/lib/share-snapshot";
 
 export const revalidate = 60;
-const GAME_CARD_VERSION = "g14";
-
-function hashSnapshotKey(value: string): string {
-  let hash = 2166136261;
-  for (let i = 0; i < value.length; i += 1) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 16777619);
-  }
-  return (hash >>> 0).toString(16).padStart(8, "0");
-}
+const GAME_CARD_VERSION = "g15";
+const GAME_CHART_CARD_VERSION = "gc1";
 
 function buildGameSnapshotVersion(game: {
   critic_review_count?: number | null;
@@ -52,20 +49,47 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const game = await getGame(id);
     const canonicalId = game.public_id;
     const requestedCardVersion = query.card?.trim() || GAME_CARD_VERSION;
+    const shareMode = query.mode?.trim() === "chart" ? "chart" : "default";
     const snapshotVersion = query.v?.trim() || buildGameSnapshotVersion(game);
     const shareNonce = query.sx?.trim()?.slice(0, 24) || undefined;
-    const isCardShareUrl = query.card != null || query.v != null || query.sx != null;
+    const liveCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score) : null;
+    const liveSteamScore = game.steam_user_score != null ? Number(game.steam_user_score) : null;
+    const liveMetacriticScore = game.metacritic_user_score != null ? Number(game.metacritic_user_score) : null;
+    const liveDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
+    const snapshotCriticParam = readSnapshotMetric(query.critic);
+    const snapshotSteamParam = readSnapshotMetric(query.steam);
+    const snapshotMetacriticParam = readSnapshotMetric(query.mc);
+    const snapshotDisparityParam = readSnapshotMetric(query.disp);
+    const snapshotCritic = snapshotCriticParam !== undefined ? snapshotCriticParam : liveCriticScore;
+    const snapshotSteam = snapshotSteamParam !== undefined ? snapshotSteamParam : liveSteamScore;
+    const snapshotMetacritic = snapshotMetacriticParam !== undefined ? snapshotMetacriticParam : liveMetacriticScore;
+    const snapshotDisparity = snapshotDisparityParam !== undefined ? snapshotDisparityParam : liveDisparity;
+    const isCardShareUrl = query.card != null
+      || query.v != null
+      || query.sx != null
+      || query.critic != null
+      || query.steam != null
+      || query.mc != null
+      || query.disp != null
+      || query.mode != null;
     const shareUrlParams = new URLSearchParams({
       card: requestedCardVersion,
       v: snapshotVersion,
+      critic: encodeSnapshotMetric(snapshotCritic),
+      steam: encodeSnapshotMetric(snapshotSteam),
+      mc: encodeSnapshotMetric(snapshotMetacritic),
+      disp: encodeSnapshotMetric(snapshotDisparity),
     });
     if (shareNonce) {
       shareUrlParams.set("sx", shareNonce);
     }
+    if (shareMode === "chart") {
+      shareUrlParams.set("mode", "chart");
+    }
     const sharePageUrl = `${siteUrl}/games/${canonicalId}?${shareUrlParams.toString()}`;
-    const criticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
-    const steamUserScore = game.steam_user_score != null ? Number(game.steam_user_score).toFixed(0) : null;
-    const metacriticUserScore = game.metacritic_user_score != null ? Number(game.metacritic_user_score).toFixed(0) : null;
+    const criticScore = snapshotCritic != null ? Number(snapshotCritic).toFixed(0) : null;
+    const steamUserScore = snapshotSteam != null ? Number(snapshotSteam).toFixed(0) : null;
+    const metacriticUserScore = snapshotMetacritic != null ? Number(snapshotMetacritic).toFixed(0) : null;
     const userScoreSummary = steamUserScore && metacriticUserScore
       ? `Steam ${steamUserScore} | MC ${metacriticUserScore}`
       : steamUserScore
@@ -73,7 +97,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         : metacriticUserScore
           ? `MC ${metacriticUserScore}`
           : null;
-    const disparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
+    const disparity = snapshotDisparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(0)}` : null;
     const ogParams = new URLSearchParams({
       name: game.title,
@@ -84,12 +108,14 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       reviews: (game.critic_review_count ?? 0).toString(),
       card: requestedCardVersion,
       v: snapshotVersion,
+      mode: shareMode,
     });
     const imageKeySource = shareNonce
       ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
       : `${canonicalId}|${snapshotVersion}`;
     const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
-    const openGraphImage = `${siteUrl}/og/game-card/${imageCacheKey}?${ogParams.toString()}`;
+    ogParams.set("ik", imageCacheKey);
+    const openGraphImage = `${siteUrl}/og/game-card?${ogParams.toString()}`;
 
     let description = `${game.title} critic vs user review scores.`;
     if (criticScore && userScoreSummary && disparityStr) {
@@ -172,20 +198,50 @@ export default async function GameDetailPage({ params }: PageProps) {
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
   const shareSnapshotVersion = buildGameSnapshotVersion(game);
-  const shareUrl = `${getSiteUrl()}/games/${game.public_id}?card=${GAME_CARD_VERSION}&v=${encodeURIComponent(shareSnapshotVersion)}`;
+  const shareUrlParams = new URLSearchParams({
+    card: GAME_CARD_VERSION,
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(game.avg_critic_score),
+    steam: encodeSnapshotMetric(game.steam_user_score),
+    mc: encodeSnapshotMetric(game.metacritic_user_score),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const shareUrl = `${getSiteUrl()}/games/${game.public_id}?${shareUrlParams.toString()}`;
+  const chartShareUrlParams = new URLSearchParams({
+    card: GAME_CHART_CARD_VERSION,
+    mode: "chart",
+    v: shareSnapshotVersion,
+    critic: encodeSnapshotMetric(game.avg_critic_score),
+    steam: encodeSnapshotMetric(game.steam_user_score),
+    mc: encodeSnapshotMetric(game.metacritic_user_score),
+    disp: encodeSnapshotMetric(shareDisparity),
+  });
+  const chartShareUrl = `${getSiteUrl()}/games/${game.public_id}?${chartShareUrlParams.toString()}`;
   const hasBothUserScores = game.steam_user_score != null && game.metacritic_user_score != null;
   const shareTextParts = [`${game.title} on Review Disparity`];
-  if (shareCriticScore) shareTextParts.push(`Critics: ${shareCriticScore}`);
+  if (shareCriticScore) shareTextParts.push(`Critic: ${shareCriticScore}`);
   if (hasBothUserScores) {
     shareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
     shareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
   } else if (game.steam_user_score != null) {
-    shareTextParts.push(`Users: ${Number(game.steam_user_score).toFixed(0)}`);
+    shareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
   } else if (game.metacritic_user_score != null) {
-    shareTextParts.push(`Users: ${Number(game.metacritic_user_score).toFixed(0)}`);
+    shareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
   }
   if (shareDisparityStr) shareTextParts.push(`Disparity: ${shareDisparityStr}`);
   const shareText = shareTextParts.join(" — ");
+  const chartShareTextParts = [`${game.title} disparity trend snapshot on Review Disparity`];
+  if (shareCriticScore) chartShareTextParts.push(`Critic: ${shareCriticScore}`);
+  if (hasBothUserScores) {
+    chartShareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
+    chartShareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  } else if (game.steam_user_score != null) {
+    chartShareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
+  } else if (game.metacritic_user_score != null) {
+    chartShareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  }
+  if (shareDisparityStr) chartShareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const chartShareText = chartShareTextParts.join(" — ");
 
   return (
     <div className="space-y-8">
@@ -304,6 +360,8 @@ export default async function GameDetailPage({ params }: PageProps) {
         entityType="game"
         entityId={game.public_id}
         gameTitle={game.title}
+        chartShareUrl={chartShareUrl}
+        chartShareText={chartShareText}
         newsArticles={newsArticles}
         newsTotalPages={newsTotalPages}
         timingCounts={{

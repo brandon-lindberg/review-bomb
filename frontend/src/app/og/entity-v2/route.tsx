@@ -27,21 +27,23 @@ function parseNumber(rawValue?: string | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function metricLabelForKind(kind: EntityKind): string {
-  if (kind === "game") return "Critic";
-  return "Avg score";
+function kindSubtitle(kind: EntityKind, mode: "default" | "chart"): string {
+  if (mode === "chart") return "Chart Snapshot";
+  if (kind === "journalist") return "Journalist Snapshot";
+  if (kind === "outlet") return "Outlet Snapshot";
+  return "Game Snapshot";
 }
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
+  const mode = searchParams.get("mode")?.trim() === "chart" ? "chart" : "default";
   const kind = normalizeKind(searchParams.get("kind"));
   const name = truncate(searchParams.get("name")?.trim() || "ReviewDisparity", 64);
   const disparity = parseNumber(searchParams.get("disparity"));
   const reviews = searchParams.get("reviews")?.trim() || "N/A";
-  const score = searchParams.get("score")?.trim() || "N/A";
+  const criticScore = searchParams.get("critic")?.trim() || searchParams.get("score")?.trim() || "N/A";
   const steamScore = searchParams.get("steam")?.trim() || "N/A";
   const metacriticScore = searchParams.get("mc")?.trim() || "N/A";
-  const extra = truncate(searchParams.get("extra")?.trim() || "", 72);
   const metricsPanelStyle = {
     display: "flex",
     flexDirection: "column",
@@ -95,71 +97,43 @@ export async function GET(request: Request) {
         }}
       >
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ display: "flex", fontSize: 30, color: "#D8C593", fontWeight: 700 }}>
+          <div style={{ display: "flex", fontSize: 30, color: "#D8C593", fontWeight: 700, justifyContent: "space-between", width: "100%" }}>
             ReviewDisparity
+            <span style={{ fontSize: 20, color: "#B8AFA3", fontWeight: 600 }}>{kindSubtitle(kind, mode)}</span>
           </div>
           <div style={{ display: "flex", fontSize: 64, fontWeight: 800, lineHeight: 1.05, maxWidth: 1080 }}>
             {truncate(name, 40)}
           </div>
         </div>
 
-        {kind === "game" ? (
-          <div style={metricsPanelStyle}>
-            <div style={metricsRowStyle}>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>{metricLabelForKind(kind)}</div>
-                <div style={metricValueStyle}>{score}</div>
-              </div>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Steam</div>
-                <div style={metricValueStyle}>{steamScore}</div>
-              </div>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Metacritic</div>
-                <div style={metricValueStyle}>{metacriticScore}</div>
-              </div>
+        <div style={metricsPanelStyle}>
+          <div style={metricsRowStyle}>
+            <div style={metricTileStyle}>
+              <div style={metricLabelStyle}>Critic Score</div>
+              <div style={metricValueStyle}>{criticScore}</div>
             </div>
-            <div style={metricsRowStyle}>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Disparity</div>
-                <div style={{ ...metricValueStyle, color: getDisparityColor(disparity) }}>
-                  {formatDisparity(disparity)}
-                </div>
-              </div>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Total reviews</div>
-                <div style={metricValueStyle}>{reviews}</div>
-              </div>
+            <div style={metricTileStyle}>
+              <div style={metricLabelStyle}>Steam Score</div>
+              <div style={metricValueStyle}>{steamScore}</div>
+            </div>
+            <div style={metricTileStyle}>
+              <div style={metricLabelStyle}>Metacritic Score</div>
+              <div style={metricValueStyle}>{metacriticScore}</div>
             </div>
           </div>
-        ) : (
-          <div style={metricsPanelStyle}>
-            <div style={metricsRowStyle}>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Disparity</div>
-                <div style={{ ...metricValueStyle, color: getDisparityColor(disparity) }}>
-                  {formatDisparity(disparity)}
-                </div>
-              </div>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>Total reviews</div>
-                <div style={metricValueStyle}>{reviews}</div>
-              </div>
-              <div style={metricTileStyle}>
-                <div style={metricLabelStyle}>{metricLabelForKind(kind)}</div>
-                <div style={metricValueStyle}>{score}</div>
+          <div style={metricsRowStyle}>
+            <div style={metricTileStyle}>
+              <div style={metricLabelStyle}>Combined Disparity</div>
+              <div style={{ ...metricValueStyle, color: getDisparityColor(disparity) }}>
+                {formatDisparity(disparity)}
               </div>
             </div>
-            <div style={metricsRowStyle}>
-              <div style={{ ...metricTileStyle, flex: 1 }}>
-                <div style={metricLabelStyle}>Details</div>
-                <div style={{ display: "flex", fontSize: 30, fontWeight: 600, lineHeight: 1.15 }}>
-                  {extra || "reviewdisparity.com"}
-                </div>
-              </div>
+            <div style={metricTileStyle}>
+              <div style={metricLabelStyle}>Total Reviews</div>
+              <div style={metricValueStyle}>{reviews}</div>
             </div>
           </div>
-        )}
+        </div>
 
         <div style={{ display: "flex", fontSize: 24, color: "#A69C8F" }}>
           reviewdisparity.com

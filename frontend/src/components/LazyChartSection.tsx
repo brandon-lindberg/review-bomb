@@ -9,6 +9,7 @@ import { CriticReviewsSection } from "./CriticReviewsSection";
 import { JournalistAlignmentSection } from "./JournalistAlignmentSection";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
 import { NewsCard } from "./NewsCard";
+import { ShareButtons } from "./ShareButtons";
 import type { ReviewWithDisparity, ReviewWithJournalist, NewsArticle } from "@/types";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
@@ -20,9 +21,20 @@ interface LazyChartSectionProps {
   newsArticles?: NewsArticle[];
   newsTotalPages?: number;
   timingCounts?: { early: number; launchWindow: number; late: number };
+  chartShareUrl?: string;
+  chartShareText?: string;
 }
 
-export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles, newsTotalPages = 0, timingCounts }: LazyChartSectionProps) {
+export function LazyChartSection({
+  entityType,
+  entityId,
+  gameTitle,
+  newsArticles,
+  newsTotalPages = 0,
+  timingCounts,
+  chartShareUrl,
+  chartShareText,
+}: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -170,6 +182,12 @@ export function LazyChartSection({ entityType, entityId, gameTitle, newsArticles
             )}
 
             <div className="p-6">
+              {chartShareUrl && chartShareText && (
+                <div className="mb-5 flex justify-end">
+                  <ShareButtons url={chartShareUrl} text={chartShareText} />
+                </div>
+              )}
+
               {(!effectiveTimingCounts || chartTab === "disparity") && (
                 <>
                   {entityType === "game" && (
