@@ -1,3 +1,5 @@
+import type { DisparitySnapshot } from "../types";
+
 export function hashSnapshotKey(value: string): string {
   let hash = 2166136261;
   for (let i = 0; i < value.length; i += 1) {
@@ -29,7 +31,73 @@ export function readSnapshotMetric(rawValue?: string | null): number | null | un
   return parsed;
 }
 
+export function readSnapshotCount(rawValue?: string | null): number | undefined {
+  if (rawValue == null) return undefined;
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+}
+
+export function encodeSnapshotCount(value: number | null | undefined): string | undefined {
+  if (value == null) return undefined;
+  const rounded = Math.round(Number(value));
+  if (!Number.isFinite(rounded) || rounded < 0) return undefined;
+  return String(rounded);
+}
+
 export function formatSnapshotDisplay(value: number | null | undefined, digits = 0): string {
   if (value == null) return "N/A";
   return Number(value).toFixed(digits);
+}
+
+const TREND_SNAPSHOT_MAX_POINTS = 16;
+
+export function toTrendSnapshot(
+  history: DisparitySnapshot[],
+  maxPoints = TREND_SNAPSHOT_MAX_POINTS
+): number[] {
+  if (!history || history.length === 0) return [];
+
+  const points = history
+    .map((snapshot) => {
+      const combined = snapshot.avg_disparity_combined != null
+        ? Number(snapshot.avg_disparity_combined)
+        : snapshot.avg_disparity_steam != null && snapshot.avg_disparity_metacritic != null
+          ? (Number(snapshot.avg_disparity_steam) + Number(snapshot.avg_disparity_metacritic)) / 2
+          : snapshot.avg_disparity_steam ?? snapshot.avg_disparity_metacritic ?? null;
+      if (combined == null || !Number.isFinite(Number(combined))) return null;
+      return Number(Number(combined).toFixed(1));
+    })
+    .filter((value): value is number => value != null);
+
+  return points.slice(-Math.max(1, maxPoints));
+}
+
+export function encodeTrendSnapshot(
+  points: number[],
+  maxPoints = TREND_SNAPSHOT_MAX_POINTS
+): string {
+  const normalized = points
+    .slice(-Math.max(1, maxPoints))
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Number(value).toFixed(1));
+  return normalized.join(",");
+}
+
+export function readTrendSnapshot(
+  rawValue?: string | null,
+  maxPoints = TREND_SNAPSHOT_MAX_POINTS
+): number[] | undefined {
+  if (rawValue == null) return undefined;
+  const trimmed = rawValue.trim();
+  if (!trimmed) return [];
+
+  const values = trimmed
+    .split(",")
+    .map((token) => Number(token))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Number(Number(value).toFixed(1)));
+
+  return values.slice(-Math.max(1, maxPoints));
 }

@@ -9,6 +9,7 @@ import { ShareButtons } from "@/components/ShareButtons";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { getSiteUrl } from "@/lib/site-url";
 import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
+import { buildCompareShareUrl } from "@/lib/share-url";
 import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
@@ -52,6 +53,7 @@ interface PageProps {
     card?: string;
     labels?: string;
     snap?: string;
+    sx?: string;
   }>;
 }
 
@@ -127,6 +129,9 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   }
   if (params.snap?.trim()) {
     queryParams.set("snap", params.snap.trim());
+  }
+  if (params.sx?.trim()) {
+    queryParams.set("sx", params.sx.trim().slice(0, 24));
   }
 
   const compareLabel = compareTypeLabel[type];
@@ -306,20 +311,13 @@ export default async function ComparePage({ searchParams }: PageProps) {
   const colors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
   const compareIds = ids;
   const comparedNames = compareData.slice(0, 4).map((item) => item.name);
-  const shareParams = new URLSearchParams({
+  const shareUrl = buildCompareShareUrl(getSiteUrl(), {
     type,
     card: "v5",
+    ids: compareIds,
+    labels: comparedNames,
+    snapshotPayload: compareData.length > 0 ? buildCompareSnapshotPayload(compareData) : undefined,
   });
-  if (compareIds.length > 0) {
-    shareParams.set("ids", compareIds.join(","));
-  }
-  if (comparedNames.length > 0) {
-    shareParams.set("labels", comparedNames.join("|"));
-  }
-  if (compareData.length > 0) {
-    shareParams.set("snap", buildCompareSnapshotPayload(compareData));
-  }
-  const shareUrl = `${getSiteUrl()}/compare?${shareParams.toString()}`;
   const shareText = comparedNames.length > 0
     ? `Compare ${comparedNames.join(" vs ")} on Review Disparity`
     : `Compare ${type} on Review Disparity`;

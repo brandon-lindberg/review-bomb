@@ -7,7 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
-    "test:seo": "node scripts/seo-smoke.mjs"
+    "test:seo": "node scripts/seo-smoke.mjs",
+    "test:share-snapshots": "rm -rf .tmp-tests && tsc -p tsconfig.test.json && node --test .tmp-tests/tests/share-url.test.js"
   },
   "dependencies": {
     "@serwist/next": "^9.5.6",

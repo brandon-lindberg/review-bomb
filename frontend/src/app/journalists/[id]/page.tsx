@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getJournalist } from "@/lib/api";
+import { getJournalist, getJournalistHistory } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -9,12 +9,18 @@ import { JournalistReviewsSection } from "@/components/JournalistReviewsSection"
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
+import { buildEntitySnapshotShareUrl } from "@/lib/share-url";
 import {
   deriveSourceScoreFromDisparity,
+  encodeSnapshotCount,
   encodeSnapshotMetric,
+  encodeTrendSnapshot,
   formatSnapshotDisplay,
   hashSnapshotKey,
+  readSnapshotCount,
   readSnapshotMetric,
+  readTrendSnapshot,
+  toTrendSnapshot,
 } from "@/lib/share-snapshot";
 
 export const revalidate = 60;
@@ -49,6 +55,10 @@ interface PageProps {
     steam?: string;
     mc?: string;
     disp?: string;
+    t?: string;
+    early?: string;
+    launch?: string;
+    late?: string;
   }>;
 }
 
@@ -63,7 +73,12 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const journalist = await getJournalist(id);
     const canonicalId = journalist.public_id;
     const requestedCardVersion = query.card?.trim() || JOURNALIST_CARD_VERSION;
-    const shareMode = query.mode?.trim() === "chart" ? "chart" : "default";
+    const shareMode = query.mode?.trim() === "chart"
+      ? "chart"
+      : query.mode?.trim() === "timing"
+        ? "timing"
+        : "default";
+    const snapshotTrendParam = readTrendSnapshot(query.t);
     const liveCombinedDisparity =
       journalist.stats?.overall_disparity_combined
       ?? journalist.avg_disparity
@@ -79,14 +94,39 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       liveCriticScore,
       journalist.stats?.overall_disparity_metacritic ?? journalist.stats?.avg_disparity_metacritic
     );
+    const liveTiming = {
+      early: journalist.stats?.early_review_count ?? 0,
+      launch: journalist.stats?.launch_window_review_count ?? 0,
+      late: journalist.stats?.late_review_count ?? 0,
+    };
     const snapshotCriticMetric = readSnapshotMetric(query.critic);
     const snapshotSteamMetric = readSnapshotMetric(query.steam);
     const snapshotMetacriticMetric = readSnapshotMetric(query.mc);
     const snapshotDisparityMetric = readSnapshotMetric(query.disp);
+    const snapshotEarlyMetric = readSnapshotCount(query.early);
+    const snapshotLaunchMetric = readSnapshotCount(query.launch);
+    const snapshotLateMetric = readSnapshotCount(query.late);
     const snapshotCriticScore = snapshotCriticMetric !== undefined ? snapshotCriticMetric : liveCriticScore;
     const snapshotSteamScore = snapshotSteamMetric !== undefined ? snapshotSteamMetric : liveSteamScore;
     const snapshotMetacriticScore = snapshotMetacriticMetric !== undefined ? snapshotMetacriticMetric : liveMetacriticScore;
     const snapshotCombinedDisparity = snapshotDisparityMetric !== undefined ? snapshotDisparityMetric : liveCombinedDisparity;
+    const snapshotTiming = {
+      early: snapshotEarlyMetric ?? liveTiming.early,
+      launch: snapshotLaunchMetric ?? liveTiming.launch,
+      late: snapshotLateMetric ?? liveTiming.late,
+    };
+    let snapshotTrend = snapshotTrendParam;
+    if (shareMode === "chart" && snapshotTrend === undefined) {
+      try {
+        const history = await getJournalistHistory(canonicalId, 180);
+        snapshotTrend = toTrendSnapshot(history);
+      } catch {
+        snapshotTrend = [];
+      }
+    }
+    const snapshotTrendEncoded = snapshotTrend && snapshotTrend.length > 0
+      ? encodeTrendSnapshot(snapshotTrend)
+      : "";
     const snapshotVersion = query.v?.trim() || buildJournalistSnapshotVersion({
       reviewCount: journalist.review_count,
       criticScore: snapshotCriticScore,
@@ -102,22 +142,25 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.critic != null
       || query.steam != null
       || query.mc != null
-      || query.disp != null;
-    const shareUrlParams = new URLSearchParams({
+      || query.disp != null
+      || query.t != null
+      || query.early != null
+      || query.launch != null
+      || query.late != null;
+    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", canonicalId, {
       card: requestedCardVersion,
-      v: snapshotVersion,
-      critic: encodeSnapshotMetric(snapshotCriticScore),
-      steam: encodeSnapshotMetric(snapshotSteamScore),
-      mc: encodeSnapshotMetric(snapshotMetacriticScore),
-      disp: encodeSnapshotMetric(snapshotCombinedDisparity),
+      version: snapshotVersion,
+      critic: snapshotCriticScore,
+      steam: snapshotSteamScore,
+      metacritic: snapshotMetacriticScore,
+      disparity: snapshotCombinedDisparity,
+      mode: shareMode,
+      trend: snapshotTrendEncoded || undefined,
+      early: snapshotTiming.early,
+      launch: snapshotTiming.launch,
+      late: snapshotTiming.late,
+      nonce: shareNonce,
     });
-    if (shareNonce) {
-      shareUrlParams.set("sx", shareNonce);
-    }
-    if (shareMode === "chart") {
-      shareUrlParams.set("mode", "chart");
-    }
-    const sharePageUrl = `${siteUrl}/journalists/${canonicalId}?${shareUrlParams.toString()}`;
     const disparity = snapshotCombinedDisparity;
     const disparityStr = disparity != null ? `${Number(disparity) > 0 ? "+" : ""}${Number(disparity).toFixed(1)}` : null;
     const ogParams = new URLSearchParams({
@@ -131,10 +174,23 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       card: requestedCardVersion,
       v: snapshotVersion,
       mode: shareMode,
+      id: canonicalId,
     });
+    if (snapshotTrendEncoded) {
+      ogParams.set("t", snapshotTrendEncoded);
+    }
+    if (shareMode === "timing") {
+      const early = encodeSnapshotCount(snapshotTiming.early);
+      const launch = encodeSnapshotCount(snapshotTiming.launch);
+      const late = encodeSnapshotCount(snapshotTiming.late);
+      if (early !== undefined) ogParams.set("early", early);
+      if (launch !== undefined) ogParams.set("launch", launch);
+      if (late !== undefined) ogParams.set("late", late);
+    }
+    const timingKey = `${snapshotTiming.early}-${snapshotTiming.launch}-${snapshotTiming.late}`;
     const imageKeySource = shareNonce
-      ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
-      : `${canonicalId}|${snapshotVersion}`;
+      ? `${canonicalId}|${snapshotVersion}|${shareMode}|${snapshotTrendEncoded}|${timingKey}|${shareNonce}`
+      : `${canonicalId}|${snapshotVersion}|${shareMode}|${snapshotTrendEncoded}|${timingKey}`;
     const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
     ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/entity?${ogParams.toString()}`;
@@ -175,6 +231,7 @@ export default async function JournalistDetailPage({
   const { id } = await params;
 
   let journalist = null;
+  let chartTrendEncoded = "";
 
   try {
     journalist = await getJournalist(id);
@@ -189,6 +246,13 @@ export default async function JournalistDetailPage({
 
   if (id !== journalist.public_id) {
     redirect(`/journalists/${journalist.public_id}`);
+  }
+
+  try {
+    const history = await getJournalistHistory(journalist.public_id, 180);
+    chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
+  } catch {
+    // Chart share still works without trend payload, OG route will try live fetch
   }
 
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
@@ -209,25 +273,36 @@ export default async function JournalistDetailPage({
     metacriticScore: shareMetacriticScore,
     combinedDisparity: shareDisparity,
   });
-  const shareUrlParams = new URLSearchParams({
+  const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
     card: JOURNALIST_CARD_VERSION,
-    v: shareSnapshotVersion,
-    critic: encodeSnapshotMetric(shareCriticScore),
-    steam: encodeSnapshotMetric(shareSteamScore),
-    mc: encodeSnapshotMetric(shareMetacriticScore),
-    disp: encodeSnapshotMetric(shareDisparity),
+    version: shareSnapshotVersion,
+    critic: shareCriticScore,
+    steam: shareSteamScore,
+    metacritic: shareMetacriticScore,
+    disparity: shareDisparity,
   });
-  const shareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?${shareUrlParams.toString()}`;
-  const chartShareUrlParams = new URLSearchParams({
+  const disparityChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
     card: JOURNALIST_CHART_CARD_VERSION,
+    version: shareSnapshotVersion,
+    critic: shareCriticScore,
+    steam: shareSteamScore,
+    metacritic: shareMetacriticScore,
+    disparity: shareDisparity,
     mode: "chart",
-    v: shareSnapshotVersion,
-    critic: encodeSnapshotMetric(shareCriticScore),
-    steam: encodeSnapshotMetric(shareSteamScore),
-    mc: encodeSnapshotMetric(shareMetacriticScore),
-    disp: encodeSnapshotMetric(shareDisparity),
+    trend: chartTrendEncoded || undefined,
   });
-  const chartShareUrl = `${getSiteUrl()}/journalists/${journalist.public_id}?${chartShareUrlParams.toString()}`;
+  const timingChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
+    card: JOURNALIST_CHART_CARD_VERSION,
+    version: shareSnapshotVersion,
+    critic: shareCriticScore,
+    steam: shareSteamScore,
+    metacritic: shareMetacriticScore,
+    disparity: shareDisparity,
+    mode: "timing",
+    early: journalist.stats?.early_review_count,
+    launch: journalist.stats?.launch_window_review_count,
+    late: journalist.stats?.late_review_count,
+  });
   const shareTextParts = [`${journalist.name} on Review Disparity`];
   if (shareCriticScore != null) shareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
   if (shareSteamScore != null) shareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
@@ -239,7 +314,16 @@ export default async function JournalistDetailPage({
   if (shareSteamScore != null) chartShareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
   if (shareMetacriticScore != null) chartShareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
   if (shareDisparityStr) chartShareTextParts.push(`Disparity: ${shareDisparityStr}`);
-  const chartShareText = chartShareTextParts.join(" — ");
+  const disparityChartShareText = chartShareTextParts.join(" — ");
+  const timingShareTextParts = [`${journalist.name} review timing snapshot on Review Disparity`];
+  if (shareCriticScore != null) timingShareTextParts.push(`Critic: ${Number(shareCriticScore).toFixed(0)}`);
+  if (shareSteamScore != null) timingShareTextParts.push(`Steam: ${Number(shareSteamScore).toFixed(0)}`);
+  if (shareMetacriticScore != null) timingShareTextParts.push(`MC: ${Number(shareMetacriticScore).toFixed(0)}`);
+  timingShareTextParts.push(`Early: ${journalist.stats?.early_review_count ?? 0}`);
+  timingShareTextParts.push(`Launch: ${journalist.stats?.launch_window_review_count ?? 0}`);
+  timingShareTextParts.push(`Late: ${journalist.stats?.late_review_count ?? 0}`);
+  if (shareDisparityStr) timingShareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const timingChartShareText = timingShareTextParts.join(" — ");
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -489,8 +573,10 @@ export default async function JournalistDetailPage({
       <LazyChartSection
         entityType="journalist"
         entityId={journalist.public_id}
-        chartShareUrl={chartShareUrl}
-        chartShareText={chartShareText}
+        disparityChartShareUrl={disparityChartShareUrl}
+        disparityChartShareText={disparityChartShareText}
+        timingChartShareUrl={timingChartShareUrl}
+        timingChartShareText={timingChartShareText}
         timingCounts={{
           early: journalist.stats?.early_review_count ?? 0,
           launchWindow: journalist.stats?.launch_window_review_count ?? 0,

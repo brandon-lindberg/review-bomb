@@ -1,6 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import {
+  buildRedditShareUrl,
+  buildXIntentUrl as buildXIntentShareUrl,
+  withSnapshotNonce,
+} from '@/lib/share-url';
 
 interface ShareButtonsProps {
   url: string;
@@ -34,32 +39,31 @@ const CheckIcon = () => (
 
 export function ShareButtons({ url, text }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
-  const redditUrl = `https://reddit.com/submit?${new URLSearchParams({ url, title: text }).toString()}`;
 
-  const buildXIntentUrl = () => {
-    let xShareUrl = url;
-    try {
-      const parsed = new URL(url);
-      parsed.searchParams.set('sx', `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`);
-      xShareUrl = parsed.toString();
-    } catch {
-      xShareUrl = url;
-    }
-    return `https://twitter.com/intent/tweet?${new URLSearchParams({ text, url: xShareUrl }).toString()}`;
-  };
+  const createSnapshotNonce = () =>
+    `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
   const handleShareX = () => {
-    const xIntentUrl = buildXIntentUrl();
+    const nonce = createSnapshotNonce();
+    const xIntentUrl = buildXIntentShareUrl(url, text, nonce);
     window.open(xIntentUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const handleShareReddit = () => {
+    const nonce = createSnapshotNonce();
+    const redditUrl = buildRedditShareUrl(url, text, nonce);
+    window.open(redditUrl, '_blank', 'noopener,noreferrer');
+  };
+
   const handleCopy = async () => {
+    const nonce = createSnapshotNonce();
+    const urlWithNonce = withSnapshotNonce(url, nonce);
     try {
-      await navigator.clipboard.writeText(url);
+      await navigator.clipboard.writeText(urlWithNonce);
     } catch {
       // Fallback for environments without clipboard API
       const textarea = document.createElement('textarea');
-      textarea.value = url;
+      textarea.value = urlWithNonce;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
@@ -101,18 +105,18 @@ export function ShareButtons({ url, text }: ShareButtonsProps) {
         <XIcon />
       </button>
 
-      <a
-        href={redditUrl}
-        target="_blank"
-        rel="noopener noreferrer"
+      <button
+        type="button"
+        onClick={handleShareReddit}
         style={baseStyle}
         aria-label="Share on Reddit"
       >
         <RedditIcon />
         Reddit
-      </a>
+      </button>
 
       <button
+        type="button"
         onClick={handleCopy}
         style={{
           ...baseStyle,

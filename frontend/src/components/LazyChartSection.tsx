@@ -21,8 +21,10 @@ interface LazyChartSectionProps {
   newsArticles?: NewsArticle[];
   newsTotalPages?: number;
   timingCounts?: { early: number; launchWindow: number; late: number };
-  chartShareUrl?: string;
-  chartShareText?: string;
+  disparityChartShareUrl?: string;
+  disparityChartShareText?: string;
+  timingChartShareUrl?: string;
+  timingChartShareText?: string;
 }
 
 export function LazyChartSection({
@@ -32,8 +34,10 @@ export function LazyChartSection({
   newsArticles,
   newsTotalPages = 0,
   timingCounts,
-  chartShareUrl,
-  chartShareText,
+  disparityChartShareUrl,
+  disparityChartShareText,
+  timingChartShareUrl,
+  timingChartShareText,
 }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -122,6 +126,11 @@ export function LazyChartSection({
     : undefined;
 
   const effectiveTimingCounts = timingCounts ?? computedTimingCounts;
+  const showTimingShare = Boolean(
+    timingChartShareUrl
+    && timingChartShareText
+    && effectiveTimingCounts
+  );
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -182,9 +191,18 @@ export function LazyChartSection({
             )}
 
             <div className="p-6">
-              {chartShareUrl && chartShareText && (
-                <div className="mb-5 flex justify-end">
-                  <ShareButtons url={chartShareUrl} text={chartShareText} />
+              {disparityChartShareUrl && disparityChartShareText && (
+                <div className="mb-5 flex flex-col gap-3 sm:items-end">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <span className="text-xs font-medium text-gray-500">Disparity snapshot</span>
+                    <ShareButtons url={disparityChartShareUrl} text={disparityChartShareText} />
+                  </div>
+                  {showTimingShare && (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                      <span className="text-xs font-medium text-gray-500">Timing snapshot</span>
+                      <ShareButtons url={timingChartShareUrl!} text={timingChartShareText!} />
+                    </div>
+                  )}
                 </div>
               )}
 

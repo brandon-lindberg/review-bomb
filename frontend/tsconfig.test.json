@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "./.tmp-tests",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "ES2020",
+    "isolatedModules": false,
+    "incremental": false,
+    "types": ["node"],
+    "paths": {}
+  },
+  "include": [
+    "src/lib/share-snapshot.ts",
+    "src/lib/share-url.ts",
+    "tests/**/*.test.ts"
+  ]
+}

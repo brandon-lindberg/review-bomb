@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { getGame, getGameNews } from "@/lib/api";
+import { getGame, getGameHistory, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -9,9 +9,16 @@ import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
 import {
-  encodeSnapshotMetric,
+  buildEntitySnapshotShareUrl,
+} from "@/lib/share-url";
+import {
+  encodeSnapshotCount,
+  encodeTrendSnapshot,
   hashSnapshotKey,
+  readSnapshotCount,
   readSnapshotMetric,
+  readTrendSnapshot,
+  toTrendSnapshot,
 } from "@/lib/share-snapshot";
 
 export const revalidate = 60;
@@ -49,21 +56,51 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     const game = await getGame(id);
     const canonicalId = game.public_id;
     const requestedCardVersion = query.card?.trim() || GAME_CARD_VERSION;
-    const shareMode = query.mode?.trim() === "chart" ? "chart" : "default";
+    const shareMode = query.mode?.trim() === "chart"
+      ? "chart"
+      : query.mode?.trim() === "timing"
+        ? "timing"
+        : "default";
     const snapshotVersion = query.v?.trim() || buildGameSnapshotVersion(game);
     const shareNonce = query.sx?.trim()?.slice(0, 24) || undefined;
+    const snapshotTrendParam = readTrendSnapshot(query.t);
+    let snapshotTrend = snapshotTrendParam;
+    if (shareMode === "chart" && snapshotTrend === undefined) {
+      try {
+        const history = await getGameHistory(canonicalId, 180);
+        snapshotTrend = toTrendSnapshot(history);
+      } catch {
+        snapshotTrend = [];
+      }
+    }
+    const snapshotTrendEncoded = snapshotTrend && snapshotTrend.length > 0
+      ? encodeTrendSnapshot(snapshotTrend)
+      : "";
     const liveCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score) : null;
     const liveSteamScore = game.steam_user_score != null ? Number(game.steam_user_score) : null;
     const liveMetacriticScore = game.metacritic_user_score != null ? Number(game.metacritic_user_score) : null;
     const liveDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
+    const liveTiming = {
+      early: game.early_review_count ?? 0,
+      launch: game.launch_window_review_count ?? 0,
+      late: game.late_review_count ?? 0,
+    };
     const snapshotCriticParam = readSnapshotMetric(query.critic);
     const snapshotSteamParam = readSnapshotMetric(query.steam);
     const snapshotMetacriticParam = readSnapshotMetric(query.mc);
     const snapshotDisparityParam = readSnapshotMetric(query.disp);
+    const snapshotEarlyParam = readSnapshotCount(query.early);
+    const snapshotLaunchParam = readSnapshotCount(query.launch);
+    const snapshotLateParam = readSnapshotCount(query.late);
     const snapshotCritic = snapshotCriticParam !== undefined ? snapshotCriticParam : liveCriticScore;
     const snapshotSteam = snapshotSteamParam !== undefined ? snapshotSteamParam : liveSteamScore;
     const snapshotMetacritic = snapshotMetacriticParam !== undefined ? snapshotMetacriticParam : liveMetacriticScore;
     const snapshotDisparity = snapshotDisparityParam !== undefined ? snapshotDisparityParam : liveDisparity;
+    const snapshotTiming = {
+      early: snapshotEarlyParam ?? liveTiming.early,
+      launch: snapshotLaunchParam ?? liveTiming.launch,
+      late: snapshotLateParam ?? liveTiming.late,
+    };
     const isCardShareUrl = query.card != null
       || query.v != null
       || query.sx != null
@@ -71,22 +108,25 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.steam != null
       || query.mc != null
       || query.disp != null
+      || query.t != null
+      || query.early != null
+      || query.launch != null
+      || query.late != null
       || query.mode != null;
-    const shareUrlParams = new URLSearchParams({
+    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "games", canonicalId, {
       card: requestedCardVersion,
-      v: snapshotVersion,
-      critic: encodeSnapshotMetric(snapshotCritic),
-      steam: encodeSnapshotMetric(snapshotSteam),
-      mc: encodeSnapshotMetric(snapshotMetacritic),
-      disp: encodeSnapshotMetric(snapshotDisparity),
+      version: snapshotVersion,
+      critic: snapshotCritic,
+      steam: snapshotSteam,
+      metacritic: snapshotMetacritic,
+      disparity: snapshotDisparity,
+      mode: shareMode,
+      trend: snapshotTrendEncoded || undefined,
+      early: snapshotTiming.early,
+      launch: snapshotTiming.launch,
+      late: snapshotTiming.late,
+      nonce: shareNonce,
     });
-    if (shareNonce) {
-      shareUrlParams.set("sx", shareNonce);
-    }
-    if (shareMode === "chart") {
-      shareUrlParams.set("mode", "chart");
-    }
-    const sharePageUrl = `${siteUrl}/games/${canonicalId}?${shareUrlParams.toString()}`;
     const criticScore = snapshotCritic != null ? Number(snapshotCritic).toFixed(0) : null;
     const steamUserScore = snapshotSteam != null ? Number(snapshotSteam).toFixed(0) : null;
     const metacriticUserScore = snapshotMetacritic != null ? Number(snapshotMetacritic).toFixed(0) : null;
@@ -109,10 +149,23 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       card: requestedCardVersion,
       v: snapshotVersion,
       mode: shareMode,
+      id: canonicalId,
     });
+    if (snapshotTrendEncoded) {
+      ogParams.set("t", snapshotTrendEncoded);
+    }
+    if (shareMode === "timing") {
+      const early = encodeSnapshotCount(snapshotTiming.early);
+      const launch = encodeSnapshotCount(snapshotTiming.launch);
+      const late = encodeSnapshotCount(snapshotTiming.late);
+      if (early !== undefined) ogParams.set("early", early);
+      if (launch !== undefined) ogParams.set("launch", launch);
+      if (late !== undefined) ogParams.set("late", late);
+    }
+    const timingKey = `${snapshotTiming.early}-${snapshotTiming.launch}-${snapshotTiming.late}`;
     const imageKeySource = shareNonce
-      ? `${canonicalId}|${snapshotVersion}|${shareNonce}`
-      : `${canonicalId}|${snapshotVersion}`;
+      ? `${canonicalId}|${snapshotVersion}|${shareMode}|${snapshotTrendEncoded}|${timingKey}|${shareNonce}`
+      : `${canonicalId}|${snapshotVersion}|${shareMode}|${snapshotTrendEncoded}|${timingKey}`;
     const imageCacheKey = `${requestedCardVersion}-${hashSnapshotKey(imageKeySource)}`;
     ogParams.set("ik", imageCacheKey);
     const openGraphImage = `${siteUrl}/og/game-card?${ogParams.toString()}`;
@@ -152,6 +205,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   let game = null;
   let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
   let newsTotalPages = 0;
+  let chartTrendEncoded = "";
 
   try {
     game = await getGame(id);
@@ -176,6 +230,13 @@ export default async function GameDetailPage({ params }: PageProps) {
     // News is non-critical — silently continue without it
   }
 
+  try {
+    const history = await getGameHistory(game.public_id, 180);
+    chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
+  } catch {
+    // Chart share still works without trend payload, OG route will try live fetch
+  }
+
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "VideoGame",
@@ -198,25 +259,36 @@ export default async function GameDetailPage({ params }: PageProps) {
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
   const shareSnapshotVersion = buildGameSnapshotVersion(game);
-  const shareUrlParams = new URLSearchParams({
+  const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
     card: GAME_CARD_VERSION,
-    v: shareSnapshotVersion,
-    critic: encodeSnapshotMetric(game.avg_critic_score),
-    steam: encodeSnapshotMetric(game.steam_user_score),
-    mc: encodeSnapshotMetric(game.metacritic_user_score),
-    disp: encodeSnapshotMetric(shareDisparity),
+    version: shareSnapshotVersion,
+    critic: game.avg_critic_score,
+    steam: game.steam_user_score,
+    metacritic: game.metacritic_user_score,
+    disparity: shareDisparity,
   });
-  const shareUrl = `${getSiteUrl()}/games/${game.public_id}?${shareUrlParams.toString()}`;
-  const chartShareUrlParams = new URLSearchParams({
+  const disparityChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
     card: GAME_CHART_CARD_VERSION,
+    version: shareSnapshotVersion,
+    critic: game.avg_critic_score,
+    steam: game.steam_user_score,
+    metacritic: game.metacritic_user_score,
+    disparity: shareDisparity,
     mode: "chart",
-    v: shareSnapshotVersion,
-    critic: encodeSnapshotMetric(game.avg_critic_score),
-    steam: encodeSnapshotMetric(game.steam_user_score),
-    mc: encodeSnapshotMetric(game.metacritic_user_score),
-    disp: encodeSnapshotMetric(shareDisparity),
+    trend: chartTrendEncoded || undefined,
   });
-  const chartShareUrl = `${getSiteUrl()}/games/${game.public_id}?${chartShareUrlParams.toString()}`;
+  const timingChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
+    card: GAME_CHART_CARD_VERSION,
+    version: shareSnapshotVersion,
+    critic: game.avg_critic_score,
+    steam: game.steam_user_score,
+    metacritic: game.metacritic_user_score,
+    disparity: shareDisparity,
+    mode: "timing",
+    early: game.early_review_count,
+    launch: game.launch_window_review_count,
+    late: game.late_review_count,
+  });
   const hasBothUserScores = game.steam_user_score != null && game.metacritic_user_score != null;
   const shareTextParts = [`${game.title} on Review Disparity`];
   if (shareCriticScore) shareTextParts.push(`Critic: ${shareCriticScore}`);
@@ -241,7 +313,22 @@ export default async function GameDetailPage({ params }: PageProps) {
     chartShareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
   }
   if (shareDisparityStr) chartShareTextParts.push(`Disparity: ${shareDisparityStr}`);
-  const chartShareText = chartShareTextParts.join(" — ");
+  const disparityChartShareText = chartShareTextParts.join(" — ");
+  const timingShareTextParts = [`${game.title} review timing snapshot on Review Disparity`];
+  if (shareCriticScore) timingShareTextParts.push(`Critic: ${shareCriticScore}`);
+  if (hasBothUserScores) {
+    timingShareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
+    timingShareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  } else if (game.steam_user_score != null) {
+    timingShareTextParts.push(`Steam: ${Number(game.steam_user_score).toFixed(0)}`);
+  } else if (game.metacritic_user_score != null) {
+    timingShareTextParts.push(`MC: ${Number(game.metacritic_user_score).toFixed(0)}`);
+  }
+  timingShareTextParts.push(`Early: ${game.early_review_count ?? 0}`);
+  timingShareTextParts.push(`Launch: ${game.launch_window_review_count ?? 0}`);
+  timingShareTextParts.push(`Late: ${game.late_review_count ?? 0}`);
+  if (shareDisparityStr) timingShareTextParts.push(`Disparity: ${shareDisparityStr}`);
+  const timingChartShareText = timingShareTextParts.join(" — ");
 
   return (
     <div className="space-y-8">
@@ -360,8 +447,10 @@ export default async function GameDetailPage({ params }: PageProps) {
         entityType="game"
         entityId={game.public_id}
         gameTitle={game.title}
-        chartShareUrl={chartShareUrl}
-        chartShareText={chartShareText}
+        disparityChartShareUrl={disparityChartShareUrl}
+        disparityChartShareText={disparityChartShareText}
+        timingChartShareUrl={timingChartShareUrl}
+        timingChartShareText={timingChartShareText}
         newsArticles={newsArticles}
         newsTotalPages={newsTotalPages}
         timingCounts={{
