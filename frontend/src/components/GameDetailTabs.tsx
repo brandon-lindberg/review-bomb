@@ -6,10 +6,16 @@ interface GameDetailTabsProps {
   criticReviews: ReactNode;
   journalistAlignment: ReactNode | null;
   latestNews: ReactNode | null;
+  defaultTab?: "reviews" | "alignment" | "news";
 }
 
-export function GameDetailTabs({ criticReviews, journalistAlignment, latestNews }: GameDetailTabsProps) {
-  const [activeTab, setActiveTab] = useState<"reviews" | "alignment" | "news">("reviews");
+export function GameDetailTabs({
+  criticReviews,
+  journalistAlignment,
+  latestNews,
+  defaultTab = "reviews",
+}: GameDetailTabsProps) {
+  const [activeTab, setActiveTab] = useState<"reviews" | "alignment" | "news">(defaultTab);
 
   // If no alignment data and no news, just render reviews directly
   if (!journalistAlignment && !latestNews) {

@@ -138,6 +138,31 @@ export function LazyChartSection({
   const activeShareText = isTimingTabActive
     ? timingChartShareText
     : disparityChartShareText ?? timingChartShareText;
+  const gameReviews = (reviews ?? []) as ReviewWithJournalist[];
+  const latestNewsContent = allNews.length > 0 ? (
+    <div>
+      <div className="divide-y divide-gray-100">
+        {allNews.map((article) => (
+          <NewsCard key={article.id} article={article} compact />
+        ))}
+      </div>
+      {newsHasMore && (
+        <div className="mt-4 text-center">
+          <button
+            onClick={loadMoreNews}
+            disabled={newsLoading}
+            className="px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+            style={{
+              backgroundColor: "var(--color-rust)",
+              color: "white",
+            }}
+          >
+            {newsLoading ? "Loading..." : "Load More Articles"}
+          </button>
+        </div>
+      )}
+    </div>
+  ) : null;
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -234,40 +259,17 @@ export function LazyChartSection({
             </div>
           </section>
 
-          {/* Game-specific: Tabbed section with critic reviews and journalist alignment */}
-          {entityType === "game" && (
-            <GameDetailTabs
-              criticReviews={
-                <CriticReviewsSection reviews={reviews as ReviewWithJournalist[]} />
-              }
-              journalistAlignment={buildJournalistAlignment(reviews as ReviewWithJournalist[])}
-              latestNews={allNews.length > 0 ? (
-                <div>
-                  <div className="divide-y divide-gray-100">
-                    {allNews.map((article) => (
-                      <NewsCard key={article.id} article={article} compact />
-                    ))}
-                  </div>
-                  {newsHasMore && (
-                    <div className="mt-4 text-center">
-                      <button
-                        onClick={loadMoreNews}
-                        disabled={newsLoading}
-                        className="px-4 py-2 text-sm font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
-                        style={{
-                          backgroundColor: "var(--color-rust)",
-                          color: "white",
-                        }}
-                      >
-                        {newsLoading ? "Loading..." : "Load More Articles"}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            />
-          )}
         </>
+      )}
+
+      {/* Game-specific: Tabbed section with critic reviews, alignment, and news */}
+      {entityType === "game" && reviews && (
+        <GameDetailTabs
+          criticReviews={<CriticReviewsSection reviews={gameReviews} />}
+          journalistAlignment={buildJournalistAlignment(gameReviews)}
+          latestNews={latestNewsContent}
+          defaultTab={gameReviews.length === 0 && latestNewsContent ? "news" : "reviews"}
+        />
       )}
     </div>
   );
