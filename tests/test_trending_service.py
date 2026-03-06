@@ -390,3 +390,38 @@ async def test_news_provider_skips_unlinked_role_or_people_headlines():
     signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
 
     assert signals == []
+
+
+@pytest.mark.asyncio
+async def test_news_provider_skips_unlinked_hardware_device_topics():
+    now = datetime(2026, 3, 6, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            title="OBSBOT Tiny 3 review: AI webcam for streamers",
+            source_name="TechRadar",
+            published_at=now - timedelta(hours=1),
+            article_url="https://example.com/obsbot-tiny-3-review",
+            game_id=None,
+            image_url="https://img/obsbot-1.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+        SimpleNamespace(
+            title="OBSBOT Tiny 3 adds better low-light tracking",
+            source_name="The Verge",
+            published_at=now - timedelta(hours=2),
+            article_url="https://example.com/obsbot-tiny-3-update",
+            game_id=None,
+            image_url="https://img/obsbot-2.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+    ]
+    provider = NewsTrendingProvider()
+    signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
+
+    assert signals == []

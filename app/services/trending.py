@@ -168,17 +168,51 @@ _UNLINKED_INVALID_START_TOKENS = {
 }
 _UNLINKED_REJECT_TOKENS = {
     "actor",
+    "camera",
+    "cpu",
     "director",
     "episode",
     "fans",
     "full",
+    "gpu",
     "hate",
+    "headset",
     "hbo",
+    "keyboard",
     "leaker",
     "legal",
+    "laptop",
+    "monitor",
     "movie",
+    "mouse",
     "season",
     "team",
+    "webcam",
+}
+_UNLINKED_NON_GAME_BRAND_TOKENS = {
+    "obsbot",
+    "logitech",
+    "corsair",
+    "razer",
+    "elgato",
+    "steelseries",
+    "hyperx",
+    "nvidia",
+    "amd",
+    "intel",
+    "asus",
+    "msi",
+    "lenovo",
+    "dell",
+    "acer",
+    "samsung",
+    "benq",
+    "wacom",
+    "anker",
+    "jbl",
+    "canon",
+    "nikon",
+    "gopro",
 }
 _TITLE_CASE_MINOR_TOKENS = {
     "a",
@@ -359,6 +393,8 @@ def _infer_unlinked_game_title(title: str, source_name: str | None) -> str | Non
     if not tokens:
         return None
     if tokens[0] in _UNLINKED_INVALID_START_TOKENS and len(tokens) > 2:
+        return None
+    if tokens[0] in _UNLINKED_NON_GAME_BRAND_TOKENS:
         return None
 
     cut_index = len(tokens)
