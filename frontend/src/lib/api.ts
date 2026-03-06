@@ -13,6 +13,7 @@ import type {
   SearchResult,
   DisparitySnapshot,
   NewsArticle,
+  TrendingGamesResponse,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
@@ -320,5 +321,14 @@ export async function getGameNews(
 ): Promise<PaginatedResponse<NewsArticle>> {
   return fetchAPI<PaginatedResponse<NewsArticle>>(
     `/games/${gameId}/news?page=${page}&per_page=${perPage}`
+  );
+}
+
+export async function getTrendingGames(
+  limit = 8,
+  windowHours = 48,
+): Promise<TrendingGamesResponse> {
+  return fetchAPI<TrendingGamesResponse>(
+    `/stats/trending-games?limit=${limit}&window_hours=${windowHours}`
   );
 }

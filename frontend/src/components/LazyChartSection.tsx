@@ -138,7 +138,6 @@ export function LazyChartSection({
   const activeShareText = isTimingTabActive
     ? timingChartShareText
     : disparityChartShareText ?? timingChartShareText;
-  const activeShareLabel = isTimingTabActive ? "Timing snapshot" : "Disparity snapshot";
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -198,12 +197,11 @@ export function LazyChartSection({
               </div>
             )}
 
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {activeShareUrl && activeShareText && (
-                <div className="mb-5 flex justify-end">
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                    <span className="text-xs font-medium text-gray-500">{activeShareLabel}</span>
-                    <ShareButtons url={activeShareUrl} text={activeShareText} />
+                <div className="mb-4 flex justify-start sm:justify-end">
+                  <div className="max-w-full overflow-x-auto">
+                    <ShareButtons url={activeShareUrl} text={activeShareText} compactOnMobile />
                   </div>
                 </div>
               )}

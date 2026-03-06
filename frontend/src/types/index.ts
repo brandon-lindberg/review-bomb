@@ -279,3 +279,26 @@ export interface NewsArticle {
   author: string | null;
   published_at: string | null;
 }
+
+export interface TrendingGame {
+  rank: number;
+  trend_key: string;
+  title: string;
+  game_id: number | null;
+  game_public_id: string | null;
+  release_date: string | null;
+  image_url: string | null;
+  is_linked: boolean;
+  is_upcoming: boolean;
+  latest_article_at: string | null;
+  news_mention_count: number;
+  news_source_count: number;
+  trend_score: number;
+  source_scores: Record<string, number>;
+}
+
+export interface TrendingGamesResponse {
+  as_of: string;
+  window_hours: number;
+  items: TrendingGame[];
+}
