@@ -291,6 +291,7 @@ export interface TrendingGame {
   is_linked: boolean;
   is_upcoming: boolean;
   latest_article_at: string | null;
+  latest_article_url: string | null;
   news_mention_count: number;
   news_source_count: number;
   trend_score: number;

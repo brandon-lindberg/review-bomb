@@ -36,6 +36,7 @@ async def test_news_provider_groups_unlinked_topics_and_marks_as_upcoming():
             title="Hollow Knight: Silksong release date rumor - IGN",
             source_name="IGN",
             published_at=now - timedelta(hours=2),
+            article_url="https://example.com/silksong-rumor",
             game_id=None,
             image_url="https://img/1.jpg",
             game_title=None,
@@ -47,6 +48,7 @@ async def test_news_provider_groups_unlinked_topics_and_marks_as_upcoming():
             title="Hollow Knight Silksong gets new trailer | GameSpot",
             source_name="GameSpot",
             published_at=now - timedelta(hours=7),
+            article_url="https://example.com/silksong-trailer",
             game_id=None,
             image_url="https://img/2.jpg",
             game_title=None,
@@ -58,6 +60,7 @@ async def test_news_provider_groups_unlinked_topics_and_marks_as_upcoming():
             title="Ghost of Yotei gets major story update - IGN",
             source_name="IGN",
             published_at=now - timedelta(hours=1),
+            article_url="https://example.com/ghost-yotei-update",
             game_id=42,
             image_url="https://img/3.jpg",
             game_title="Ghost of Yotei",
@@ -80,12 +83,14 @@ async def test_news_provider_groups_unlinked_topics_and_marks_as_upcoming():
     assert unlinked.news_source_count == 2
     assert "Silksong" in unlinked.title
     assert unlinked.source_scores["news"] > 0
+    assert unlinked.latest_article_url == "https://example.com/silksong-rumor"
 
     linked = next(item for item in signals if item.is_linked)
     assert linked.trend_key == "game:42"
     assert linked.game_public_id == "g_ghost_yotei"
     assert linked.is_upcoming is True
     assert linked.news_mention_count == 1
+    assert linked.latest_article_url == "https://example.com/ghost-yotei-update"
 
 
 @dataclass
@@ -110,6 +115,7 @@ async def test_trending_aggregator_combines_multi_source_scores():
         is_linked=True,
         is_upcoming=True,
         latest_article_at=now - timedelta(hours=1),
+        latest_article_url="https://example.com/example-game-1",
         news_mention_count=3,
         news_source_count=2,
         source_scores={"news": 2.25},
@@ -124,6 +130,7 @@ async def test_trending_aggregator_combines_multi_source_scores():
         is_linked=True,
         is_upcoming=True,
         latest_article_at=now - timedelta(hours=1),
+        latest_article_url=None,
         news_mention_count=3,
         news_source_count=2,
         source_scores={"google_trends": 1.5},
@@ -138,6 +145,7 @@ async def test_trending_aggregator_combines_multi_source_scores():
         is_linked=False,
         is_upcoming=True,
         latest_article_at=now - timedelta(hours=2),
+        latest_article_url="https://example.com/unknown-teaser",
         news_mention_count=1,
         news_source_count=1,
         source_scores={"news": 1.1},
@@ -160,6 +168,7 @@ async def test_trending_aggregator_combines_multi_source_scores():
     assert items[0]["trend_key"] == "game:7"
     assert items[0]["trend_score"] == 3.75
     assert items[0]["source_scores"] == {"news": 2.25, "google_trends": 1.5}
+    assert items[0]["latest_article_url"] == "https://example.com/example-game-1"
 
 
 @pytest.mark.asyncio
@@ -175,6 +184,7 @@ async def test_trending_aggregator_penalizes_old_release_dates():
         is_linked=True,
         is_upcoming=False,
         latest_article_at=now - timedelta(hours=1),
+        latest_article_url="https://example.com/everything",
         news_mention_count=2,
         news_source_count=1,
         source_scores={"news": 4.0},
@@ -189,6 +199,7 @@ async def test_trending_aggregator_penalizes_old_release_dates():
         is_linked=True,
         is_upcoming=True,
         latest_article_at=now - timedelta(hours=2),
+        latest_article_url="https://example.com/marathon",
         news_mention_count=2,
         news_source_count=1,
         source_scores={"news": 2.2},
@@ -223,6 +234,7 @@ async def test_trending_aggregator_allows_old_outlier_with_strong_momentum():
         is_linked=True,
         is_upcoming=False,
         latest_article_at=now - timedelta(hours=1),
+        latest_article_url="https://example.com/classic-comeback",
         news_mention_count=16,
         news_source_count=6,
         source_scores={"news": 8.0},
@@ -237,6 +249,7 @@ async def test_trending_aggregator_allows_old_outlier_with_strong_momentum():
         is_linked=True,
         is_upcoming=False,
         latest_article_at=now - timedelta(hours=2),
+        latest_article_url="https://example.com/new-hotness",
         news_mention_count=3,
         news_source_count=2,
         source_scores={"news": 3.2},
@@ -265,6 +278,7 @@ async def test_news_provider_uses_inferred_unlinked_game_title_not_headline():
             title="Slay The Spire 2 Has Slayed Steam As Rush To Download Leads To Storefront Crashes",
             source_name="PC Gamer",
             published_at=now - timedelta(hours=2),
+            article_url="https://example.com/slay-2-pcgamer",
             game_id=None,
             image_url="https://img/1.jpg",
             game_title=None,
@@ -276,6 +290,7 @@ async def test_news_provider_uses_inferred_unlinked_game_title_not_headline():
             title="Slay the Spire 2 launch times and release date - IGN",
             source_name="IGN",
             published_at=now - timedelta(hours=1),
+            article_url="https://example.com/slay-2-ign",
             game_id=None,
             image_url="https://img/2.jpg",
             game_title=None,
@@ -293,6 +308,7 @@ async def test_news_provider_uses_inferred_unlinked_game_title_not_headline():
     assert signal.title == "Slay the Spire 2"
     assert signal.trend_key == "topic:slay spire 2"
     assert signal.news_mention_count == 2
+    assert signal.latest_article_url == "https://example.com/slay-2-ign"
 
 
 @pytest.mark.asyncio
@@ -303,6 +319,7 @@ async def test_news_provider_skips_unlinked_rows_without_game_title_candidate():
             title="From next week, Australians will need to verify their age for Google Play and Steam",
             source_name="The Verge",
             published_at=now - timedelta(hours=1),
+            article_url="https://example.com/australia-age-verification",
             game_id=None,
             image_url="https://img/1.jpg",
             game_title=None,
@@ -325,6 +342,7 @@ async def test_news_provider_requires_multiple_mentions_for_unlinked_topic():
             title="Crimson Desert launch trailer revealed",
             source_name="IGN",
             published_at=now - timedelta(hours=1),
+            article_url="https://example.com/crimson-desert",
             game_id=None,
             image_url="https://img/1.jpg",
             game_title=None,
@@ -347,6 +365,7 @@ async def test_news_provider_skips_unlinked_role_or_people_headlines():
             title="Leon Kennedy Actor Won't Say If He's Team Ada Or Team Claire",
             source_name="GameSpot",
             published_at=now - timedelta(hours=1),
+            article_url="https://example.com/leon-kennedy-actor",
             game_id=None,
             image_url="https://img/1.jpg",
             game_title=None,
@@ -358,6 +377,7 @@ async def test_news_provider_skips_unlinked_role_or_people_headlines():
             title="Call of Duty Leaker Retires After Receiving Legal Threats",
             source_name="IGN",
             published_at=now - timedelta(hours=2),
+            article_url="https://example.com/cod-leaker-retires",
             game_id=None,
             image_url="https://img/2.jpg",
             game_title=None,

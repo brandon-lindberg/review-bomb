@@ -224,6 +224,7 @@ class TrendingSignal:
     is_linked: bool
     is_upcoming: bool
     latest_article_at: datetime | None
+    latest_article_url: str | None
     news_mention_count: int
     news_source_count: int
     source_scores: dict[str, float] = field(default_factory=dict)
@@ -255,6 +256,7 @@ class _NewsBucket:
     is_linked: bool
     is_upcoming: bool
     latest_article_at: datetime | None = None
+    latest_article_url: str | None = None
     source_names: set[str] = field(default_factory=set)
     mention_count: int = 0
     weighted_mentions: float = 0.0
@@ -450,6 +452,7 @@ class NewsTrendingProvider:
                 NewsArticle.title.label("title"),
                 NewsArticle.source_name.label("source_name"),
                 NewsArticle.published_at.label("published_at"),
+                NewsArticle.url.label("article_url"),
                 NewsArticle.game_id.label("game_id"),
                 NewsArticle.image_url.label("image_url"),
                 Game.title.label("game_title"),
@@ -515,6 +518,7 @@ class NewsTrendingProvider:
 
             if bucket.latest_article_at is None or published_at > bucket.latest_article_at:
                 bucket.latest_article_at = published_at
+                bucket.latest_article_url = getattr(row, "article_url", None)
                 if not bucket.is_linked:
                     inferred_latest_title = _infer_unlinked_game_title(row.title, row.source_name)
                     if inferred_latest_title:
@@ -551,6 +555,7 @@ class NewsTrendingProvider:
                     is_linked=bucket.is_linked,
                     is_upcoming=bucket.is_upcoming,
                     latest_article_at=bucket.latest_article_at,
+                    latest_article_url=bucket.latest_article_url,
                     news_mention_count=bucket.mention_count,
                     news_source_count=len(bucket.source_names),
                     source_scores={self.provider_key: news_score},
@@ -602,6 +607,9 @@ class TrendingAggregator:
                     )
                 ):
                     existing.latest_article_at = signal.latest_article_at
+                    existing.latest_article_url = signal.latest_article_url
+                elif existing.latest_article_url is None and signal.latest_article_url:
+                    existing.latest_article_url = signal.latest_article_url
 
                 # Prefer canonical linked game metadata when available.
                 if not existing.is_linked and signal.is_linked:
@@ -642,6 +650,7 @@ class TrendingAggregator:
                     "is_linked": signal.is_linked,
                     "is_upcoming": signal.is_upcoming,
                     "latest_article_at": signal.latest_article_at,
+                    "latest_article_url": signal.latest_article_url,
                     "news_mention_count": signal.news_mention_count,
                     "news_source_count": signal.news_source_count,
                     "trend_score": trend_score,

@@ -425,6 +425,7 @@ class TrendingGameItem(BaseModel):
     is_linked: bool
     is_upcoming: bool
     latest_article_at: Optional[datetime] = None
+    latest_article_url: Optional[str] = None
     news_mention_count: int
     news_source_count: int
     trend_score: float

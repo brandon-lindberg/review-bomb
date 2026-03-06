@@ -144,14 +144,15 @@ export default async function Home() {
             <div className="trending-ticker-mask flex-1 min-w-0">
               <div className="trending-ticker-track">
                 {trendingTickerItems.map((item, index) => {
-                  const isClickable = Boolean(item.game_public_id);
+                  const gameHref = item.game_public_id ? `/games/${item.game_public_id}` : null;
+                  const articleHref = !gameHref && item.latest_article_url ? item.latest_article_url : null;
                   const content = (
                     <>
                       <span className="text-[11px] font-semibold" style={{ color: "var(--color-rust)" }}>
                         #{item.rank}
                       </span>
                       <span className="font-medium">{item.title}</span>
-                      {isClickable && item.is_upcoming && (
+                      {Boolean(gameHref) && item.is_upcoming && (
                         <span className="text-[10px] uppercase tracking-[0.08em]" style={{ color: "var(--foreground-muted)" }}>
                           upcoming
                         </span>
@@ -159,15 +160,29 @@ export default async function Home() {
                     </>
                   );
 
-                  if (isClickable) {
+                  if (gameHref) {
                     return (
                       <Link
                         key={`${item.trend_key}-${index}`}
-                        href={`/games/${item.game_public_id}`}
+                        href={gameHref}
                         className="trending-ticker-item"
                       >
                         {content}
                       </Link>
+                    );
+                  }
+
+                  if (articleHref) {
+                    return (
+                      <a
+                        key={`${item.trend_key}-${index}`}
+                        href={articleHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="trending-ticker-item"
+                      >
+                        {content}
+                      </a>
                     );
                   }
 
