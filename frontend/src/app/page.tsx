@@ -384,33 +384,6 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Call to Action */}
-      <section className="text-center py-8">
-        <div className="flex flex-wrap justify-center gap-4">
-          <Link
-            href="/journalists"
-            className="px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: "var(--color-rust)" }}
-          >
-            Browse Journalists
-          </Link>
-          <Link
-            href="/games"
-            className="px-6 py-3 rounded-lg font-medium hover:opacity-80 transition-opacity"
-            style={{ backgroundColor: "var(--color-tan)", color: "#1a1a1a" }}
-          >
-            Browse Games
-          </Link>
-          <Link
-            href="/leaderboards"
-            className="px-6 py-3 rounded-lg font-medium hover:opacity-80 transition-opacity"
-            style={{ backgroundColor: "var(--color-sage)", color: "white" }}
-          >
-            View Leaderboards
-          </Link>
-        </div>
-      </section>
-
       {/* Empty state if no data */}
       {!stats && (
         <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
