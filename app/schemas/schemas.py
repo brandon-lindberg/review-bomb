@@ -412,6 +412,33 @@ class SiteStats(BaseModel):
     last_updated: datetime
 
 
+class TrendingGameItem(BaseModel):
+    """Trending game/topic entry for the home page."""
+
+    rank: int
+    trend_key: str
+    title: str
+    game_id: Optional[int] = None
+    game_public_id: Optional[str] = None
+    release_date: Optional[date] = None
+    image_url: Optional[str] = None
+    is_linked: bool
+    is_upcoming: bool
+    latest_article_at: Optional[datetime] = None
+    news_mention_count: int
+    news_source_count: int
+    trend_score: float
+    source_scores: dict[str, float] = Field(default_factory=dict)
+
+
+class TrendingGamesResponse(BaseModel):
+    """Trending games response envelope."""
+
+    as_of: datetime
+    window_hours: int
+    items: list[TrendingGameItem]
+
+
 # =============================================================================
 # News Article Schemas
 # =============================================================================

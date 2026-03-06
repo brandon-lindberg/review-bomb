@@ -3,16 +3,22 @@
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.models import Journalist, Outlet, Game, Review
-from app.schemas.schemas import SiteStats, ReviewWithJournalist
+from app.schemas.schemas import (
+    SiteStats,
+    ReviewWithJournalist,
+    TrendingGamesResponse,
+    TrendingGameItem,
+)
 from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
 from app.services.review_score_correction import corrected_normalized_score
+from app.services.trending import TrendingAggregator
 
 router = APIRouter()
 
@@ -129,6 +135,36 @@ async def get_recent_reviews(
     await set_cached(cache_key, json.dumps([item.model_dump(mode='json') for item in items]), CACHE_TTL_SHORT)
 
     return items
+
+
+@router.get("/trending-games", response_model=TrendingGamesResponse)
+async def get_trending_games(
+    limit: int = Query(8, ge=1, le=25),
+    window_hours: int = Query(48, ge=6, le=168),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get trending games/topics from the pluggable trend aggregator."""
+    cache_key = f"stats:trending-games:limit={limit}:window={window_hours}"
+    cached = await get_cached(cache_key)
+    if cached:
+        return TrendingGamesResponse(**json.loads(cached))
+
+    as_of = datetime.now(timezone.utc)
+    aggregator = TrendingAggregator()
+    rows = await aggregator.list_trending(
+        db,
+        limit=limit,
+        window_hours=window_hours,
+        now=as_of,
+    )
+
+    response = TrendingGamesResponse(
+        as_of=as_of,
+        window_hours=window_hours,
+        items=[TrendingGameItem(**row) for row in rows],
+    )
+    await set_cached(cache_key, response.model_dump_json(), CACHE_TTL_SHORT)
+    return response
 
 
 @router.get("/sitemap-data")

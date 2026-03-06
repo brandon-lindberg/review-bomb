@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getStats, getRecentReviews, getGames, getNews } from "@/lib/api";
+import { getStats, getRecentReviews, getGames, getNews, getTrendingGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
 import { NewsCard } from "@/components/NewsCard";
@@ -38,13 +38,15 @@ export default async function Home() {
   let recentReviews = null;
   let recentGames = null;
   let recentNews = null;
+  let trendingGames = null;
 
   try {
-    [stats, recentReviews, recentGames, recentNews] = await Promise.all([
+    [stats, recentReviews, recentGames, recentNews, trendingGames] = await Promise.all([
       getStats(),
       getRecentReviews(5),
       getGames(1, 5, "release_date", "desc"),
       getNews(1, 5).catch(() => null),
+      getTrendingGames(8, 48).catch(() => null),
     ]);
   } catch (error) {
     console.error("Error fetching data:", error);
@@ -101,6 +103,10 @@ export default async function Home() {
     },
   };
 
+  const trendingTickerItems = trendingGames?.items
+    ? [...trendingGames.items, ...trendingGames.items]
+    : [];
+
   return (
     <div className="space-y-12">
       <JsonLd data={websiteJsonLd} />
@@ -122,6 +128,55 @@ export default async function Home() {
           <StatCard label="Outlets" value={stats.total_outlets} />
           <StatCard label="Games" value={stats.total_games} />
           <StatCard label="Reviews" value={stats.total_reviews} />
+        </section>
+      )}
+
+      {/* Trending Games */}
+      {trendingGames && trendingGames.items.length > 0 && (
+        <section className="bg-white dark:bg-gray-800 rounded-lg shadow min-w-0 overflow-hidden">
+          <div className="flex items-center min-w-0">
+            <div
+              className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] shrink-0"
+              style={{ color: "var(--color-rust)", borderRight: "1px solid var(--border)" }}
+            >
+              Trending
+            </div>
+            <div className="trending-ticker-mask flex-1 min-w-0">
+              <div className="trending-ticker-track">
+                {trendingTickerItems.map((item, index) => {
+                  const href = item.game_public_id
+                    ? `/games/${item.game_public_id}`
+                    : `/search?q=${encodeURIComponent(item.title)}`;
+                  const metaLabel = item.game_public_id
+                    ? (item.is_upcoming ? "upcoming" : null)
+                    : "unlinked";
+                  return (
+                    <Link
+                      key={`${item.trend_key}-${index}`}
+                      href={href}
+                      className="trending-ticker-item"
+                    >
+                      <span className="text-[11px] font-semibold" style={{ color: "var(--color-rust)" }}>
+                        #{item.rank}
+                      </span>
+                      <span className="font-medium">{item.title}</span>
+                      {metaLabel && (
+                        <span className="text-[10px] uppercase tracking-[0.08em]" style={{ color: "var(--foreground-muted)" }}>
+                          {metaLabel}
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+            <div
+              className="hidden md:block px-3 py-3 text-[11px] shrink-0"
+              style={{ color: "var(--foreground-muted)", borderLeft: "1px solid var(--border)" }}
+            >
+              {trendingGames.window_hours}h
+            </div>
+          </div>
         </section>
       )}
 

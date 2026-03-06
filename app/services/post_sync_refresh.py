@@ -91,6 +91,8 @@ async def refresh_news_after_sync(
     """Refresh backend + frontend caches affected by news sync jobs."""
     deleted_keys = await delete_cached("news:*")
     print(f"Cleared {deleted_keys} cached news entries")
+    deleted_trending_keys = await delete_cached("stats:trending-games:*")
+    print(f"Cleared {deleted_trending_keys} cached trending entries")
 
     try:
         await prewarm_news_caches_with_db(db)
@@ -104,4 +106,3 @@ async def refresh_news_after_sync(
             DEFAULT_NEWS_REVALIDATE_PATHS,
             reason="news_sync",
         )
-

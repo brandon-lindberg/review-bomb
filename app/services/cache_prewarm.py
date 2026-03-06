@@ -46,6 +46,7 @@ async def prewarm_core_caches_with_db(
 
     # 2) Home page dependencies.
     await stats.get_recent_reviews(limit=5, db=db)
+    await stats.get_trending_games(limit=8, window_hours=48, db=db)
     await games.list_games(
         page=1,
         per_page=5,

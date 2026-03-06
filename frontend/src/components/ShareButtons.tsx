@@ -10,6 +10,7 @@ import {
 interface ShareButtonsProps {
   url: string;
   text: string;
+  compactOnMobile?: boolean;
 }
 
 const XIcon = () => (
@@ -37,7 +38,7 @@ const CheckIcon = () => (
   </svg>
 );
 
-export function ShareButtons({ url, text }: ShareButtonsProps) {
+export function ShareButtons({ url, text, compactOnMobile = false }: ShareButtonsProps) {
   const [copied, setCopied] = useState(false);
 
   const createSnapshotNonce = () =>
@@ -94,6 +95,10 @@ export function ShareButtons({ url, text }: ShareButtonsProps) {
     transition: 'border-color 0.15s, color 0.15s',
   };
 
+  const mobileCompactButtonStyle: React.CSSProperties = compactOnMobile
+    ? { padding: "5px 8px" }
+    : {};
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
       <button
@@ -108,11 +113,11 @@ export function ShareButtons({ url, text }: ShareButtonsProps) {
       <button
         type="button"
         onClick={handleShareReddit}
-        style={baseStyle}
+        style={{ ...baseStyle, ...mobileCompactButtonStyle }}
         aria-label="Share on Reddit"
       >
         <RedditIcon />
-        Reddit
+        <span className={compactOnMobile ? "hidden sm:inline" : undefined}>Reddit</span>
       </button>
 
       <button
@@ -120,12 +125,15 @@ export function ShareButtons({ url, text }: ShareButtonsProps) {
         onClick={handleCopy}
         style={{
           ...baseStyle,
+          ...mobileCompactButtonStyle,
           ...(copied && { color: '#708160', borderColor: '#708160' }),
         }}
         aria-label={copied ? 'Link copied' : 'Copy link'}
       >
         {copied ? <CheckIcon /> : <LinkIcon />}
-        {copied ? 'Copied!' : 'Copy link'}
+        <span className={compactOnMobile ? "hidden sm:inline" : undefined}>
+          {copied ? 'Copied!' : 'Copy link'}
+        </span>
       </button>
     </div>
   );
