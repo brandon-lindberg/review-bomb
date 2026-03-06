@@ -1375,9 +1375,11 @@ async def cmd_news_backfill(args):
 
         linked_new = 0
         relinked = 0
+        cleared_stale = 0
         unchanged = 0
         unmatched = 0
         pending_changes = 0
+        sample_changes: list[str] = []
 
         if args.relink and not args.all:
             print("Note: --relink has no effect without --all")
@@ -1386,14 +1388,34 @@ async def cmd_news_backfill(args):
             matched_game_id = matcher.match(article.title, article.description)
             if not matched_game_id:
                 unmatched += 1
+                if args.all and args.relink and article.game_id is not None:
+                    cleared_stale += 1
+                    if len(sample_changes) < 25:
+                        sample_changes.append(
+                            f"CLEAR article_id={article.id} old_game_id={article.game_id} "
+                            f"title={article.title[:100]}"
+                        )
+                    if not args.dry_run:
+                        article.game_id = None
+                        pending_changes += 1
             elif article.game_id is None:
                 linked_new += 1
+                if len(sample_changes) < 25:
+                    sample_changes.append(
+                        f"LINK article_id={article.id} game_id={matched_game_id} "
+                        f"title={article.title[:100]}"
+                    )
                 if not args.dry_run:
                     article.game_id = matched_game_id
                     pending_changes += 1
             elif article.game_id != matched_game_id:
                 if args.all and args.relink:
                     relinked += 1
+                    if len(sample_changes) < 25:
+                        sample_changes.append(
+                            f"RELINK article_id={article.id} old_game_id={article.game_id} "
+                            f"new_game_id={matched_game_id} title={article.title[:100]}"
+                        )
                     if not args.dry_run:
                         article.game_id = matched_game_id
                         pending_changes += 1
@@ -1408,13 +1430,13 @@ async def cmd_news_backfill(args):
                     pending_changes = 0
                 print(
                     f"  Processed {i + 1}/{len(articles)} "
-                    f"(new links: {linked_new}, relinked: {relinked})"
+                    f"(new links: {linked_new}, relinked: {relinked}, cleared stale: {cleared_stale})"
                 )
 
         if pending_changes and not args.dry_run:
             await db.commit()
 
-        changed = linked_new + relinked
+        changed = linked_new + relinked + cleared_stale
         if changed > 0 and not args.dry_run:
             await refresh_news_after_sync(db)
             await close_redis()
@@ -1423,8 +1445,13 @@ async def cmd_news_backfill(args):
         print(f"  Processed: {len(articles)}")
         print(f"  Newly linked: {linked_new}")
         print(f"  Relinked: {relinked}")
+        print(f"  Cleared stale links: {cleared_stale}")
         print(f"  Unchanged: {unchanged}")
         print(f"  Unmatched: {unmatched}")
+        if sample_changes:
+            print("  Sample changes:")
+            for line in sample_changes:
+                print(f"    - {line}")
         if args.dry_run:
             print("  Dry run only: no database changes were committed")
 

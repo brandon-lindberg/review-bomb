@@ -276,6 +276,14 @@ body {
   background-color: rgba(0, 0, 0, 0.04);
 }
 
+.trending-ticker-item-static {
+  cursor: default;
+}
+
+.trending-ticker-item-static:hover {
+  background-color: transparent;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .trending-ticker-mask {
     overflow-x: auto;

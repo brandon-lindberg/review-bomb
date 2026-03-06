@@ -144,28 +144,41 @@ export default async function Home() {
             <div className="trending-ticker-mask flex-1 min-w-0">
               <div className="trending-ticker-track">
                 {trendingTickerItems.map((item, index) => {
-                  const href = item.game_public_id
-                    ? `/games/${item.game_public_id}`
-                    : `/search?q=${encodeURIComponent(item.title)}`;
-                  const metaLabel = item.game_public_id
-                    ? (item.is_upcoming ? "upcoming" : null)
-                    : "unlinked";
-                  return (
-                    <Link
-                      key={`${item.trend_key}-${index}`}
-                      href={href}
-                      className="trending-ticker-item"
-                    >
+                  const isClickable = Boolean(item.game_public_id);
+                  const content = (
+                    <>
                       <span className="text-[11px] font-semibold" style={{ color: "var(--color-rust)" }}>
                         #{item.rank}
                       </span>
                       <span className="font-medium">{item.title}</span>
-                      {metaLabel && (
+                      {isClickable && item.is_upcoming && (
                         <span className="text-[10px] uppercase tracking-[0.08em]" style={{ color: "var(--foreground-muted)" }}>
-                          {metaLabel}
+                          upcoming
                         </span>
                       )}
-                    </Link>
+                    </>
+                  );
+
+                  if (isClickable) {
+                    return (
+                      <Link
+                        key={`${item.trend_key}-${index}`}
+                        href={`/games/${item.game_public_id}`}
+                        className="trending-ticker-item"
+                      >
+                        {content}
+                      </Link>
+                    );
+                  }
+
+                  return (
+                    <span
+                      key={`${item.trend_key}-${index}`}
+                      className="trending-ticker-item trending-ticker-item-static"
+                      aria-disabled="true"
+                    >
+                      {content}
+                    </span>
                   );
                 })}
               </div>

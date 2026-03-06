@@ -21,9 +21,23 @@ from app.models.models import Game, NewsArticle
 
 RECENCY_HALF_LIFE_HOURS = 24.0
 MOMENTUM_WINDOW_HOURS = 12
+UNLINKED_MIN_MENTIONS = 2
+RECENT_RELEASE_FULL_WEIGHT_DAYS = 120
+OLD_RELEASE_PENALTY_BUCKETS = (
+    (180, 0.75),
+    (365, 0.25),
+    (365 * 2, 0.2),
+    (365 * 5, 0.15),
+    (None, 0.1),
+)
+OLD_RELEASE_OUTLIER_BOOSTS = (
+    (10, 5, 0.15),
+    (16, 6, 0.2),
+)
 
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _WHITESPACE_RE = re.compile(r"\s+")
+_ROMAN_TOKEN_RE = re.compile(r"^[ivxlcdm]+$")
 _TOPIC_STOPWORDS = {
     "a",
     "about",
@@ -71,6 +85,129 @@ _TOPIC_STOPWORDS = {
     "what",
     "when",
     "with",
+}
+_UNLINKED_TITLE_BREAK_TOKENS = {
+    "a",
+    "after",
+    "adds",
+    "an",
+    "announced",
+    "announces",
+    "arrives",
+    "before",
+    "can",
+    "check",
+    "coming",
+    "confirms",
+    "could",
+    "day",
+    "details",
+    "drops",
+    "during",
+    "explained",
+    "explains",
+    "gets",
+    "guide",
+    "has",
+    "have",
+    "if",
+    "is",
+    "launch",
+    "launches",
+    "launched",
+    "launching",
+    "latest",
+    "next",
+    "officially",
+    "old",
+    "preview",
+    "promises",
+    "release",
+    "released",
+    "retires",
+    "revealed",
+    "reveals",
+    "review",
+    "say",
+    "says",
+    "shows",
+    "things",
+    "trailer",
+    "update",
+    "updates",
+    "walkthrough",
+    "while",
+    "was",
+    "will",
+    "won",
+    "wont",
+}
+_UNLINKED_INVALID_START_TOKENS = {
+    "a",
+    "all",
+    "and",
+    "from",
+    "how",
+    "if",
+    "is",
+    "new",
+    "one",
+    "our",
+    "rockstar",
+    "sony",
+    "the",
+    "these",
+    "this",
+    "those",
+    "today",
+    "xbox",
+    "what",
+    "when",
+    "where",
+    "why",
+}
+_UNLINKED_REJECT_TOKENS = {
+    "actor",
+    "director",
+    "episode",
+    "fans",
+    "full",
+    "hate",
+    "hbo",
+    "leaker",
+    "legal",
+    "movie",
+    "season",
+    "team",
+}
+_TITLE_CASE_MINOR_TOKENS = {
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "for",
+    "from",
+    "in",
+    "of",
+    "on",
+    "or",
+    "the",
+    "to",
+    "vs",
+    "with",
+}
+_TITLE_CASE_ACRONYMS = {
+    "dlc",
+    "fps",
+    "gta",
+    "mmo",
+    "pc",
+    "ps4",
+    "ps5",
+    "rpg",
+    "vr",
+    "xbox",
 }
 
 
@@ -166,6 +303,93 @@ def _topic_key_from_title(title: str) -> str:
     return " ".join(tokens[:3]) or "untitled"
 
 
+def _format_inferred_title_tokens(tokens: list[str]) -> str:
+    formatted: list[str] = []
+    for idx, token in enumerate(tokens):
+        if not token:
+            continue
+        if token.isdigit():
+            formatted.append(token)
+            continue
+        if token in _TITLE_CASE_ACRONYMS:
+            formatted.append(token.upper())
+            continue
+        if _ROMAN_TOKEN_RE.match(token):
+            formatted.append(token.upper())
+            continue
+        if idx > 0 and token in _TITLE_CASE_MINOR_TOKENS:
+            formatted.append(token)
+            continue
+        formatted.append(token.capitalize())
+
+    return " ".join(formatted).strip()
+
+
+def _infer_unlinked_game_title(title: str, source_name: str | None) -> str | None:
+    """
+    Infer a concise game-title candidate from an unlinked article headline.
+    Returns None when confidence is low to avoid showing noisy topic headlines.
+    """
+    cleaned = _clean_article_title(title, source_name)
+    normalized = _NON_ALNUM_RE.sub(" ", cleaned.lower())
+    normalized = _WHITESPACE_RE.sub(" ", normalized).strip()
+    if not normalized:
+        return None
+
+    raw_tokens = normalized.split()
+    tokens: list[str] = []
+    index = 0
+    while index < len(raw_tokens):
+        token = raw_tokens[index]
+        if index + 1 < len(raw_tokens) and token == "pok" and raw_tokens[index + 1] == "mon":
+            tokens.append("pokemon")
+            index += 2
+            continue
+
+        # Remove apostrophe artifact tokens (e.g. "HBO's" -> "hbo s").
+        if token == "s" and tokens:
+            index += 1
+            continue
+
+        tokens.append(token)
+        index += 1
+
+    if not tokens:
+        return None
+    if tokens[0] in _UNLINKED_INVALID_START_TOKENS and len(tokens) > 2:
+        return None
+
+    cut_index = len(tokens)
+    for index in range(1, len(tokens)):
+        if tokens[index] in _UNLINKED_TITLE_BREAK_TOKENS:
+            cut_index = index
+            break
+
+    candidate_tokens = tokens[:cut_index]
+    while candidate_tokens and candidate_tokens[-1] in _TOPIC_STOPWORDS:
+        candidate_tokens.pop()
+
+    if not candidate_tokens:
+        return None
+    if len(candidate_tokens) > 8:
+        candidate_tokens = candidate_tokens[:8]
+    if candidate_tokens[0].isdigit():
+        return None
+    if candidate_tokens[0] in _UNLINKED_INVALID_START_TOKENS:
+        return None
+    if any(token in _UNLINKED_REJECT_TOKENS for token in candidate_tokens):
+        return None
+
+    meaningful_tokens = [token for token in candidate_tokens if token not in _TOPIC_STOPWORDS]
+    if not meaningful_tokens:
+        return None
+    if len(candidate_tokens) < 2:
+        return None
+
+    inferred = _format_inferred_title_tokens(candidate_tokens)
+    return inferred or None
+
+
 def _recency_weight(*, published_at: datetime, now: datetime) -> float:
     age_hours = max((now - published_at).total_seconds() / 3600.0, 0.0)
     decay_factor = math.log(2.0) * (age_hours / RECENCY_HALF_LIFE_HOURS)
@@ -177,6 +401,32 @@ def _news_score(bucket: _NewsBucket) -> float:
     momentum_delta = bucket.recent_window_mentions - bucket.prior_window_mentions
     momentum_bonus = max(0.0, min(2.5, momentum_delta * 0.4))
     return bucket.weighted_mentions + source_bonus + momentum_bonus
+
+
+def _release_age_multiplier(signal: TrendingSignal, *, today: date) -> float:
+    if signal.release_date is None or signal.release_date >= today:
+        return 1.0
+
+    age_days = (today - signal.release_date).days
+    if age_days <= RECENT_RELEASE_FULL_WEIGHT_DAYS:
+        return 1.0
+
+    multiplier = OLD_RELEASE_PENALTY_BUCKETS[-1][1]
+    for max_age_days, bucket_multiplier in OLD_RELEASE_PENALTY_BUCKETS:
+        if max_age_days is None or age_days <= max_age_days:
+            multiplier = bucket_multiplier
+            break
+
+    # Allow rare older-game outliers if they have meaningful present momentum.
+    for min_mentions, min_sources, boost in OLD_RELEASE_OUTLIER_BOOSTS:
+        if signal.news_mention_count >= min_mentions and signal.news_source_count >= min_sources:
+            multiplier += boost
+
+    return min(multiplier, 1.0)
+
+
+def _effective_trend_score(signal: TrendingSignal, *, today: date) -> float:
+    return sum(signal.source_scores.values()) * _release_age_multiplier(signal, today=today)
 
 
 class NewsTrendingProvider:
@@ -242,14 +492,17 @@ class NewsTrendingProvider:
                     )
                     buckets[trend_key] = bucket
             else:
-                cleaned_title = _clean_article_title(row.title, row.source_name)
-                topic_key = _topic_key_from_title(cleaned_title)
+                inferred_title = _infer_unlinked_game_title(row.title, row.source_name)
+                if not inferred_title:
+                    continue
+
+                topic_key = _topic_key_from_title(inferred_title)
                 trend_key = f"topic:{topic_key}"
                 bucket = buckets.get(trend_key)
                 if bucket is None:
                     bucket = _NewsBucket(
                         trend_key=trend_key,
-                        title=cleaned_title[:200],
+                        title=inferred_title[:200],
                         game_id=None,
                         game_public_id=None,
                         release_date=None,
@@ -263,7 +516,9 @@ class NewsTrendingProvider:
             if bucket.latest_article_at is None or published_at > bucket.latest_article_at:
                 bucket.latest_article_at = published_at
                 if not bucket.is_linked:
-                    bucket.title = _clean_article_title(row.title, row.source_name)[:200]
+                    inferred_latest_title = _infer_unlinked_game_title(row.title, row.source_name)
+                    if inferred_latest_title:
+                        bucket.title = inferred_latest_title[:200]
                     if row.image_url:
                         bucket.image_url = row.image_url
 
@@ -278,6 +533,9 @@ class NewsTrendingProvider:
 
         signals: list[TrendingSignal] = []
         for bucket in buckets.values():
+            if not bucket.is_linked and bucket.mention_count < UNLINKED_MIN_MENTIONS:
+                continue
+
             news_score = round(_news_score(bucket), 4)
             if news_score <= 0:
                 continue
@@ -317,6 +575,7 @@ class TrendingAggregator:
         now: datetime | None = None,
     ) -> list[dict]:
         as_of = _ensure_utc(now) or datetime.now(timezone.utc)
+        today = as_of.date()
 
         merged: dict[str, TrendingSignal] = {}
         for provider in self.providers:
@@ -357,7 +616,7 @@ class TrendingAggregator:
         ranked_signals = sorted(
             merged.values(),
             key=lambda signal: (
-                -sum(signal.source_scores.values()),
+                -_effective_trend_score(signal, today=today),
                 -(
                     signal.latest_article_at.timestamp()
                     if signal.latest_article_at is not None
@@ -370,7 +629,7 @@ class TrendingAggregator:
 
         items: list[dict] = []
         for rank, signal in enumerate(ranked_signals[:limit], start=1):
-            trend_score = round(sum(signal.source_scores.values()), 4)
+            trend_score = round(_effective_trend_score(signal, today=today), 4)
             items.append(
                 {
                     "rank": rank,
