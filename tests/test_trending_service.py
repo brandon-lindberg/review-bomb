@@ -425,3 +425,114 @@ async def test_news_provider_skips_unlinked_hardware_device_topics():
     signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
 
     assert signals == []
+
+
+@pytest.mark.asyncio
+async def test_news_provider_skips_unlinked_tv_show_topics():
+    now = datetime(2026, 3, 6, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            title="War Machine gets TV series release window",
+            source_name="IGN",
+            published_at=now - timedelta(hours=1),
+            article_url="https://example.com/war-machine-tv-window",
+            game_id=None,
+            image_url="https://img/war-machine-1.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+        SimpleNamespace(
+            title="War Machine Disney show adds another cast member",
+            source_name="GameSpot",
+            published_at=now - timedelta(hours=3),
+            article_url="https://example.com/war-machine-cast",
+            game_id=None,
+            image_url="https://img/war-machine-2.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+    ]
+    provider = NewsTrendingProvider()
+    signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
+
+    assert signals == []
+
+
+@pytest.mark.asyncio
+async def test_news_provider_trims_early_access_headline_to_game_title():
+    now = datetime(2026, 3, 6, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            title="Slay the Spire 2 Early Access Broke Records",
+            source_name="PC Gamer",
+            published_at=now - timedelta(hours=1),
+            article_url="https://example.com/slay-spire-2-early-access",
+            game_id=None,
+            image_url="https://img/slay-2-1.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+        SimpleNamespace(
+            title="Slay the Spire 2 launch trailer recap",
+            source_name="IGN",
+            published_at=now - timedelta(hours=4),
+            article_url="https://example.com/slay-spire-2-reveal",
+            game_id=None,
+            image_url="https://img/slay-2-2.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+    ]
+    provider = NewsTrendingProvider()
+    signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
+
+    assert len(signals) == 1
+    signal = signals[0]
+    assert signal.trend_key == "topic:slay spire 2"
+    assert signal.title == "Slay the Spire 2"
+
+
+@pytest.mark.asyncio
+async def test_news_provider_groups_roman_and_arabic_sequel_titles():
+    now = datetime(2026, 3, 6, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            title="Slay the Spire II reveal trailer recap",
+            source_name="IGN",
+            published_at=now - timedelta(hours=3),
+            article_url="https://example.com/slay-spire-ii-reveal",
+            game_id=None,
+            image_url="https://img/slay-roman.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+        SimpleNamespace(
+            title="Slay the Spire 2 Early Access broke records",
+            source_name="PC Gamer",
+            published_at=now - timedelta(hours=1),
+            article_url="https://example.com/slay-spire-2-early-access-2",
+            game_id=None,
+            image_url="https://img/slay-arabic.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+    ]
+    provider = NewsTrendingProvider()
+    signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
+
+    assert len(signals) == 1
+    signal = signals[0]
+    assert signal.trend_key == "topic:slay spire 2"
+    assert signal.title == "Slay the Spire 2"

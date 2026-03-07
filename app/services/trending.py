@@ -103,6 +103,7 @@ _UNLINKED_TITLE_BREAK_TOKENS = {
     "day",
     "details",
     "drops",
+    "early",
     "during",
     "explained",
     "explains",
@@ -128,6 +129,11 @@ _UNLINKED_TITLE_BREAK_TOKENS = {
     "revealed",
     "reveals",
     "review",
+    "access",
+    "broke",
+    "breaks",
+    "record",
+    "records",
     "say",
     "says",
     "shows",
@@ -189,6 +195,19 @@ _UNLINKED_REJECT_TOKENS = {
     "team",
     "webcam",
 }
+_UNLINKED_NON_GAME_CONTEXT_TOKENS = {
+    "anime",
+    "disney",
+    "episode",
+    "film",
+    "hbo",
+    "movie",
+    "netflix",
+    "series",
+    "show",
+    "shows",
+    "tv",
+}
 _UNLINKED_NON_GAME_BRAND_TOKENS = {
     "obsbot",
     "logitech",
@@ -243,6 +262,36 @@ _TITLE_CASE_ACRONYMS = {
     "vr",
     "xbox",
 }
+
+
+def _roman_to_int(token: str) -> int | None:
+    values = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
+    total = 0
+    previous = 0
+
+    for char in reversed(token.lower()):
+        value = values.get(char)
+        if value is None:
+            return None
+        if value < previous:
+            total -= value
+        else:
+            total += value
+            previous = value
+
+    return total if total > 0 else None
+
+
+def _canonicalize_topic_token(token: str) -> str:
+    if not token:
+        return token
+    if token.isdigit():
+        return str(int(token))
+    if _ROMAN_TOKEN_RE.match(token):
+        value = _roman_to_int(token)
+        if value is not None and 1 <= value <= 20:
+            return str(value)
+    return token
 
 
 @dataclass
@@ -333,9 +382,11 @@ def _topic_key_from_title(title: str) -> str:
     filtered_tokens = [
         token
         for token in normalized.split()
-        if token not in _TOPIC_STOPWORDS and (len(token) > 2 or token.isdigit())
+        if token not in _TOPIC_STOPWORDS
+        and (len(token) > 2 or token.isdigit() or bool(_ROMAN_TOKEN_RE.match(token)))
     ]
     tokens = filtered_tokens or normalized.split()
+    tokens = [_canonicalize_topic_token(token) for token in tokens]
     return " ".join(tokens[:3]) or "untitled"
 
 
@@ -395,6 +446,8 @@ def _infer_unlinked_game_title(title: str, source_name: str | None) -> str | Non
     if tokens[0] in _UNLINKED_INVALID_START_TOKENS and len(tokens) > 2:
         return None
     if tokens[0] in _UNLINKED_NON_GAME_BRAND_TOKENS:
+        return None
+    if any(token in _UNLINKED_NON_GAME_CONTEXT_TOKENS for token in tokens):
         return None
 
     cut_index = len(tokens)
