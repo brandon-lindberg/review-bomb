@@ -30,8 +30,6 @@ class NewsRSSService:
         # Forbes author feeds are blocked in this environment. Use Innovation feed
         # and filter to Paul Tassi entries by author and URL.
         "Paul Tassi (Forbes)": "https://www.forbes.com/innovation/feed/",
-        # Discovered from the site’s video-game-news page metadata.
-        "Smash JT": "https://www.smashjt.com/gamingnews/blog-feed.xml",
         "Bellular": "https://bellular.games/tag/news-posts/feed/",
     }
 
@@ -39,9 +37,6 @@ class NewsRSSService:
         "Paul Tassi (Forbes)": {
             "required_author_contains": "paul tassi",
             "required_url_contains": "/sites/paultassi/",
-            "enforce_game_relevance": True,
-        },
-        "Smash JT": {
             "enforce_game_relevance": True,
         },
         "Bellular": {

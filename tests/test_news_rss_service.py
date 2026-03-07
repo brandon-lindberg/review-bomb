@@ -47,35 +47,6 @@ def test_parse_entry_drops_paul_tassi_when_author_does_not_match():
     assert article is None
 
 
-def test_parse_entry_drops_smashjt_non_game_post():
-    service = NewsRSSService()
-    entry = {
-        "title": "Introducing Smash JTea: Real Matcha. Real Energy. REAL SUPPORT.",
-        "link": "https://www.smashjt.com/post/introducing-smash-jtea-real-matcha-real-energy-real-support",
-        "summary": "Support the channel and get a great drink in return.",
-        "author": "Smash JT",
-    }
-
-    article = service._parse_entry(entry, "Smash JT")
-
-    assert article is None
-
-
-def test_parse_entry_keeps_smashjt_game_post():
-    service = NewsRSSService()
-    entry = {
-        "title": "INSANE: Steam blocks indie game over thumbnail policy",
-        "link": "https://www.smashjt.com/post/insane-steam-blocks-indie-game-over-thumbnail-policy",
-        "summary": "Valve removed an indie game page and developers are pushing back.",
-        "author": "Smash JT",
-    }
-
-    article = service._parse_entry(entry, "Smash JT")
-
-    assert article is not None
-    assert article["source_name"] == "Smash JT"
-
-
 def test_parse_entry_drops_bellular_non_game_post():
     service = NewsRSSService()
     entry = {

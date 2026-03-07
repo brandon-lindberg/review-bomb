@@ -18,6 +18,7 @@ from app.schemas.schemas import PaginatedResponse, NewsArticleSummary
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
+EXCLUDED_NEWS_SOURCES = {"Smash JT"}
 
 
 @router.get("", response_model=PaginatedResponse[NewsArticleSummary])
@@ -40,6 +41,11 @@ async def list_news(
     # Build query
     query = select(NewsArticle)
     count_query = select(func.count()).select_from(NewsArticle)
+    excluded_sources = tuple(sorted(EXCLUDED_NEWS_SOURCES))
+
+    if excluded_sources:
+        query = query.where(NewsArticle.source_name.notin_(excluded_sources))
+        count_query = count_query.where(NewsArticle.source_name.notin_(excluded_sources))
 
     if source:
         query = query.where(NewsArticle.source_name == source)
@@ -98,6 +104,7 @@ async def list_sources(
 
     result = await db.execute(
         select(NewsArticle.source_name)
+        .where(NewsArticle.source_name.notin_(tuple(sorted(EXCLUDED_NEWS_SOURCES))))
         .distinct()
         .order_by(NewsArticle.source_name)
     )
