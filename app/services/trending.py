@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from typing import Protocol, Sequence
+from urllib.parse import urlparse
 
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -412,7 +413,35 @@ def _format_inferred_title_tokens(tokens: list[str]) -> str:
     return " ".join(formatted).strip()
 
 
-def _infer_unlinked_game_title(title: str, source_name: str | None) -> str | None:
+def _context_tokens_for_unlinked(
+    title: str,
+    *,
+    description: str | None,
+    article_url: str | None,
+) -> set[str]:
+    url_text = ""
+    if article_url:
+        try:
+            parsed = urlparse(article_url)
+            url_text = f"{parsed.netloc} {parsed.path}"
+        except Exception:
+            url_text = article_url
+
+    combined = f"{title or ''} {description or ''} {url_text}"
+    normalized = _NON_ALNUM_RE.sub(" ", combined.lower())
+    normalized = _WHITESPACE_RE.sub(" ", normalized).strip()
+    if not normalized:
+        return set()
+    return set(normalized.split())
+
+
+def _infer_unlinked_game_title(
+    title: str,
+    source_name: str | None,
+    *,
+    description: str | None = None,
+    article_url: str | None = None,
+) -> str | None:
     """
     Infer a concise game-title candidate from an unlinked article headline.
     Returns None when confidence is low to avoid showing noisy topic headlines.
@@ -447,7 +476,12 @@ def _infer_unlinked_game_title(title: str, source_name: str | None) -> str | Non
         return None
     if tokens[0] in _UNLINKED_NON_GAME_BRAND_TOKENS:
         return None
-    if any(token in _UNLINKED_NON_GAME_CONTEXT_TOKENS for token in tokens):
+    context_tokens = _context_tokens_for_unlinked(
+        title,
+        description=description,
+        article_url=article_url,
+    )
+    if any(token in _UNLINKED_NON_GAME_CONTEXT_TOKENS for token in context_tokens):
         return None
 
     cut_index = len(tokens)
@@ -542,6 +576,7 @@ class NewsTrendingProvider:
                 NewsArticle.source_name.label("source_name"),
                 NewsArticle.published_at.label("published_at"),
                 NewsArticle.url.label("article_url"),
+                NewsArticle.description.label("article_description"),
                 NewsArticle.game_id.label("game_id"),
                 NewsArticle.image_url.label("image_url"),
                 Game.title.label("game_title"),
@@ -584,7 +619,12 @@ class NewsTrendingProvider:
                     )
                     buckets[trend_key] = bucket
             else:
-                inferred_title = _infer_unlinked_game_title(row.title, row.source_name)
+                inferred_title = _infer_unlinked_game_title(
+                    row.title,
+                    row.source_name,
+                    description=getattr(row, "article_description", None),
+                    article_url=getattr(row, "article_url", None),
+                )
                 if not inferred_title:
                     continue
 
@@ -609,7 +649,12 @@ class NewsTrendingProvider:
                 bucket.latest_article_at = published_at
                 bucket.latest_article_url = getattr(row, "article_url", None)
                 if not bucket.is_linked:
-                    inferred_latest_title = _infer_unlinked_game_title(row.title, row.source_name)
+                    inferred_latest_title = _infer_unlinked_game_title(
+                        row.title,
+                        row.source_name,
+                        description=getattr(row, "article_description", None),
+                        article_url=getattr(row, "article_url", None),
+                    )
                     if inferred_latest_title:
                         bucket.title = inferred_latest_title[:200]
                     if row.image_url:

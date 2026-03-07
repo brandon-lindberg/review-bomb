@@ -536,3 +536,46 @@ async def test_news_provider_groups_roman_and_arabic_sequel_titles():
     signal = signals[0]
     assert signal.trend_key == "topic:slay spire 2"
     assert signal.title == "Slay the Spire 2"
+
+
+@pytest.mark.asyncio
+async def test_news_provider_skips_unlinked_movie_reviews_using_url_and_description_context():
+    now = datetime(2026, 3, 6, 12, 0, tzinfo=timezone.utc)
+    rows = [
+        SimpleNamespace(
+            title="War Machine review: A lean, mean Predator redux for Reacher's Alan Ritchson",
+            source_name="Polygon",
+            published_at=now - timedelta(hours=1),
+            article_url="https://www.polygon.com/war-machine-review-netflix-alan-ritchson/",
+            article_description=(
+                "A sci-fi thriller with serious bite, the Netflix movie combines "
+                "Starship Troopers, Aliens, and War of the Worlds."
+            ),
+            game_id=None,
+            image_url="https://img/war-machine-1.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+        SimpleNamespace(
+            title="War Machine Review",
+            source_name="IGN",
+            published_at=now - timedelta(hours=2),
+            article_url="https://www.ign.com/articles/war-machine-netflix-review-alan-ritchson",
+            article_description=(
+                "The charisma of Alan Ritchson carries this sci-fi action movie "
+                "across the finish line."
+            ),
+            game_id=None,
+            image_url="https://img/war-machine-2.jpg",
+            game_title=None,
+            game_public_id=None,
+            game_release_date=None,
+            game_image_url=None,
+        ),
+    ]
+    provider = NewsTrendingProvider()
+    signals = await provider.collect(FakeAsyncSession(rows), now=now, window_hours=48)
+
+    assert signals == []
