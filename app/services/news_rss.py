@@ -26,6 +26,27 @@ class NewsRSSService:
         "Polygon": "https://www.polygon.com/rss/index.xml",
         "Eurogamer": "https://www.eurogamer.net/feed",
         "The Verge": "https://www.theverge.com/rss/games/index.xml",
+        "Jason Schreier (Bloomberg)": "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
+        # Forbes author feeds are blocked in this environment. Use Innovation feed
+        # and filter to Paul Tassi entries by author and URL.
+        "Paul Tassi (Forbes)": "https://www.forbes.com/innovation/feed/",
+        # Discovered from the site’s video-game-news page metadata.
+        "Smash JT": "https://www.smashjt.com/gamingnews/blog-feed.xml",
+        "Bellular": "https://bellular.games/tag/news-posts/feed/",
+    }
+
+    SOURCE_RULES: dict[str, dict[str, Any]] = {
+        "Paul Tassi (Forbes)": {
+            "required_author_contains": "paul tassi",
+            "required_url_contains": "/sites/paultassi/",
+            "enforce_game_relevance": True,
+        },
+        "Smash JT": {
+            "enforce_game_relevance": True,
+        },
+        "Bellular": {
+            "enforce_game_relevance": True,
+        },
     }
 
     REQUEST_TIMEOUT = 30.0
@@ -34,6 +55,46 @@ class NewsRSSService:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
+    )
+
+    GAME_SIGNAL_TERMS = (
+        "video game",
+        "gaming",
+        "steam",
+        "playstation",
+        "ps5",
+        "ps4",
+        "xbox",
+        "nintendo",
+        "switch",
+        "pc game",
+        "dlc",
+        "game update",
+        "patch notes",
+        "early access",
+        "indie game",
+        "game studio",
+        "developer",
+        "metacritic",
+        "opencritic",
+    )
+    NON_GAME_MEDIA_TERMS = (
+        "netflix",
+        "tv series",
+        "tv show",
+        "season ",
+        "episode ",
+        "movie",
+        "box office",
+        "rotten tomatoes",
+        "viewership",
+    )
+    NON_VIDEO_GAME_PUZZLE_TERMS = (
+        "nyt connections",
+        "connections hints",
+        "wordle",
+        "crossword",
+        "strands puzzle",
     )
 
     @staticmethod
@@ -90,6 +151,24 @@ class NewsRSSService:
                 return None
         return None
 
+    def _is_video_game_relevant(
+        self,
+        *,
+        title: str,
+        description: str | None,
+        url: str,
+    ) -> bool:
+        combined = f"{title} {description or ''} {url}".lower()
+        if any(term in combined for term in self.NON_VIDEO_GAME_PUZZLE_TERMS):
+            return False
+
+        has_game_signal = any(term in combined for term in self.GAME_SIGNAL_TERMS)
+        has_non_game_media = any(term in combined for term in self.NON_GAME_MEDIA_TERMS)
+
+        if has_non_game_media and not has_game_signal:
+            return False
+        return has_game_signal
+
     def _parse_entry(self, entry: dict, source_name: str) -> Optional[dict[str, Any]]:
         """Parse a single RSS feed entry into our article format."""
         title = self._strip_html(entry.get("title"))
@@ -104,13 +183,31 @@ class NewsRSSService:
         if description and len(description) > 500:
             description = description[:497] + "..."
 
+        author = entry.get("author")
+        rules = self.SOURCE_RULES.get(source_name, {})
+        required_author = rules.get("required_author_contains")
+        if required_author and required_author not in (author or "").lower():
+            return None
+
+        required_url = rules.get("required_url_contains")
+        if required_url and required_url not in link.lower():
+            return None
+
+        if rules.get("enforce_game_relevance"):
+            if not self._is_video_game_relevant(
+                title=title,
+                description=description,
+                url=link,
+            ):
+                return None
+
         return {
             "title": title[:512],
             "description": description,
             "url": link[:1024],
             "image_url": self._extract_image(entry),
             "source_name": source_name,
-            "author": entry.get("author"),
+            "author": author,
             "published_at": self._parse_date(entry),
         }
 
