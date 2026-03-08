@@ -1,5 +1,0 @@
-import { DetailPageLoading } from "@/components/RouteLoading";
-
-export default function OutletDetailLoading() {
-  return <DetailPageLoading />;
-}

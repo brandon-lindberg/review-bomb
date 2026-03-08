@@ -152,6 +152,18 @@ async function assertNoindexPage(path) {
   ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
 }
 
+function assertServerRenderedDetailContent(path, text) {
+  ok(
+    !text.includes('aria-label="Loading home page"'),
+    `${path}: should not stream the global loading fallback`,
+  );
+  ok(
+    !text.includes('aria-label="Loading detail page"'),
+    `${path}: should not stream the detail loading fallback`,
+  );
+  ok(/<h1\b/i.test(text), `${path}: expected a server-rendered <h1>`);
+}
+
 async function assertRobotsTxt() {
   const { response, text } = await fetchText("/robots.txt", { redirect: "follow" });
   ok(response.ok, `/robots.txt: expected 200, got ${response.status}`);
@@ -420,7 +432,24 @@ async function run() {
     console.log("SKIP detail pages (no detail URLs found in sitemap and no SEO_DETAIL_PATHS provided)");
   } else {
     for (const path of detailPaths) {
-      await assertIndexablePage(path);
+      const { response, text, url } = await fetchText(path, { redirect: "follow" });
+      ok(response.ok, `${path}: expected 200, got ${response.status} (${url})`);
+      const title = getTitle(text);
+      ok(title && title.length > 0, `${path}: missing <title>`);
+      const description = getMetaContent(text, "description");
+      ok(description && description.length > 0, `${path}: missing meta description`);
+      const canonical = getCanonicalHref(text);
+      const expectedCanonical = canonicalForPath(path);
+      ok(canonical, `${path}: missing canonical link`);
+      ok(
+        normalizeCanonicalUrl(canonical) === normalizeCanonicalUrl(expectedCanonical),
+        `${path}: canonical mismatch (expected ${expectedCanonical}, got ${canonical})`,
+      );
+      const robots = normalizeRobotsContent(getMetaContent(text, "robots"));
+      ok(robots.includes("index"), `${path}: expected robots meta to include index`);
+      ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
+      ok(!robots.includes("noindex"), `${path}: should not be noindex`);
+      assertServerRenderedDetailContent(path, text);
       console.log(`PASS detail ${path}`);
     }
   }
