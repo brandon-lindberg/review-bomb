@@ -1,7 +1,6 @@
-import Link from "next/link";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
-import { getGame, getGameHistory, getGameNews, getGameReviews } from "@/lib/api";
+import { getGame, getGameHistory, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -30,30 +29,6 @@ const GAME_CHART_CARD_VERSION = "gc1";
 function formatDateLabel(value: string | null | undefined): string | null {
   if (!value) return null;
   return new Date(value).toLocaleDateString();
-}
-
-function formatMetric(value: number | null | undefined, digits = 0): string | null {
-  if (value == null || Number.isNaN(Number(value))) return null;
-  return Number(value).toFixed(digits);
-}
-
-function formatSignedMetric(value: number | null | undefined, digits = 0): string | null {
-  if (value == null || Number.isNaN(Number(value))) return null;
-  const numeric = Number(value);
-  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(digits)}`;
-}
-
-function formatReviewTimingLabel(timing: string | null | undefined): string | null {
-  switch (timing) {
-    case "early":
-      return "Early review";
-    case "launch_window":
-      return "Launch window review";
-    case "late":
-      return "Late review";
-    default:
-      return null;
-  }
 }
 
 function buildGameSnapshotVersion(game: {
@@ -259,7 +234,6 @@ export default async function GameDetailPage({ params }: PageProps) {
   let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
   let newsTotalPages = 0;
   let chartTrendEncoded = "";
-  let reviewHighlights: Awaited<ReturnType<typeof getGameReviews>>["items"] = [];
 
   try {
     game = await getGame(id);
@@ -282,13 +256,6 @@ export default async function GameDetailPage({ params }: PageProps) {
     newsTotalPages = newsResponse.total_pages;
   } catch {
     // News is non-critical — silently continue without it
-  }
-
-  try {
-    const reviewsResponse = await getGameReviews(game.public_id, 1, 5);
-    reviewHighlights = reviewsResponse.items;
-  } catch {
-    // Review highlights are supplemental SEO copy — continue without them
   }
 
   try {
@@ -506,101 +473,6 @@ export default async function GameDetailPage({ params }: PageProps) {
           );
         })()}
       </div>
-
-      {reviewHighlights.length > 0 && (
-        <section className="bg-white rounded-lg shadow p-6">
-          <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--foreground)" }}>
-            Recent Critic Reviews
-          </h2>
-          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-            The latest scored reviews currently shaping this game&apos;s disparity profile.
-          </p>
-          <div className="mt-4 space-y-4">
-            {reviewHighlights.map((review) => {
-              const combinedGap = review.disparity_steam != null && review.disparity_metacritic != null
-                ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
-                : review.disparity_steam ?? review.disparity_metacritic;
-              const criticLabel = formatMetric(review.score_normalized);
-              const inferredSteamScore = review.score_normalized != null && review.disparity_steam != null
-                ? Number(review.score_normalized) - Number(review.disparity_steam)
-                : null;
-              const inferredMetacriticScore = review.score_normalized != null && review.disparity_metacritic != null
-                ? Number(review.score_normalized) - Number(review.disparity_metacritic)
-                : null;
-              const reviewMeta = [
-                formatDateLabel(review.published_at),
-                formatReviewTimingLabel(review.review_timing),
-              ].filter((value): value is string => Boolean(value));
-              const scoreSummaryParts = [
-                criticLabel ? `Critic ${criticLabel}` : null,
-                inferredSteamScore != null ? `Steam ${formatMetric(inferredSteamScore)}` : null,
-                inferredMetacriticScore != null ? `MC ${formatMetric(inferredMetacriticScore)}` : null,
-                combinedGap != null ? `Combined gap ${formatSignedMetric(combinedGap)}` : null,
-              ].filter((value): value is string => Boolean(value));
-
-              return (
-                <article
-                  key={review.id}
-                  className="rounded-lg border p-4"
-                  style={{ borderColor: "var(--border)" }}
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <Link
-                          href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
-                          className="font-medium hover:opacity-80"
-                          style={{ color: "var(--foreground)" }}
-                        >
-                          {review.journalist_name}
-                        </Link>
-                        {review.outlet_name && (
-                          <>
-                            <span style={{ color: "var(--foreground-muted)" }}>via</span>
-                            <Link
-                              href={`/outlets/${review.outlet_public_id ?? review.outlet_id}`}
-                              className="hover:opacity-80"
-                              style={{ color: "var(--foreground-muted)" }}
-                            >
-                              {review.outlet_name}
-                            </Link>
-                          </>
-                        )}
-                      </div>
-                      {reviewMeta.length > 0 && (
-                        <p className="mt-1 text-xs" style={{ color: "var(--foreground-muted)" }}>
-                          {reviewMeta.join(" • ")}
-                        </p>
-                      )}
-                    </div>
-                    {review.review_url && (
-                      <a
-                        href={review.review_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90"
-                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
-                      >
-                        Read Review
-                      </a>
-                    )}
-                  </div>
-                  {scoreSummaryParts.length > 0 && (
-                    <p className="mt-3 text-sm" style={{ color: "var(--foreground)" }}>
-                      {scoreSummaryParts.join(" • ")}
-                    </p>
-                  )}
-                  {review.snippet && (
-                    <p className="mt-2 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
-                      &ldquo;{review.snippet}&rdquo;
-                    </p>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
       <LazyChartSection
