@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getJournalist, getJournalistHistory } from "@/lib/api";
+import { getJournalist, getJournalistHistory, getJournalistReviews } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -26,6 +26,35 @@ import {
 export const revalidate = 60;
 const JOURNALIST_CARD_VERSION = "j2";
 const JOURNALIST_CHART_CARD_VERSION = "jc1";
+
+function formatDateLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString();
+}
+
+function formatMetric(value: number | null | undefined, digits = 1): string | null {
+  if (value == null || Number.isNaN(Number(value))) return null;
+  return Number(value).toFixed(digits);
+}
+
+function formatSignedMetric(value: number | null | undefined, digits = 1): string | null {
+  if (value == null || Number.isNaN(Number(value))) return null;
+  const numeric = Number(value);
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(digits)}`;
+}
+
+function formatReviewTimingLabel(timing: string | null | undefined): string | null {
+  switch (timing) {
+    case "early":
+      return "Early review";
+    case "launch_window":
+      return "Launch window review";
+    case "late":
+      return "Late review";
+    default:
+      return null;
+  }
+}
 
 function buildJournalistSnapshotVersion(values: {
   reviewCount: number;
@@ -72,6 +101,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   try {
     const journalist = await getJournalist(id);
     const canonicalId = journalist.public_id;
+    const canonicalPath = `/journalists/${canonicalId}`;
     const requestedCardVersion = query.card?.trim() || JOURNALIST_CARD_VERSION;
     const shareMode = query.mode?.trim() === "chart"
       ? "chart"
@@ -214,13 +244,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: modeTitle,
       description,
-      alternates: isCardShareUrl ? undefined : { canonical: `/journalists/${canonicalId}` },
+      alternates: { canonical: canonicalPath },
       ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,
-        url: isCardShareUrl ? sharePageUrl : `${siteUrl}/journalists/${canonicalId}`,
+        url: isCardShareUrl ? sharePageUrl : `${siteUrl}${canonicalPath}`,
         type: "profile",
         images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${journalist.name} ${shareMode === "timing" ? "review timing" : "review disparity"} snapshot` }],
       },
@@ -243,6 +273,7 @@ export default async function JournalistDetailPage({
 
   let journalist = null;
   let chartTrendEncoded = "";
+  let reviewHighlights: Awaited<ReturnType<typeof getJournalistReviews>>["items"] = [];
 
   try {
     journalist = await getJournalist(id);
@@ -264,6 +295,13 @@ export default async function JournalistDetailPage({
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   } catch {
     // Chart share still works without trend payload, OG route will try live fetch
+  }
+
+  try {
+    const reviewsResponse = await getJournalistReviews(journalist.public_id, 1, 5);
+    reviewHighlights = reviewsResponse.items;
+  } catch {
+    // Review highlights are supplemental SEO content — continue without them
   }
 
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
@@ -335,6 +373,22 @@ export default async function JournalistDetailPage({
   timingShareTextParts.push(`Late: ${journalist.stats?.late_review_count ?? 0}`);
   if (shareDisparityStr) timingShareTextParts.push(`Disparity: ${shareDisparityStr}`);
   const timingChartShareText = timingShareTextParts.join(" — ");
+  const topOutletSummary = journalist.outlet_breakdown
+    .slice(0, 3)
+    .map((outlet) => `${outlet.outlet_name} (${outlet.review_count} reviews${outlet.avg_disparity != null ? `, ${formatSignedMetric(outlet.avg_disparity)} disparity` : ""})`)
+    .join(", ");
+  const snapshotSummary = [
+    `${journalist.name} has ${journalist.review_count} scored reviews in ReviewDisparity${shareCriticScore != null ? `, with an average score given of ${Number(shareCriticScore).toFixed(0)}` : ""}.`,
+    shareDisparityStr
+      ? `Across the indexed sample, the current combined critic-to-player gap is ${shareDisparityStr}.`
+      : "Combined disparity is still stabilizing as more review and player-score data lands.",
+    topOutletSummary
+      ? `The strongest outlet-level footprint currently comes from ${topOutletSummary}.`
+      : null,
+    (journalist.stats?.early_review_count || journalist.stats?.launch_window_review_count || journalist.stats?.late_review_count)
+      ? `Review timing currently breaks down into ${journalist.stats?.early_review_count ?? 0} early, ${journalist.stats?.launch_window_review_count ?? 0} launch-window, and ${journalist.stats?.late_review_count ?? 0} late reviews.`
+      : null,
+  ].filter((sentence): sentence is string => Boolean(sentence));
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -579,6 +633,107 @@ export default async function JournalistDetailPage({
             </div>
           )}
       </div>
+
+      {snapshotSummary.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-3" style={{ color: "var(--foreground)" }}>
+            Editorial Snapshot
+          </h2>
+          <div className="space-y-3 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+            {snapshotSummary.map((sentence) => (
+              <p key={sentence}>{sentence}</p>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {reviewHighlights.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+            Recent Reviews
+          </h2>
+          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+            Recent scored reviews currently contributing to this journalist&apos;s disparity profile.
+          </p>
+          <div className="mt-4 space-y-4">
+            {reviewHighlights.map((review) => {
+              const combinedGap = review.disparity_steam != null && review.disparity_metacritic != null
+                ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
+                : review.disparity_steam ?? review.disparity_metacritic;
+              const scoreSummaryParts = [
+                review.score_normalized != null ? `Critic ${formatMetric(review.score_normalized, 0)}` : null,
+                review.steam_user_score != null ? `Steam ${formatMetric(review.steam_user_score, 0)}` : null,
+                review.metacritic_user_score != null ? `MC ${formatMetric(review.metacritic_user_score, 0)}` : null,
+                combinedGap != null ? `Combined gap ${formatSignedMetric(combinedGap)}` : null,
+              ].filter((value): value is string => Boolean(value));
+              const metaParts = [
+                formatDateLabel(review.published_at),
+                formatReviewTimingLabel(review.review_timing),
+              ].filter((value): value is string => Boolean(value));
+
+              return (
+                <article
+                  key={review.id}
+                  className="rounded-lg border p-4"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Link
+                          href={`/games/${review.game_public_id ?? review.game_id}`}
+                          className="font-medium hover:opacity-80"
+                          style={{ color: "var(--foreground)" }}
+                        >
+                          {review.game_title}
+                        </Link>
+                        {review.outlet_name && (
+                          <>
+                            <span style={{ color: "var(--foreground-muted)" }}>via</span>
+                            <Link
+                              href={`/outlets/${review.outlet_public_id ?? review.outlet_id}`}
+                              className="hover:opacity-80"
+                              style={{ color: "var(--foreground-muted)" }}
+                            >
+                              {review.outlet_name}
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                      {metaParts.length > 0 && (
+                        <p className="mt-1 text-xs" style={{ color: "var(--foreground-muted)" }}>
+                          {metaParts.join(" • ")}
+                        </p>
+                      )}
+                    </div>
+                    {review.review_url && (
+                      <a
+                        href={review.review_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90"
+                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
+                      >
+                        Read Review
+                      </a>
+                    )}
+                  </div>
+                  {scoreSummaryParts.length > 0 && (
+                    <p className="mt-3 text-sm" style={{ color: "var(--foreground)" }}>
+                      {scoreSummaryParts.join(" • ")}
+                    </p>
+                  )}
+                  {review.snippet && (
+                    <p className="mt-2 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
+                      &ldquo;{review.snippet}&rdquo;
+                    </p>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection

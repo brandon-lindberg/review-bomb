@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { getOutlet, getOutletHistory } from "@/lib/api";
+import { getOutlet, getOutletHistory, getOutletReviews } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -26,6 +26,35 @@ import {
 export const revalidate = 60;
 const OUTLET_CARD_VERSION = "o3";
 const OUTLET_CHART_CARD_VERSION = "oc1";
+
+function formatDateLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return new Date(value).toLocaleDateString();
+}
+
+function formatMetric(value: number | null | undefined, digits = 1): string | null {
+  if (value == null || Number.isNaN(Number(value))) return null;
+  return Number(value).toFixed(digits);
+}
+
+function formatSignedMetric(value: number | null | undefined, digits = 1): string | null {
+  if (value == null || Number.isNaN(Number(value))) return null;
+  const numeric = Number(value);
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(digits)}`;
+}
+
+function formatReviewTimingLabel(timing: string | null | undefined): string | null {
+  switch (timing) {
+    case "early":
+      return "Early review";
+    case "launch_window":
+      return "Launch window review";
+    case "late":
+      return "Late review";
+    default:
+      return null;
+  }
+}
 
 function buildOutletSnapshotVersion(values: {
   reviewCount: number;
@@ -72,6 +101,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   try {
     const outlet = await getOutlet(id);
     const canonicalId = outlet.public_id;
+    const canonicalPath = `/outlets/${canonicalId}`;
     const requestedCardVersion = query.card?.trim() || OUTLET_CARD_VERSION;
     const shareMode = query.mode?.trim() === "chart"
       ? "chart"
@@ -203,13 +233,13 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     return {
       title: modeTitle,
       description,
-      alternates: isCardShareUrl ? undefined : { canonical: `/outlets/${canonicalId}` },
+      alternates: { canonical: canonicalPath },
       ...(isCardShareUrl && { robots: { index: false, follow: true } }),
       ...(page > 1 && { robots: { index: false, follow: true } }),
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,
-        url: isCardShareUrl ? sharePageUrl : `${siteUrl}/outlets/${canonicalId}`,
+        url: isCardShareUrl ? sharePageUrl : `${siteUrl}${canonicalPath}`,
         type: "website",
         images: [{ url: openGraphImage, width: 1200, height: 630, alt: `${outlet.name} ${shareMode === "timing" ? "review timing" : "review disparity"} snapshot` }],
       },
@@ -230,6 +260,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
 
   let outlet = null;
   let chartTrendEncoded = "";
+  let reviewHighlights: Awaited<ReturnType<typeof getOutletReviews>>["items"] = [];
 
   try {
     outlet = await getOutlet(id);
@@ -251,6 +282,13 @@ export default async function OutletDetailPage({ params }: PageProps) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   } catch {
     // Chart share still works without trend payload, OG route will try live fetch
+  }
+
+  try {
+    const reviewsResponse = await getOutletReviews(outlet.public_id, 1, 5);
+    reviewHighlights = reviewsResponse.items;
+  } catch {
+    // Review highlights are supplemental SEO content — continue without them
   }
 
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
@@ -316,6 +354,15 @@ export default async function OutletDetailPage({ params }: PageProps) {
   timingShareTextParts.push(`Late: ${outlet.late_review_count ?? 0}`);
   if (shareDisparityStr) timingShareTextParts.push(`Disparity: ${shareDisparityStr}`);
   const timingChartShareText = timingShareTextParts.join(" — ");
+  const snapshotSummary = [
+    `${outlet.name} currently has ${outlet.review_count ?? 0} scored reviews in ReviewDisparity from ${outlet.journalist_count ?? 0} journalists${shareCriticScore != null ? `, with an average score of ${Number(shareCriticScore).toFixed(1)}` : ""}.`,
+    shareDisparityStr
+      ? `Across the indexed sample, the current combined critic-to-player gap is ${shareDisparityStr}.`
+      : "Combined disparity is still stabilizing as more outlet reviews and player-score data arrive.",
+    (outlet.early_review_count || outlet.launch_window_review_count || outlet.late_review_count)
+      ? `Review timing currently breaks down into ${outlet.early_review_count ?? 0} early, ${outlet.launch_window_review_count ?? 0} launch-window, and ${outlet.late_review_count ?? 0} late reviews.`
+      : null,
+  ].filter((sentence): sentence is string => Boolean(sentence));
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -473,6 +520,19 @@ export default async function OutletDetailPage({ params }: PageProps) {
         })()}
       </div>
 
+      {snapshotSummary.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-3" style={{ color: "var(--foreground)" }}>
+            Outlet Snapshot
+          </h2>
+          <div className="space-y-3 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+            {snapshotSummary.map((sentence) => (
+              <p key={sentence}>{sentence}</p>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Journalists at this outlet */}
       {outlet.journalists && outlet.journalists.length > 0 && (
         <section className="bg-white rounded-lg shadow p-6">
@@ -512,6 +572,94 @@ export default async function OutletDetailPage({ params }: PageProps) {
                 <DisparityBadge disparity={journalist.avg_disparity} />
               </Link>
             ))}
+          </div>
+        </section>
+      )}
+
+      {reviewHighlights.length > 0 && (
+        <section className="bg-white rounded-lg shadow p-6">
+          <h2 className="text-xl font-semibold mb-2" style={{ color: "var(--foreground)" }}>
+            Recent Reviews
+          </h2>
+          <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+            Recent scored reviews currently contributing to this outlet&apos;s disparity profile.
+          </p>
+          <div className="mt-4 space-y-4">
+            {reviewHighlights.map((review) => {
+              const combinedGap = review.disparity_steam != null && review.disparity_metacritic != null
+                ? (Number(review.disparity_steam) + Number(review.disparity_metacritic)) / 2
+                : review.disparity_steam ?? review.disparity_metacritic;
+              const scoreSummaryParts = [
+                review.score_normalized != null ? `Critic ${formatMetric(review.score_normalized, 0)}` : null,
+                combinedGap != null ? `Combined gap ${formatSignedMetric(combinedGap)}` : null,
+                review.disparity_steam != null ? `Steam gap ${formatSignedMetric(review.disparity_steam)}` : null,
+                review.disparity_metacritic != null ? `MC gap ${formatSignedMetric(review.disparity_metacritic)}` : null,
+              ].filter((value): value is string => Boolean(value));
+              const metaParts = [
+                formatDateLabel(review.published_at),
+                formatReviewTimingLabel(review.review_timing),
+              ].filter((value): value is string => Boolean(value));
+
+              return (
+                <article
+                  key={review.id}
+                  className="rounded-lg border p-4"
+                  style={{ borderColor: "var(--border)" }}
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <Link
+                          href={`/games/${review.game_public_id ?? review.game_id}`}
+                          className="font-medium hover:opacity-80"
+                          style={{ color: "var(--foreground)" }}
+                        >
+                          {review.game_title || "Unknown Game"}
+                        </Link>
+                        {review.journalist_name && (
+                          <>
+                            <span style={{ color: "var(--foreground-muted)" }}>by</span>
+                            <Link
+                              href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
+                              className="hover:opacity-80"
+                              style={{ color: "var(--foreground-muted)" }}
+                            >
+                              {review.journalist_name}
+                            </Link>
+                          </>
+                        )}
+                      </div>
+                      {metaParts.length > 0 && (
+                        <p className="mt-1 text-xs" style={{ color: "var(--foreground-muted)" }}>
+                          {metaParts.join(" • ")}
+                        </p>
+                      )}
+                    </div>
+                    {review.review_url && (
+                      <a
+                        href={review.review_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90"
+                        style={{ backgroundColor: "var(--color-rust)", color: "white" }}
+                      >
+                        Read Review
+                      </a>
+                    )}
+                  </div>
+                  {scoreSummaryParts.length > 0 && (
+                    <p className="mt-3 text-sm" style={{ color: "var(--foreground)" }}>
+                      {scoreSummaryParts.join(" • ")}
+                    </p>
+                  )}
+                  {review.snippet && (
+                    <p className="mt-2 text-sm italic" style={{ color: "var(--foreground-muted)" }}>
+                      &ldquo;{review.snippet}&rdquo;
+                    </p>
+                  )}
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
