@@ -6,6 +6,7 @@ import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
+import { ExpandableText } from "@/components/ExpandableText";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getSiteUrl } from "@/lib/site-url";
@@ -319,31 +320,6 @@ export default async function GameDetailPage({ params }: PageProps) {
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(0)}` : null;
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
   const releaseDateLabel = formatDateLabel(game.release_date);
-  const criticScoreLabel = formatMetric(game.avg_critic_score);
-  const steamScoreLabel = formatMetric(game.steam_user_score);
-  const metacriticScoreLabel = formatMetric(game.metacritic_user_score);
-  const timingSummaryParts = [
-    game.early_review_count ? `${game.early_review_count} early` : null,
-    game.launch_window_review_count ? `${game.launch_window_review_count} launch window` : null,
-    game.late_review_count ? `${game.late_review_count} late` : null,
-  ].filter((part): part is string => Boolean(part));
-  const overviewSentences = [
-    `${game.title} currently has ${game.critic_review_count || 0} scored critic reviews in the ReviewDisparity dataset${criticScoreLabel ? `, with critics averaging ${criticScoreLabel}` : ""}.`,
-    shareDisparityStr
-      ? `The current combined critic-to-player gap is ${shareDisparityStr}${steamScoreLabel || metacriticScoreLabel ? `, based on ${[
-          steamScoreLabel ? `Steam users at ${steamScoreLabel}` : null,
-          metacriticScoreLabel ? `Metacritic users at ${metacriticScoreLabel}` : null,
-        ].filter((part): part is string => Boolean(part)).join(" and ")}` : ""}.`
-      : steamScoreLabel || metacriticScoreLabel
-        ? `Player-score coverage is currently ${[
-            steamScoreLabel ? `Steam ${steamScoreLabel}` : null,
-            metacriticScoreLabel ? `Metacritic ${metacriticScoreLabel}` : null,
-          ].filter((part): part is string => Boolean(part)).join(" and ")}.`
-        : "Player-score coverage is still limited, so this page currently leans on critic-side data and release timing.",
-    timingSummaryParts.length > 0
-      ? `${releaseDateLabel ? `${game.title} released on ${releaseDateLabel}, and the indexed review timing currently breaks down into ` : "Indexed review timing currently breaks down into "}${timingSummaryParts.join(", ")} coverage.`
-      : null,
-  ].filter((sentence): sentence is string => Boolean(sentence));
   const shareSnapshotVersion = buildGameSnapshotVersion(game);
   const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
     card: GAME_CARD_VERSION,
@@ -433,7 +409,10 @@ export default async function GameDetailPage({ params }: PageProps) {
               <ShareButtons url={shareUrl} text={shareText} />
             </div>
             {game.description && (
-              <p className="mt-4 text-gray-600">{game.description}</p>
+              <ExpandableText
+                text={game.description}
+                className="mt-4 text-gray-600"
+              />
             )}
           </div>
 
@@ -444,50 +423,6 @@ export default async function GameDetailPage({ params }: PageProps) {
             size="lg"
           />
         </div>
-
-        {overviewSentences.length > 0 && (
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <h2 className="text-lg font-semibold mb-3" style={{ color: "var(--foreground)" }}>
-              Overview
-            </h2>
-            <div className="space-y-3 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
-              {overviewSentences.map((sentence) => (
-                <p key={sentence}>{sentence}</p>
-              ))}
-            </div>
-            {newsArticles.length > 0 && (
-              <div className="mt-5">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--foreground)" }}>
-                  Recent Coverage
-                </h3>
-                <div className="mt-3 space-y-3">
-                  {newsArticles.slice(0, 3).map((article) => (
-                    <article key={article.id} className="rounded-lg border p-4" style={{ borderColor: "var(--border)" }}>
-                      <a
-                        href={article.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="font-medium hover:opacity-80"
-                        style={{ color: "var(--foreground)" }}
-                      >
-                        {article.title}
-                      </a>
-                      <p className="mt-1 text-xs" style={{ color: "var(--foreground-muted)" }}>
-                        {article.source_name}
-                        {article.published_at ? ` • ${formatDateLabel(article.published_at)}` : ""}
-                      </p>
-                      {article.description && (
-                        <p className="mt-2 text-sm" style={{ color: "var(--foreground-muted)" }}>
-                          {article.description}
-                        </p>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* Score Breakdown */}
         <div className="mt-6 pt-6 border-t border-gray-200">
