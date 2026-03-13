@@ -57,3 +57,27 @@ async def test_exact_title_match_still_works():
     )
 
     assert steam_app_id == 553850
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("opencritic_id", "expected_app_id"),
+    [
+        (175, 265300),
+        (2594, 265300),
+        (15632, 1501750),
+    ],
+)
+async def test_manual_override_steam_match_wins_for_known_lords_entries(
+    opencritic_id, expected_app_id
+):
+    steam = DummySteamService(results={})
+    matcher = GameMatcher(steam_service=steam)
+
+    steam_app_id = await matcher.find_steam_match(
+        "Lords of the Fallen",
+        release_date=date(2023, 10, 13),
+        opencritic_id=opencritic_id,
+    )
+
+    assert steam_app_id == expected_app_id

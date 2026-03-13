@@ -26,6 +26,13 @@ class GameMatcher:
         # Ghost of Tsushima Director's Cut — OC lists PS release date (2021),
         # but Steam release is in 2024; force known Steam app mapping.
         11839: {"steam_app_id": 2215430},
+        # Lords of the Fallen collisions:
+        # - OC 175 is the 2014 original and should map to the legacy Steam app
+        # - OC 2594 is the Complete Edition variant of that same 2014 release
+        # - OC 15632 is the 2023 reboot with a different Steam app
+        175: {"steam_app_id": 265300},
+        2594: {"steam_app_id": 265300},
+        15632: {"steam_app_id": 1501750},
     }
 
     # Common title transformations to improve matching
