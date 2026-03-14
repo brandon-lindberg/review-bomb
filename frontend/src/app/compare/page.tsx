@@ -341,10 +341,9 @@ export default async function ComparePage({ searchParams }: PageProps) {
       <section className="space-y-5 py-2 text-center">
         <div className="mx-auto max-w-4xl space-y-4">
           <h1
-            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
-            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+            className="route-hero-title mx-auto"
           >
-            Stack up the same entities on one view.
+            Stack up the same entities on one view
           </h1>
           <p
             className="mx-auto max-w-4xl text-lg leading-8 sm:text-xl"

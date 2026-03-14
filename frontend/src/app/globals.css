@@ -399,6 +399,15 @@ html.dark .hover\:text-blue-800:hover {
   line-height: 1.65;
 }
 
+.route-hero-title {
+  color: var(--foreground);
+  font-size: clamp(1.5rem, 2.2vw, 2rem);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  max-width: 28ch;
+}
+
 .route-toolbar {
   display: flex;
   flex-wrap: wrap;

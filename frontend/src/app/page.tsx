@@ -117,10 +117,9 @@ export default async function Home() {
       <section className="space-y-5 py-2 text-center">
         <div className="mx-auto max-w-4xl space-y-4">
           <h1
-            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
-            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+            className="route-hero-title mx-auto"
           >
-            See where critics and players split.
+            See where critics and players split
           </h1>
           <p
             className="mx-auto max-w-3xl text-lg leading-8 sm:text-xl"

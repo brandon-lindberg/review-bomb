@@ -56,9 +56,6 @@ export default async function NewsPage({ searchParams }: PageProps) {
           <div className="space-y-2">
             <span className="site-eyebrow">News</span>
             <h1 className="route-header__title">Gaming News</h1>
-            <p className="route-header__subtitle">
-              A filtered feed of outlet coverage related to the games and publishers in your orbit.
-            </p>
           </div>
 
           <div className="route-toolbar">
