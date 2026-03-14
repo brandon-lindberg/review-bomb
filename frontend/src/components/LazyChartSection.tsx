@@ -211,28 +211,28 @@ export function LazyChartSection({
   // Fetch ALL news pages when timeline tab is first opened (for the full timeline)
   useEffect(() => {
     if (chartTab !== "timeline" || entityType !== "game" || timelineNewsFetchedRef.current) return;
-    if (newsTotalPages <= 1) {
-      // Already have all news from the initial page
+    if (!newsArticles || newsTotalPages <= 1) {
+      // Already have all news from the initial page (or no news at all)
       setTimelineNews(newsArticles || []);
       timelineNewsFetchedRef.current = true;
       return;
     }
-    timelineNewsFetchedRef.current = true;
 
     const fetchAllNews = async () => {
       try {
         // We already have page 1 from newsArticles, fetch remaining pages
         const remaining = Array.from({ length: newsTotalPages - 1 }, (_, i) => i + 2);
-        const results = await Promise.all(
+        const results = await Promise.allSettled(
           remaining.map((page) => getGameNews(entityId, page, 5))
         );
-        const allItems = [
-          ...(newsArticles || []),
-          ...results.flatMap((r) => r.items),
-        ];
+        const successfulItems = results
+          .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getGameNews>>> => r.status === "fulfilled")
+          .flatMap((r) => r.value.items);
+        const allItems = [...newsArticles, ...successfulItems];
         setTimelineNews(allItems);
+        timelineNewsFetchedRef.current = true;
       } catch {
-        // Fall back to whatever we have
+        // Fall back to whatever we have — don't set ref so retry is possible
         setTimelineNews(newsArticles || []);
       }
     };
