@@ -53,6 +53,30 @@ const ReviewTimingChart = dynamic(
   }
 );
 
+const GameReceptionTimeline = dynamic(
+  () => import("./GameReceptionTimeline").then((mod) => mod.GameReceptionTimeline),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="reception story" />,
+  }
+);
+
+const JournalistScoringHeatmap = dynamic(
+  () => import("./JournalistScoringHeatmap").then((mod) => mod.JournalistScoringHeatmap),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="scoring pattern" />,
+  }
+);
+
+const OutletActivityTimeline = dynamic(
+  () => import("./OutletActivityTimeline").then((mod) => mod.OutletActivityTimeline),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="activity stream" />,
+  }
+);
+
 const GameDetailTabs = dynamic(
   () => import("./GameDetailTabs").then((mod) => mod.GameDetailTabs),
   {
@@ -95,6 +119,10 @@ interface LazyChartSectionProps {
   disparityChartShareText?: string;
   timingChartShareUrl?: string;
   timingChartShareText?: string;
+  // Game-specific props for Reception Story timeline
+  releaseDate?: string | null;
+  steamUserScore?: number | null;
+  metacriticUserScore?: number | null;
 }
 
 export function LazyChartSection({
@@ -108,19 +136,25 @@ export function LazyChartSection({
   disparityChartShareText,
   timingChartShareUrl,
   timingChartShareText,
+  releaseDate,
+  steamUserScore,
+  metacriticUserScore,
 }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
-  const [chartTab, setChartTab] = useState<"disparity" | "timing">("disparity");
+  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline">("disparity");
 
   // News pagination state
   const [allNews, setAllNews] = useState<NewsArticle[]>(newsArticles || []);
   const [newsPage, setNewsPage] = useState(1);
   const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
   const [newsLoading, setNewsLoading] = useState(false);
+  // All news for timeline (fetched once when timeline tab is opened)
+  const [timelineNews, setTimelineNews] = useState<NewsArticle[] | null>(null);
+  const timelineNewsFetchedRef = useRef(false);
   const [trendShareState, setTrendShareState] = useState<{
     trend: string;
     window: string;
@@ -173,6 +207,37 @@ export function LazyChartSection({
 
     fetchData();
   }, [loading, reviews, error, entityId, entityType]);
+
+  // Fetch ALL news pages when timeline tab is first opened (for the full timeline)
+  useEffect(() => {
+    if (chartTab !== "timeline" || entityType !== "game" || timelineNewsFetchedRef.current) return;
+    if (newsTotalPages <= 1) {
+      // Already have all news from the initial page
+      setTimelineNews(newsArticles || []);
+      timelineNewsFetchedRef.current = true;
+      return;
+    }
+    timelineNewsFetchedRef.current = true;
+
+    const fetchAllNews = async () => {
+      try {
+        // We already have page 1 from newsArticles, fetch remaining pages
+        const remaining = Array.from({ length: newsTotalPages - 1 }, (_, i) => i + 2);
+        const results = await Promise.all(
+          remaining.map((page) => getGameNews(entityId, page, 5))
+        );
+        const allItems = [
+          ...(newsArticles || []),
+          ...results.flatMap((r) => r.items),
+        ];
+        setTimelineNews(allItems);
+      } catch {
+        // Fall back to whatever we have
+        setTimelineNews(newsArticles || []);
+      }
+    };
+    fetchAllNews();
+  }, [chartTab, entityType, entityId, newsArticles, newsTotalPages]);
 
   const loadMoreNews = async () => {
     if (newsLoading || !newsHasMore) return;
@@ -313,6 +378,16 @@ export function LazyChartSection({
                   >
                     Review Timing
                   </button>
+                  <button
+                    onClick={() => setChartTab("timeline")}
+                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                    style={chartTab === "timeline"
+                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                    }
+                  >
+                    {entityType === "game" ? "Reception Story" : entityType === "journalist" ? "Scoring Pattern" : "Activity Stream"}
+                  </button>
                 </nav>
               </div>
             )}
@@ -346,6 +421,28 @@ export function LazyChartSection({
                   early={effectiveTimingCounts.early}
                   launchWindow={effectiveTimingCounts.launchWindow}
                   late={effectiveTimingCounts.late}
+                />
+              )}
+
+              {chartTab === "timeline" && entityType === "game" && (
+                <GameReceptionTimeline
+                  reviews={reviews as ReviewWithJournalist[]}
+                  releaseDate={releaseDate ?? null}
+                  steamUserScore={steamUserScore ?? null}
+                  metacriticUserScore={metacriticUserScore ?? null}
+                  newsArticles={timelineNews ?? allNews}
+                />
+              )}
+
+              {chartTab === "timeline" && entityType === "journalist" && (
+                <JournalistScoringHeatmap
+                  reviews={reviews as ReviewWithDisparity[]}
+                />
+              )}
+
+              {chartTab === "timeline" && entityType === "outlet" && (
+                <OutletActivityTimeline
+                  reviews={reviews as ReviewWithJournalist[]}
                 />
               )}
             </div>

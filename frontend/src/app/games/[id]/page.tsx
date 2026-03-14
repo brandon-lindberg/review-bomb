@@ -536,6 +536,9 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           launchWindow: game.launch_window_review_count ?? 0,
           late: game.late_review_count ?? 0,
         }}
+        releaseDate={game.release_date}
+        steamUserScore={game.steam_user_score}
+        metacriticUserScore={game.metacritic_user_score}
       />
     </div>
   );
