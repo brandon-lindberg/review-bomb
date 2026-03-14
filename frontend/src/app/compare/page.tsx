@@ -328,28 +328,42 @@ export default async function ComparePage({ searchParams }: PageProps) {
   const shareText = comparedNames.length > 0
     ? `Compare ${comparedNames.join(" vs ")} on Review Disparity`
     : `Compare ${type} on Review Disparity`;
+  const compareTitleLabel = type === "journalists"
+    ? "Journalists"
+    : type === "outlets"
+      ? "Outlets"
+      : "Games";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Compare</h1>
-        {compareIds.length > 0 && (
-          <ShareButtons url={shareUrl} text={shareText} />
-        )}
-      </div>
+      <section className="space-y-5 py-2 text-center">
+        <div className="mx-auto max-w-4xl space-y-4">
+          <h1
+            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
+            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+          >
+            Stack up the same entities on one view.
+          </h1>
+          <p
+            className="mx-auto max-w-4xl text-lg leading-8 sm:text-xl"
+            style={{ color: "var(--foreground-muted)" }}
+          >
+            Compare up to four {compareTypeLabel[type]} side by side, including disparity,
+            score baselines, review volume, and recent trend direction.
+          </p>
+        </div>
+      </section>
 
       {/* Tab Navigation */}
-      <div className="border-b" style={{ borderColor: "var(--border)" }}>
-        <nav className="flex gap-4">
+      <div className="flex justify-center">
+        <nav className="site-tab-nav">
           {tabs.map((t) => (
             <Link
               key={t.id}
               href={`/compare?type=${t.id}`}
-              className="py-3 px-1 border-b-2 font-medium text-sm transition-colors"
-              style={type === t.id
-                ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                : { borderColor: "transparent", color: "var(--foreground-muted)" }
-              }
+              scroll={false}
+              data-no-nav-progress="true"
+              className={`site-tab-link${type === t.id ? " site-tab-link--active" : ""}`}
             >
               {t.label}
             </Link>
@@ -358,10 +372,18 @@ export default async function ComparePage({ searchParams }: PageProps) {
       </div>
 
       {/* Selector */}
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">
-          Select {type === "journalists" ? "Journalists" : type === "outlets" ? "Outlets" : "Games"} to Compare
-        </h2>
+      <div className="route-header relative z-20 overflow-visible">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <span className="site-data-label">Selection</span>
+            <h2 className="mt-2 text-xl font-semibold text-gray-900">
+              Select {compareTitleLabel} to compare
+            </h2>
+          </div>
+          {compareData.length > 0 && (
+            <ShareButtons url={shareUrl} text={shareText} />
+          )}
+        </div>
         <Suspense fallback={<CompareSelectorFallback />}>
           <CompareSelector
             type={type}
@@ -378,9 +400,9 @@ export default async function ComparePage({ searchParams }: PageProps) {
 
       {/* Comparison Grid */}
       {compareData.length > 0 ? (
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="site-table-wrap">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="site-table">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-40">
@@ -526,13 +548,13 @@ export default async function ComparePage({ searchParams }: PageProps) {
           </div>
         </div>
       ) : ids.length > 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="site-empty">
           <p className="text-gray-600">
             Unable to load comparison data. Please try again.
           </p>
         </div>
       ) : (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="site-empty">
           <p className="text-gray-500">
             Select up to 4 {type === "journalists" ? "journalists" : type === "outlets" ? "outlets" : "games"} to
             compare their disparity metrics side by side.

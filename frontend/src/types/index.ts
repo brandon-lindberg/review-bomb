@@ -108,6 +108,7 @@ export interface OutletWithStats extends Outlet {
   min_score_given: number | null;
   max_score_given: number | null;
   score_std_deviation: number | null;
+  latest_review?: ReviewWithJournalist | null;
 }
 
 // Game Types
@@ -139,6 +140,7 @@ export interface GameWithScores extends Game {
   early_review_count?: number;
   launch_window_review_count?: number;
   late_review_count?: number;
+  latest_review?: ReviewWithJournalist | null;
 }
 
 // Review Types

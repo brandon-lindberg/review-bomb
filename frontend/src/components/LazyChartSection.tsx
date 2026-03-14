@@ -269,16 +269,6 @@ export function LazyChartSection({
                     onTrendShareStateChange={setTrendShareState}
                     {...(entityType === "game" && gameTitle ? { gameTitle } : {})}
                   />
-                  <p className="mt-4 text-sm text-gray-500 text-center">
-                    {entityType === "game"
-                      ? "Trend shows rolling averages across release-based windows, including pre-release."
-                      : "Trend shows rolling averages with selectable trailing time ranges."
-                    } {entityType === "game"
-                      ? "Release Map plots each critic review by days from release and disparity."
-                      : "Score Map plots each review by critic score and disparity."
-                    }
-                    Positive = critic higher than users. Negative = critic lower.
-                  </p>
                 </>
               )}
 

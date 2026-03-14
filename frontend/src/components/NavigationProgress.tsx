@@ -119,6 +119,7 @@ export function NavigationProgress() {
 
       const anchor = target.closest("a");
       if (!anchor) return;
+      if (anchor.dataset.noNavProgress === "true") return;
       if (anchor.hasAttribute("download")) return;
       if (anchor.target && anchor.target !== "_self") return;
 

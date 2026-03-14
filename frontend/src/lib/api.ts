@@ -70,7 +70,9 @@ export async function getStats(): Promise<SiteStats> {
 }
 
 export async function getRecentReviews(limit = 10): Promise<ReviewWithJournalist[]> {
-  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`);
+  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`, {
+    cache: "no-store",
+  });
 }
 
 // Journalists
@@ -83,7 +85,7 @@ export async function getJournalists(
 ): Promise<PaginatedResponse<Journalist>> {
   let url = `/journalists?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<Journalist>>(url);
+  return fetchAPI<PaginatedResponse<Journalist>>(url, { cache: "no-store" });
 }
 
 export async function getJournalist(id: string | number): Promise<JournalistDetail> {
@@ -110,7 +112,7 @@ export async function getOutlets(
 ): Promise<PaginatedResponse<OutletWithStats>> {
   let url = `/outlets?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<OutletWithStats>>(url);
+  return fetchAPI<PaginatedResponse<OutletWithStats>>(url, { cache: "no-store" });
 }
 
 export async function getOutlet(id: string | number): Promise<OutletWithStats> {
@@ -139,7 +141,7 @@ export async function getGames(
   let url = `/games?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (year) url += `&year=${year}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<GameWithScores>>(url);
+  return fetchAPI<PaginatedResponse<GameWithScores>>(url, { cache: "no-store" });
 }
 
 export async function getGame(id: string | number): Promise<GameWithScores> {

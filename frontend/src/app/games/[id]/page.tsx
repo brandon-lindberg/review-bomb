@@ -420,7 +420,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             criticScore={game.avg_critic_score}
             steamUserScore={game.steam_user_score}
             metacriticUserScore={game.metacritic_user_score}
+            criticDisparity={shareDisparity}
+            steamDisparity={game.disparity_steam}
+            metacriticDisparity={game.disparity_metacritic}
             size="lg"
+            useDisparityPalette
           />
         </div>
 

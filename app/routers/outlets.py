@@ -1,6 +1,5 @@
 """Outlets API endpoints."""
 
-from datetime import datetime
 from typing import Optional
 from decimal import Decimal
 
@@ -24,6 +23,7 @@ from app.schemas.schemas import (
 )
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
+from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -132,6 +132,99 @@ async def list_outlets(
             count_query = count_query.where(Outlet.name.ilike(f"%{search}%"))
         total = (await db.execute(count_query)).scalar() or 0
 
+    latest_review_lookup: dict[int, ReviewWithJournalist] = {}
+    outlet_ids = [outlet.id for outlet in outlets]
+    tokyo_cutoff_utc = tokyo_tomorrow_start_utc()
+
+    if outlet_ids:
+        ranked_reviews = (
+            select(
+                Review.id.label("review_id"),
+                Review.journalist_id.label("journalist_id"),
+                Review.outlet_id.label("outlet_id"),
+                Review.game_id.label("game_id"),
+                Review.review_url.label("review_url"),
+                Review.snippet.label("snippet"),
+                Review.score_raw.label("score_raw"),
+                Review.score_scale.label("score_scale"),
+                Review.score_normalized.label("score_normalized"),
+                Review.published_at.label("published_at"),
+                func.row_number().over(
+                    partition_by=Review.outlet_id,
+                    order_by=(Review.published_at.desc(), Review.id.desc()),
+                ).label("rn"),
+            )
+            .where(
+                Review.outlet_id.in_(outlet_ids),
+                Review.score_normalized.isnot(None),
+                Review.published_at.isnot(None),
+                Review.published_at < tokyo_cutoff_utc,
+            )
+            .subquery()
+        )
+
+        latest_reviews_query = (
+            select(
+                ranked_reviews.c.outlet_id,
+                ranked_reviews.c.review_id,
+                ranked_reviews.c.journalist_id,
+                ranked_reviews.c.game_id,
+                ranked_reviews.c.review_url,
+                ranked_reviews.c.snippet,
+                ranked_reviews.c.score_raw,
+                ranked_reviews.c.score_scale,
+                ranked_reviews.c.score_normalized,
+                ranked_reviews.c.published_at,
+                Journalist.name.label("journalist_name"),
+                Journalist.public_id.label("journalist_public_id"),
+                Journalist.image_url.label("journalist_image_url"),
+                Game.title.label("game_title"),
+                Game.public_id.label("game_public_id"),
+                Game.release_date.label("game_release_date"),
+                Outlet.name.label("outlet_name"),
+                Outlet.public_id.label("outlet_public_id"),
+            )
+            .join(Game, ranked_reviews.c.game_id == Game.id)
+            .join(Journalist, ranked_reviews.c.journalist_id == Journalist.id)
+            .join(Outlet, ranked_reviews.c.outlet_id == Outlet.id)
+            .where(ranked_reviews.c.rn == 1)
+        )
+
+        latest_reviews_result = await db.execute(latest_reviews_query)
+
+        for row in latest_reviews_result:
+            corrected_score, _ = corrected_normalized_score(
+                score_raw=row.score_raw,
+                score_scale=row.score_scale,
+                stored_score_normalized=row.score_normalized,
+            )
+            review_date = to_tokyo_date(row.published_at)
+            review_timing = calculate_review_timing(review_date, row.game_release_date)
+            latest_review_lookup[row.outlet_id] = ReviewWithJournalist(
+                id=row.review_id,
+                journalist_id=row.journalist_id,
+                journalist_public_id=row.journalist_public_id or str(row.journalist_id),
+                game_id=row.game_id,
+                game_public_id=row.game_public_id or str(row.game_id),
+                outlet_id=row.outlet_id,
+                outlet_public_id=row.outlet_public_id or str(row.outlet_id),
+                score_raw=row.score_raw,
+                score_scale=row.score_scale,
+                score_normalized=corrected_score,
+                review_url=row.review_url,
+                snippet=row.snippet,
+                published_at=row.published_at,
+                journalist_name=row.journalist_name,
+                journalist_image_url=row.journalist_image_url,
+                outlet_name=row.outlet_name,
+                game_title=row.game_title,
+                game_release_date=row.game_release_date,
+                disparity_steam=None,
+                disparity_metacritic=None,
+                is_launch_window=review_timing == "launch_window",
+                review_timing=review_timing,
+            )
+
     items = [
         OutletWithStats(
             id=outlet.id,
@@ -148,6 +241,7 @@ async def list_outlets(
             avg_disparity_metacritic=None,  # Only combined is stored
             avg_disparity=outlet.avg_disparity,
             avg_disparity_combined=outlet.avg_disparity,
+            latest_review=latest_review_lookup.get(outlet.id),
         )
         for outlet in outlets
     ]

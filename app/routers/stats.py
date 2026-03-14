@@ -19,6 +19,7 @@ from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
 from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.trending import TrendingAggregator
+from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
 
@@ -42,13 +43,13 @@ async def get_recent_reviews(
 ):
     """Get most recent reviews site-wide (cached for 60 seconds)."""
     # Check cache first
-    cache_key = f"recent-reviews:{limit}"
+    cache_key = f"recent-reviews:v2:{limit}"
     cached = await get_cached(cache_key)
     if cached:
         data = json.loads(cached)
         return [ReviewWithJournalist(**item) for item in data]
 
-    today = datetime.now(timezone.utc)
+    tokyo_cutoff_utc = tokyo_tomorrow_start_utc()
 
     # Get recent reviews with journalist, game, and outlet
     query = (
@@ -59,7 +60,7 @@ async def get_recent_reviews(
         .where(
             Review.score_normalized.isnot(None),
             Review.published_at.isnot(None),
-            Review.published_at <= today,
+            Review.published_at < tokyo_cutoff_utc,
         )
         .order_by(desc(Review.published_at))
         .limit(limit)
@@ -87,8 +88,8 @@ async def get_recent_reviews(
         # Calculate review timing
         review_timing = "unknown"
         is_launch_window = False
-        if review.published_at and game.release_date:
-            review_date = review.published_at.date() if hasattr(review.published_at, 'date') else review.published_at
+        review_date = to_tokyo_date(review.published_at)
+        if review_date and game.release_date:
             days_diff = (review_date - game.release_date).days
             if days_diff < 0:
                 review_timing = "early"

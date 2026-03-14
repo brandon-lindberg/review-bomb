@@ -107,34 +107,66 @@ export default async function Home() {
   const trendingTickerItems = trendingGames?.items
     ? [...trendingGames.items, ...trendingGames.items]
     : [];
+  const featuredTrend = trendingGames?.items?.[0] ?? null;
+  const featuredReview = sortedRecentReviews[0] ?? null;
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
       <JsonLd data={websiteJsonLd} />
-      {/* Hero Section */}
-      <section className="text-center py-12">
-        <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>
-          Review<span style={{ color: "var(--color-rust)" }}>Disparity</span> Tracker
-        </h1>
-        <p className="text-xl max-w-2xl mx-auto" style={{ color: "var(--foreground-muted)" }}>
-          Track the gap between game journalist scores and player opinions.
-          See which critics align with audiences and which diverge.
-        </p>
-      </section>
+      <section className="space-y-5 py-2 text-center">
+        <div className="mx-auto max-w-4xl space-y-4">
+          <h1
+            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
+            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+          >
+            See where critics and players split.
+          </h1>
+          <p
+            className="mx-auto max-w-3xl text-lg leading-8 sm:text-xl"
+            style={{ color: "var(--foreground-muted)" }}
+          >
+            ReviewDisparity maps the distance between critic scoring and player sentiment across
+            games, journalists, and outlets so the strongest patterns are visible immediately.
+          </p>
+        </div>
 
-      {/* Stats Grid */}
-      {stats && (
-        <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Journalists" value={stats.total_journalists} />
-          <StatCard label="Outlets" value={stats.total_outlets} />
-          <StatCard label="Games" value={stats.total_games} />
-          <StatCard label="Reviews" value={stats.total_reviews} />
-        </section>
-      )}
+        {stats && (
+          <div className="route-kpis justify-center">
+            <span className="route-kpi">
+              <span className="route-kpi__value">{stats.total_journalists.toLocaleString()}</span>
+              <span className="route-kpi__label">Journalists</span>
+            </span>
+            <span className="route-kpi">
+              <span className="route-kpi__value">{stats.total_outlets.toLocaleString()}</span>
+              <span className="route-kpi__label">Outlets</span>
+            </span>
+            <span className="route-kpi">
+              <span className="route-kpi__value">{stats.total_games.toLocaleString()}</span>
+              <span className="route-kpi__label">Games</span>
+            </span>
+            <span className="route-kpi">
+              <span className="route-kpi__value">{stats.total_reviews.toLocaleString()}</span>
+              <span className="route-kpi__label">Reviews</span>
+            </span>
+            {featuredTrend && (
+              <span className="route-kpi">
+                <span className="route-kpi__value">{featuredTrend.title}</span>
+                <span className="route-kpi__label">Trending</span>
+              </span>
+            )}
+            {featuredReview && (
+              <span className="route-kpi">
+                <span className="route-kpi__value">{featuredReview.game_title}</span>
+                <span className="route-kpi__label">Latest review</span>
+              </span>
+            )}
+          </div>
+        )}
+      </section>
 
       {/* Trending Games */}
       {trendingGames && trendingGames.items.length > 0 && (
-        <section className="bg-white dark:bg-gray-800 rounded-lg shadow min-w-0 overflow-hidden">
+        <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem]">
           <div className="flex items-center min-w-0">
             <div
               className="px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.08em] shrink-0"
@@ -215,14 +247,17 @@ export default async function Home() {
       <div className="grid md:grid-cols-2 gap-8">
         {/* Recent Reviews */}
         {sortedRecentReviews.length > 0 && (
-          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
-                Recent Reviews
-              </h2>
+          <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <span className="site-data-label">Live feed</span>
+                <h2 className="mt-2 text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+                  Recent Reviews
+                </h2>
+              </div>
               <Link
                 href="/journalists"
-                className="text-sm hover:underline"
+                className="site-button site-button-secondary"
                 style={{ color: "var(--color-rust)" }}
               >
                 Browse All
@@ -243,7 +278,7 @@ export default async function Home() {
                 return (
                   <div
                     key={review.id}
-                    className="p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
@@ -307,14 +342,17 @@ export default async function Home() {
 
         {/* Recent Games */}
         {sortedRecentGames.length > 0 && (
-          <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-w-0 overflow-hidden">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
-                Recent Games
-              </h2>
+          <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-6">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <div>
+                <span className="site-data-label">Release view</span>
+                <h2 className="mt-2 text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+                  Recent Games
+                </h2>
+              </div>
               <Link
                 href="/games"
-                className="text-sm hover:underline"
+                className="site-button site-button-secondary"
                 style={{ color: "var(--color-rust)" }}
               >
                 Browse All
@@ -325,38 +363,40 @@ export default async function Home() {
                 <Link
                   key={game.id}
                   href={buildEntityPath("games", game.title, game.public_id)}
-                  className="flex items-center justify-between p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                  className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
                 >
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
-                      {game.title}
-                    </p>
-                    <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                      {game.release_date
-                        ? new Date(game.release_date).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : "Unknown release date"}
-                    </p>
-                    <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
-                      Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
-                      {game.steam_user_score != null && game.metacritic_user_score != null
-                        ? `Steam ${Number(game.steam_user_score).toFixed(0)} • Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
-                        : game.steam_user_score != null
-                          ? `Steam ${Number(game.steam_user_score).toFixed(0)}`
-                          : game.metacritic_user_score != null
-                            ? `Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
-                            : "N/A"}
-                    </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
+                        {game.title}
+                      </p>
+                      <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                        {game.release_date
+                          ? new Date(game.release_date).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })
+                          : "Unknown release date"}
+                      </p>
+                      <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                        Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
+                        {game.steam_user_score != null && game.metacritic_user_score != null
+                          ? `Steam ${Number(game.steam_user_score).toFixed(0)} • Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                          : game.steam_user_score != null
+                            ? `Steam ${Number(game.steam_user_score).toFixed(0)}`
+                            : game.metacritic_user_score != null
+                              ? `Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                              : "N/A"}
+                      </p>
+                    </div>
+                    {(game.disparity_steam != null || game.disparity_metacritic != null) && (
+                      <DisparityBadge
+                        disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
+                        size="sm"
+                      />
+                    )}
                   </div>
-                  {(game.disparity_steam != null || game.disparity_metacritic != null) && (
-                    <DisparityBadge
-                      disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
-                      size="sm"
-                    />
-                  )}
                 </Link>
               ))}
             </div>
@@ -366,14 +406,17 @@ export default async function Home() {
 
       {/* Latest News */}
       {recentNews && recentNews.items.length > 0 && (
-        <section className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-xl font-semibold" style={{ color: "var(--foreground)" }}>
-              Latest News
-            </h2>
+        <section className="site-panel rounded-[1.5rem] p-6">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <span className="site-data-label">Coverage pulse</span>
+              <h2 className="mt-2 text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+                Latest News
+              </h2>
+            </div>
             <Link
               href="/news"
-              className="text-sm hover:underline"
+              className="site-button site-button-secondary"
               style={{ color: "var(--color-rust)" }}
             >
               View All News
@@ -389,23 +432,12 @@ export default async function Home() {
 
       {/* Empty state if no data */}
       {!stats && (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="site-empty">
           <p style={{ color: "var(--foreground-muted)" }}>
             Unable to load data. Make sure the backend API is running.
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: number | undefined }) {
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 text-center" style={{ borderTop: "3px solid var(--color-rust)" }}>
-      <p className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
-        {value != null ? value.toLocaleString() : "—"}
-      </p>
-      <p style={{ color: "var(--foreground-muted)" }}>{label}</p>
     </div>
   );
 }

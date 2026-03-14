@@ -40,7 +40,7 @@ export function SearchInput({
       const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
       emitNavigationStart();
       startTransition(() => {
-        router.replace(newUrl);
+        router.replace(newUrl, { scroll: false });
       });
     },
     [paramName, pathname, router, searchParams, startTransition]
@@ -85,7 +85,7 @@ export function SearchInput({
     const newUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
     emitNavigationStart();
     startTransition(() => {
-      router.replace(newUrl);
+      router.replace(newUrl, { scroll: false });
     });
     // Keep focus on input
     inputRef.current?.focus();
@@ -117,7 +117,7 @@ export function SearchInput({
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+          className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
         >
           <circle cx="11" cy="11" r="8"></circle>
           <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
@@ -128,7 +128,7 @@ export function SearchInput({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder={placeholder}
-          className="w-full pl-10 pr-14 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-rust)] focus:border-transparent"
+          className="site-field w-full pl-11 pr-14 py-3 text-sm focus:outline-none"
           aria-busy={isPending}
         />
         {isPending && (
@@ -142,7 +142,7 @@ export function SearchInput({
           <button
             type="button"
             onClick={handleClear}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 disabled:opacity-60"
+            className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1 text-gray-400 hover:text-gray-600 disabled:opacity-60"
             aria-label="Clear search"
             disabled={isPending}
           >
