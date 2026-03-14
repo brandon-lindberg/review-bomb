@@ -152,6 +152,9 @@ export function LazyChartSection({
   const [newsPage, setNewsPage] = useState(1);
   const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
   const [newsLoading, setNewsLoading] = useState(false);
+  // All news for timeline (fetched once when timeline tab is opened)
+  const [timelineNews, setTimelineNews] = useState<NewsArticle[] | null>(null);
+  const timelineNewsFetchedRef = useRef(false);
   const [trendShareState, setTrendShareState] = useState<{
     trend: string;
     window: string;
@@ -204,6 +207,37 @@ export function LazyChartSection({
 
     fetchData();
   }, [loading, reviews, error, entityId, entityType]);
+
+  // Fetch ALL news pages when timeline tab is first opened (for the full timeline)
+  useEffect(() => {
+    if (chartTab !== "timeline" || entityType !== "game" || timelineNewsFetchedRef.current) return;
+    if (newsTotalPages <= 1) {
+      // Already have all news from the initial page
+      setTimelineNews(newsArticles || []);
+      timelineNewsFetchedRef.current = true;
+      return;
+    }
+    timelineNewsFetchedRef.current = true;
+
+    const fetchAllNews = async () => {
+      try {
+        // We already have page 1 from newsArticles, fetch remaining pages
+        const remaining = Array.from({ length: newsTotalPages - 1 }, (_, i) => i + 2);
+        const results = await Promise.all(
+          remaining.map((page) => getGameNews(entityId, page, 5))
+        );
+        const allItems = [
+          ...(newsArticles || []),
+          ...results.flatMap((r) => r.items),
+        ];
+        setTimelineNews(allItems);
+      } catch {
+        // Fall back to whatever we have
+        setTimelineNews(newsArticles || []);
+      }
+    };
+    fetchAllNews();
+  }, [chartTab, entityType, entityId, newsArticles, newsTotalPages]);
 
   const loadMoreNews = async () => {
     if (newsLoading || !newsHasMore) return;
@@ -396,6 +430,7 @@ export function LazyChartSection({
                   releaseDate={releaseDate ?? null}
                   steamUserScore={steamUserScore ?? null}
                   metacriticUserScore={metacriticUserScore ?? null}
+                  newsArticles={timelineNews ?? allNews}
                 />
               )}
 
