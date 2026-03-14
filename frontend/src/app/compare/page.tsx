@@ -6,6 +6,7 @@ import { getGame, getGameHistory, getJournalist, getJournalistHistory, getOutlet
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { MiniDisparityChart } from "@/components/DisparityChart";
 import { CompareSelector } from "@/components/CompareSelector";
+import { GameAvatar } from "@/components/GameAvatar";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
@@ -416,14 +417,24 @@ export default async function ComparePage({ searchParams }: PageProps) {
                     >
                       <div className="flex flex-col items-center gap-2">
                         {item.image_url ? (
-                          <Image
-                            src={item.image_url}
-                            alt={item.name}
-                            width={48}
-                            height={48}
-                            sizes="48px"
-                            className="w-12 h-12 rounded-full object-cover"
-                          />
+                          type === "games" ? (
+                            <GameAvatar
+                              title={item.name}
+                              imageUrl={item.image_url}
+                              size={48}
+                              sizes="48px"
+                              className="w-12 h-12 rounded-xl object-cover"
+                            />
+                          ) : (
+                            <Image
+                              src={item.image_url}
+                              alt={item.name}
+                              width={48}
+                              height={48}
+                              sizes="48px"
+                              className="w-12 h-12 rounded-full object-cover"
+                            />
+                          )
                         ) : (
                           <div
                             className="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium"

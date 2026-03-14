@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { GameAvatar } from "@/components/GameAvatar";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { SortSelect } from "@/components/SortSelect";
 import { YearFilter } from "@/components/YearFilter";
@@ -152,55 +153,64 @@ export default async function GamesPage({ searchParams }: PageProps) {
                     className="site-list-item block"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                      <div className="min-w-0 flex-1">
-                        <h2 className="text-lg font-semibold text-gray-900">
-                          {game.title}
-                        </h2>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                          {game.release_date && (
-                            <span className="site-chip">
-                              Release Date: {formatDate(game.release_date)}
-                            </span>
-                          )}
-                          {game.tier && (
-                            <span className="site-chip site-chip--accent">
-                              {game.tier}
-                            </span>
+                      <div className="flex min-w-0 flex-1 items-start gap-4">
+                        <GameAvatar
+                          title={game.title}
+                          imageUrl={game.image_url}
+                          size={64}
+                          sizes="64px"
+                          className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <h2 className="text-lg font-semibold text-gray-900">
+                            {game.title}
+                          </h2>
+                          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                            {game.release_date && (
+                              <span className="site-chip">
+                                Release Date: {formatDate(game.release_date)}
+                              </span>
+                            )}
+                            {game.tier && (
+                              <span className="site-chip site-chip--accent">
+                                {game.tier}
+                              </span>
+                            )}
+                          </div>
+                          {latestReview && (
+                            <>
+                              <p
+                                className="mt-2 text-sm font-medium"
+                                style={{ color: "var(--foreground)" }}
+                              >
+                                Latest review: {latestReview.journalist_name}
+                                {latestReview.outlet_name ? ` at ${latestReview.outlet_name}` : ""}
+                              </p>
+                              <p
+                                className="mt-1 text-sm"
+                                style={{ color: "var(--foreground-muted)" }}
+                              >
+                                {formatDate(latestReview.published_at)}
+                                {latestReview.score_normalized != null ? ` | Score ${Number(latestReview.score_normalized).toFixed(0)}` : ""}
+                                {isPreReleaseReview ? " | Pre-release Review" : ""}
+                              </p>
+                              {latestSnippet && (
+                                <p
+                                  className="mt-1 text-sm italic"
+                                  style={{
+                                    color: "var(--foreground-muted)",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    overflow: "hidden",
+                                  }}
+                                >
+                                  &ldquo;{latestSnippet}&rdquo;
+                                </p>
+                              )}
+                            </>
                           )}
                         </div>
-                        {latestReview && (
-                          <>
-                            <p
-                              className="mt-2 text-sm font-medium"
-                              style={{ color: "var(--foreground)" }}
-                            >
-                              Latest review: {latestReview.journalist_name}
-                              {latestReview.outlet_name ? ` at ${latestReview.outlet_name}` : ""}
-                            </p>
-                            <p
-                              className="mt-1 text-sm"
-                              style={{ color: "var(--foreground-muted)" }}
-                            >
-                              {formatDate(latestReview.published_at)}
-                              {latestReview.score_normalized != null ? ` | Score ${Number(latestReview.score_normalized).toFixed(0)}` : ""}
-                              {isPreReleaseReview ? " | Pre-release Review" : ""}
-                            </p>
-                            {latestSnippet && (
-                              <p
-                                className="mt-1 text-sm italic"
-                                style={{
-                                  color: "var(--foreground-muted)",
-                                  display: "-webkit-box",
-                                  WebkitLineClamp: 2,
-                                  WebkitBoxOrient: "vertical",
-                                  overflow: "hidden",
-                                }}
-                              >
-                                &ldquo;{latestSnippet}&rdquo;
-                              </p>
-                            )}
-                          </>
-                        )}
                       </div>
 
                       <div className="flex flex-col items-start gap-5 shrink-0 sm:items-end sm:gap-6">

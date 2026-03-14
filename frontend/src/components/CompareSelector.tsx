@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useState, useEffect, useRef, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { GameAvatar } from "@/components/GameAvatar";
 import type { Game, Journalist, Outlet } from "@/types";
 
 interface SelectedItem {
@@ -165,7 +166,15 @@ export function CompareSelector({
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 disabled:opacity-70"
                     disabled={isNavigating}
                   >
-                    {item.image_url ? (
+                    {type === "games" ? (
+                      <GameAvatar
+                        title={item.name}
+                        imageUrl={item.image_url}
+                        size={32}
+                        sizes="32px"
+                        className="w-8 h-8 rounded-lg object-cover"
+                      />
+                    ) : item.image_url ? (
                       <Image
                         src={item.image_url}
                         alt={item.name}
@@ -212,7 +221,15 @@ export function CompareSelector({
                 color: "var(--foreground)",
               }}
             >
-              {item.image_url ? (
+              {type === "games" ? (
+                <GameAvatar
+                  title={item.name}
+                  imageUrl={item.image_url}
+                  size={20}
+                  sizes="20px"
+                  className="h-5 w-5 rounded-md object-cover"
+                />
+              ) : item.image_url ? (
                 <Image
                   src={item.image_url}
                   alt={item.name}

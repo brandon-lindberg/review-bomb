@@ -8,6 +8,7 @@ import {
 } from "@/lib/api";
 import { DisparityScores } from "@/components/DisparityScores";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { GameAvatar } from "@/components/GameAvatar";
 import { SortSelect } from "@/components/SortSelect";
 import { PaginationControls } from "@/components/PaginationControls";
 import { buildEntityPath } from "@/lib/entity-paths";
@@ -191,34 +192,39 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                       {rank}
                     </div>
 
-                    {/* Avatar (journalists/outlets only) */}
-                    {tab !== "games" && (
-                      imageUrl ? (
-                        <Image
-                          src={imageUrl}
-                          alt={name}
-                          width={32}
-                          height={32}
-                          sizes="32px"
-                          className={`flex-shrink-0 ${
-                            tab === "journalists"
-                              ? "w-8 h-8 rounded-full object-cover"
-                              : "w-8 h-8 rounded object-contain bg-gray-100"
-                          }`}
-                        />
-                      ) : (
-                        <div
-                          className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
-                            tab === "journalists"
-                              ? "w-8 h-8 rounded-full"
-                              : "w-8 h-8 rounded"
-                          }`}
-                        >
-                          <span className="text-gray-500 text-xs font-medium">
-                            {name.charAt(0)}
-                          </span>
-                        </div>
-                      )
+                    {tab === "games" ? (
+                      <GameAvatar
+                        title={name}
+                        imageUrl={imageUrl}
+                        size={32}
+                        sizes="32px"
+                        className="w-8 h-8 flex-shrink-0 rounded-lg object-cover"
+                      />
+                    ) : imageUrl ? (
+                      <Image
+                        src={imageUrl}
+                        alt={name}
+                        width={32}
+                        height={32}
+                        sizes="32px"
+                        className={`flex-shrink-0 ${
+                          tab === "journalists"
+                            ? "w-8 h-8 rounded-full object-cover"
+                            : "w-8 h-8 rounded object-contain bg-gray-100"
+                        }`}
+                      />
+                    ) : (
+                      <div
+                        className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
+                          tab === "journalists"
+                            ? "w-8 h-8 rounded-full"
+                            : "w-8 h-8 rounded"
+                        }`}
+                      >
+                        <span className="text-gray-500 text-xs font-medium">
+                          {name.charAt(0)}
+                        </span>
+                      </div>
                     )}
 
                     {/* Name + subtitle */}

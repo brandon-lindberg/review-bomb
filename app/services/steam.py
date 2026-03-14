@@ -7,7 +7,7 @@ Fetches user review data from Steam Web API.
 import asyncio
 import re
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from decimal import Decimal
 from html import unescape
 
@@ -16,8 +16,13 @@ from aiolimiter import AsyncLimiter
 
 from app.services.score_normalizer import ScoreNormalizer
 
-# Rate limit: 5 requests per second (more conservative to avoid blocks)
+# General Steam traffic can stay moderately paced.
 rate_limiter = AsyncLimiter(5, 1)
+
+# Store appdetails is more sensitive and will 429 during long crawls unless we
+# intentionally slow it down. This paces those requests to roughly one every
+# 2.5 seconds in sequential flows when combined with the small anti-bot delay.
+app_details_rate_limiter = AsyncLimiter(1, 2)
 
 # Headers that mimic a real browser - Steam blocks requests without proper headers
 DEFAULT_HEADERS = {
@@ -86,11 +91,14 @@ class SteamService:
         params: Optional[Dict[str, Any]] = None,
         max_retries: int = 3,
         log_http_error: bool = True,
+        limiter: AsyncLimiter = rate_limiter,
+        delay_seconds: float = 0.5,
     ) -> Optional[Dict[str, Any]]:
         """Make a rate-limited request to Steam API with retry logic."""
-        async with rate_limiter:
+        async with limiter:
             # Small delay to avoid triggering anti-bot measures
-            await asyncio.sleep(0.5)
+            if delay_seconds > 0:
+                await asyncio.sleep(delay_seconds)
 
             for attempt in range(max_retries):
                 try:
@@ -150,6 +158,9 @@ class SteamService:
         data = await self._request(
             f"{self.STORE_API_URL}/appdetails",
             params={"appids": str(app_id)},
+            max_retries=4,
+            limiter=app_details_rate_limiter,
+            delay_seconds=0.5,
         )
 
         if not data:
@@ -160,6 +171,52 @@ class SteamService:
             return None
 
         return app_data.get("data")
+
+    async def get_app_details_batch(self, app_ids: List[int]) -> Dict[int, Dict[str, Any]]:
+        """
+        Get game details for multiple Steam app IDs in a single request.
+
+        Steam's appdetails endpoint accepts a comma-separated app ID list and
+        returns a keyed object for each requested app.
+
+        Args:
+            app_ids: Steam application IDs
+
+        Returns:
+            Mapping of app_id to Steam app details for successful responses
+        """
+        if not app_ids:
+            return {}
+
+        unique_app_ids: List[int] = []
+        seen: set[int] = set()
+        for app_id in app_ids:
+            if app_id in seen:
+                continue
+            unique_app_ids.append(app_id)
+            seen.add(app_id)
+
+        data = await self._request(
+            f"{self.STORE_API_URL}/appdetails",
+            params={"appids": ",".join(str(app_id) for app_id in unique_app_ids)},
+            max_retries=4,
+            limiter=app_details_rate_limiter,
+            delay_seconds=0.5,
+        )
+
+        if not data:
+            return {}
+
+        details: Dict[int, Dict[str, Any]] = {}
+        for app_id in unique_app_ids:
+            app_data = data.get(str(app_id), {})
+            if not app_data.get("success"):
+                continue
+            app_details = app_data.get("data")
+            if app_details:
+                details[app_id] = app_details
+
+        return details
 
     async def get_review_summary(self, app_id: int) -> Optional[Dict[str, Any]]:
         """

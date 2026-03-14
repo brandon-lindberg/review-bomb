@@ -1,3 +1,4 @@
+import { GameAvatar } from "@/components/GameAvatar";
 import Link from "next/link";
 import { getStats, getRecentReviews, getGames, getNews, getTrendingGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -366,29 +367,38 @@ export default async function Home() {
                   className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
-                        {game.title}
-                      </p>
-                      <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-                        {game.release_date
-                          ? new Date(game.release_date).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })
-                          : "Unknown release date"}
-                      </p>
-                      <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
-                        Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
-                        {game.steam_user_score != null && game.metacritic_user_score != null
-                          ? `Steam ${Number(game.steam_user_score).toFixed(0)} • Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
-                          : game.steam_user_score != null
-                            ? `Steam ${Number(game.steam_user_score).toFixed(0)}`
-                            : game.metacritic_user_score != null
-                              ? `Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
-                              : "N/A"}
-                      </p>
+                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                      <GameAvatar
+                        title={game.title}
+                        imageUrl={game.image_url}
+                        size={56}
+                        sizes="56px"
+                        className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>
+                          {game.title}
+                        </p>
+                        <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+                          {game.release_date
+                            ? new Date(game.release_date).toLocaleDateString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "Unknown release date"}
+                        </p>
+                        <p className="text-xs mt-1" style={{ color: "var(--foreground-muted)" }}>
+                          Critics: {game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : "N/A"} | Users:{" "}
+                          {game.steam_user_score != null && game.metacritic_user_score != null
+                            ? `Steam ${Number(game.steam_user_score).toFixed(0)} • Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                            : game.steam_user_score != null
+                              ? `Steam ${Number(game.steam_user_score).toFixed(0)}`
+                              : game.metacritic_user_score != null
+                                ? `Metacritic ${Number(game.metacritic_user_score).toFixed(0)}`
+                                : "N/A"}
+                        </p>
+                      </div>
                     </div>
                     {(game.disparity_steam != null || game.disparity_metacritic != null) && (
                       <DisparityBadge

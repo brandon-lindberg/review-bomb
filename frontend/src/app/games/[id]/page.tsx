@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { DisparityScoreCards } from "@/components/DisparityScores";
+import { GameAvatar } from "@/components/GameAvatar";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JsonLd } from "@/components/JsonLd";
@@ -397,22 +398,31 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-          <div className="flex-1">
-            <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>
-            {game.release_date && (
-              <p className="mt-2 text-sm text-gray-500">
-                Released: {releaseDateLabel}
-              </p>
-            )}
-            <div className="mt-3">
-              <ShareButtons url={shareUrl} text={shareText} />
+          <div className="flex flex-1 items-start gap-4">
+            <GameAvatar
+              title={game.title}
+              imageUrl={game.image_url}
+              size={96}
+              sizes="96px"
+              className="h-24 w-24 shrink-0 rounded-2xl object-cover"
+            />
+            <div className="min-w-0 flex-1">
+              <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>
+              {game.release_date && (
+                <p className="mt-2 text-sm text-gray-500">
+                  Released: {releaseDateLabel}
+                </p>
+              )}
+              <div className="mt-3">
+                <ShareButtons url={shareUrl} text={shareText} />
+              </div>
+              {game.description && (
+                <ExpandableText
+                  text={game.description}
+                  className="mt-4 text-gray-600"
+                />
+              )}
             </div>
-            {game.description && (
-              <ExpandableText
-                text={game.description}
-                className="mt-4 text-gray-600"
-              />
-            )}
           </div>
 
           <ScoreDisplay
