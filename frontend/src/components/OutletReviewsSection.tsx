@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { getOutletAllReviews } from "@/lib/api";
+import { buildEntityPath } from "@/lib/entity-paths";
 import { ReviewScoreCards } from "./ReviewScoreTable";
 import type { ReviewWithJournalist } from "@/types";
 
@@ -147,7 +148,7 @@ export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Link
-                          href={`/games/${review.game_public_id ?? review.game_id}`}
+                          href={buildEntityPath("games", review.game_title, review.game_public_id ?? review.game_id)}
                           className="relative z-10 font-medium hover:opacity-80"
                           style={{ color: "var(--foreground)" }}
                         >
@@ -157,7 +158,7 @@ export function OutletReviewsSection({ outletId }: OutletReviewsSectionProps) {
                           <>
                             <span style={{ color: "var(--foreground-muted)" }}>by</span>
                             <Link
-                              href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
+                              href={buildEntityPath("journalists", review.journalist_name, review.journalist_public_id ?? review.journalist_id)}
                               className="relative z-10 hover:opacity-80"
                               style={{ color: "var(--foreground-muted)" }}
                             >

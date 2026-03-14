@@ -4,19 +4,20 @@ import { getOutlets } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
+import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
+  const { page: pageParam, sort, order, search } = await searchParams;
+  const hasFacetedState = Boolean(pageParam || sort || order || search?.trim());
 
   return {
     title: "Gaming Outlets",
     description:
       "Browse gaming publications and see how their review scores compare to player opinions. Track outlet-level critic-to-user disparity.",
     alternates: { canonical: "/outlets" },
-    ...(page > 1 && { robots: { index: false, follow: true } }),
+    ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Gaming Outlets - ReviewDisparity",
       description:
@@ -82,7 +83,7 @@ export default async function OutletsPage({ searchParams }: PageProps) {
               {outlets.items.map((outlet) => (
                 <Link
                   key={outlet.id}
-                  href={`/outlets/${outlet.public_id}`}
+                  href={buildEntityPath("outlets", outlet.name, outlet.public_id)}
                   className="block p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex items-center justify-between">

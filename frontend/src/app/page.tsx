@@ -4,6 +4,7 @@ import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
 import { NewsCard } from "@/components/NewsCard";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
+import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 
 // Keep the home page shell revalidating frequently so section freshness is driven
@@ -144,7 +145,9 @@ export default async function Home() {
             <div className="trending-ticker-mask flex-1 min-w-0">
               <div className="trending-ticker-track">
                 {trendingTickerItems.map((item, index) => {
-                  const gameHref = item.game_public_id ? `/games/${item.game_public_id}` : null;
+                  const gameHref = item.game_public_id
+                    ? buildEntityPath("games", item.title, item.game_public_id)
+                    : null;
                   const articleHref = !gameHref && item.latest_article_url ? item.latest_article_url : null;
                   const content = (
                     <>
@@ -246,7 +249,7 @@ export default async function Home() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
                           <Link
-                            href={`/games/${review.game_public_id ?? review.game_id}`}
+                            href={buildEntityPath("games", review.game_title, review.game_public_id ?? review.game_id)}
                             className="font-medium hover:underline block truncate flex-1"
                             style={{ color: "var(--foreground)" }}
                             title={review.game_title ?? undefined}
@@ -261,7 +264,7 @@ export default async function Home() {
                         </div>
                         <div className="flex items-center gap-2 text-sm min-w-0 overflow-hidden" style={{ color: "var(--foreground-muted)" }}>
                           <Link
-                            href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
+                            href={buildEntityPath("journalists", review.journalist_name, review.journalist_public_id ?? review.journalist_id)}
                             className="hover:underline truncate shrink-0 max-w-[45%]"
                           >
                             {review.journalist_name}
@@ -321,7 +324,7 @@ export default async function Home() {
               {sortedRecentGames.map((game) => (
                 <Link
                   key={game.id}
-                  href={`/games/${game.public_id}`}
+                  href={buildEntityPath("games", game.title, game.public_id)}
                   className="flex items-center justify-between p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
                   <div className="flex-1 min-w-0">

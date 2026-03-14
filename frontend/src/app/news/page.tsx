@@ -7,15 +7,15 @@ import { SourceFilter } from "@/components/SourceFilter";
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
+  const { page: pageParam, source } = await searchParams;
+  const hasFacetedState = Boolean(pageParam || source?.trim());
 
   return {
     title: "Gaming News",
     description:
       "Latest gaming news from IGN, GameSpot, Kotaku, PC Gamer, Polygon, Eurogamer, and more.",
     alternates: { canonical: "/news" },
-    ...(page > 1 && { robots: { index: false, follow: true } }),
+    ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Gaming News - ReviewDisparity",
       description:

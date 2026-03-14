@@ -80,8 +80,15 @@ test("entity snapshot share url updates when ingested metrics change", () => {
     disparity: 15,
   } as const;
 
-  const first = buildEntitySnapshotShareUrl(siteUrl, "games", "game-1", baseInput);
-  const second = buildEntitySnapshotShareUrl(siteUrl, "games", "game-1", {
+  const first = buildEntitySnapshotShareUrl(siteUrl, "games", "Game One", "game-1", baseInput);
+  const second = buildEntitySnapshotShareUrl(siteUrl, "games", "Game One", "game-1", {
+    ...baseInput,
+    version: "new-v",
+    critic: 81,
+    disparity: 14,
+  });
+
+  const expectedSecond = buildEntitySnapshotShareUrl(siteUrl, "games", "Game One", "game-1", {
     ...baseInput,
     version: "new-v",
     critic: 81,
@@ -89,9 +96,11 @@ test("entity snapshot share url updates when ingested metrics change", () => {
   });
 
   assert.notEqual(first, second);
+  assert.equal(second, expectedSecond);
 
   const firstParams = new URL(first).searchParams;
   const secondParams = new URL(second).searchParams;
+  assert.equal(new URL(first).pathname, "/games/game-one--game-1");
   assert.equal(firstParams.get("v"), "old-v");
   assert.equal(secondParams.get("v"), "new-v");
   assert.equal(firstParams.get("critic"), "80.00");
@@ -109,7 +118,7 @@ test("entity snapshot share builder supports game, journalist, and outlet pages"
   ];
 
   for (const entity of entities) {
-    const url = buildEntitySnapshotShareUrl(siteUrl, entity.type, entity.id, {
+    const url = buildEntitySnapshotShareUrl(siteUrl, entity.type, entity.id.replace(/-/g, " "), entity.id, {
       card: "x1",
       version: "v1",
       critic: 80,
@@ -118,7 +127,7 @@ test("entity snapshot share builder supports game, journalist, and outlet pages"
       disparity: 8,
     });
     const parsed = new URL(url);
-    assert.equal(parsed.pathname, `/${entity.type}/${entity.id}`);
+    assert.match(parsed.pathname, new RegExp(`^/${entity.type}/.+--${entity.id}$`));
     assert.equal(parsed.searchParams.get("card"), "x1");
     assert.equal(parsed.searchParams.get("steam"), "na");
     assert.equal(parsed.searchParams.get("mc"), "72.00");
@@ -200,6 +209,47 @@ test("share surfaces use the centralized share-url builders", () => {
     {
       file: "src/app/compare/page.tsx",
       snippets: ["buildCompareShareUrl(", "queryParams.set(\"sx\""],
+    },
+  ];
+
+  for (const expectation of expectations) {
+    const text = readFileSync(join(root, expectation.file), "utf8");
+    for (const snippet of expectation.snippets) {
+      assert.match(
+        text,
+        new RegExp(snippet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+        `${expectation.file} should include ${snippet}`
+      );
+    }
+  }
+});
+
+test("entity link surfaces use the shared path helper", () => {
+  const root = process.cwd();
+  const expectations: Array<{ file: string; snippets: string[] }> = [
+    {
+      file: "src/app/page.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("games"', 'buildEntityPath("journalists"'],
+    },
+    {
+      file: "src/app/search/page.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("outlets"'],
+    },
+    {
+      file: "src/app/leaderboards/page.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("games"'],
+    },
+    {
+      file: "src/app/compare/page.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("journalists"'],
+    },
+    {
+      file: "src/components/OutletReviewsSection.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("journalists"'],
+    },
+    {
+      file: "src/components/JournalistReviewsSection.tsx",
+      snippets: ["buildEntityPath(", 'buildEntityPath("outlets"'],
     },
   ];
 

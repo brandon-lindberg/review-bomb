@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
+import { buildEntityPath } from "@/lib/entity-paths";
 import type { ReviewWithJournalist } from "@/types";
 
 type ReviewFilter = "recent" | "oldest" | "early" | "launch_window" | "late";
@@ -97,16 +98,16 @@ export function CriticReviewsSection({ reviews }: CriticReviewsSectionProps) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
-                        href={`/journalists/${review.journalist_public_id ?? review.journalist_id}`}
+                        href={buildEntityPath("journalists", review.journalist_name, review.journalist_public_id ?? review.journalist_id)}
                         className="relative z-10 font-medium text-gray-900 hover:text-blue-600"
                       >
                         {review.journalist_name}
                       </Link>
-                      {review.outlet_name && (
+                      {review.outlet_name && (review.outlet_public_id != null || review.outlet_id != null) && (
                         <>
                           <span className="text-gray-400">at</span>
                           <Link
-                            href={`/outlets/${review.outlet_public_id ?? review.outlet_id}`}
+                            href={buildEntityPath("outlets", review.outlet_name, review.outlet_public_id ?? review.outlet_id!)}
                             className="relative z-10 text-gray-600 hover:text-blue-600"
                           >
                             {review.outlet_name}

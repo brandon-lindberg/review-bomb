@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 30;
 
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
   description:
     "Search for game journalists, outlets, and games to see their review scores and disparity data.",
   alternates: { canonical: "/search" },
+  robots: { index: false, follow: true },
   openGraph: {
     title: "Search - ReviewDisparity",
     description:
@@ -81,7 +83,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.journalists.map((journalist) => (
                   <Link
                     key={journalist.id}
-                    href={`/journalists/${journalist.public_id}`}
+                    href={buildEntityPath("journalists", journalist.name, journalist.public_id)}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
@@ -126,7 +128,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.outlets.map((outlet) => (
                   <Link
                     key={outlet.id}
-                    href={`/outlets/${outlet.public_id}`}
+                    href={buildEntityPath("outlets", outlet.name, outlet.public_id)}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
@@ -171,7 +173,7 @@ export default async function SearchPage({ searchParams }: PageProps) {
                 {results.games.map((game) => (
                   <Link
                     key={game.id}
-                    href={`/games/${game.public_id}`}
+                    href={buildEntityPath("games", game.title, game.public_id)}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">

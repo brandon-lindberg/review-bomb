@@ -7,19 +7,20 @@ import { SortSelect } from "@/components/SortSelect";
 import { YearFilter } from "@/components/YearFilter";
 import { SearchInput } from "@/components/SearchInput";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
+import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
+  const { page: pageParam, sort, order, year, search } = await searchParams;
+  const hasFacetedState = Boolean(pageParam || sort || order || year || search?.trim());
 
   return {
     title: "Browse Games",
     description:
       "Browse video games and compare critic review scores vs player scores from Steam and Metacritic. Find the biggest review disparities.",
     alternates: { canonical: "/games" },
-    ...(page > 1 && { robots: { index: false, follow: true } }),
+    ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Browse Games - ReviewDisparity",
       description:
@@ -100,7 +101,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
               {games.items.map((game) => (
                 <Link
                   key={game.id}
-                  href={`/games/${game.public_id}`}
+                  href={buildEntityPath("games", game.title, game.public_id)}
                   className="block p-4 hover:bg-gray-50 transition-colors"
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

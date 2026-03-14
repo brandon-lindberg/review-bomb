@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 
 const siteUrl = getSiteUrl();
@@ -27,29 +28,49 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     const data = await response.json();
 
-    const gameIds: string[] = data.game_public_ids || data.game_ids || [];
-    const gamePages: MetadataRoute.Sitemap = gameIds.map(
-      (id: string) => ({
-        url: `${siteUrl}/games/${id}`,
-        changeFrequency: "weekly" as const,
-        priority: 0.7,
-      })
+    const gameEntries: Array<{ public_id: string; title?: string }> = data.game_entries || [];
+    const gamePages: MetadataRoute.Sitemap = (
+      gameEntries.length > 0
+        ? gameEntries.map((entry) => ({
+            url: `${siteUrl}${buildEntityPath("games", entry.title || entry.public_id, entry.public_id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
+        : (data.game_public_ids || data.game_ids || []).map((id: string) => ({
+            url: `${siteUrl}${buildEntityPath("games", undefined, id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
     );
 
-    const journalistIds: string[] = data.journalist_public_ids || data.journalist_ids || [];
-    const journalistPages: MetadataRoute.Sitemap = journalistIds.map((id: string) => ({
-      url: `${siteUrl}/journalists/${id}`,
-      changeFrequency: "weekly" as const,
-      priority: 0.7,
-    }));
+    const journalistEntries: Array<{ public_id: string; name?: string }> = data.journalist_entries || [];
+    const journalistPages: MetadataRoute.Sitemap = (
+      journalistEntries.length > 0
+        ? journalistEntries.map((entry) => ({
+            url: `${siteUrl}${buildEntityPath("journalists", entry.name || entry.public_id, entry.public_id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
+        : (data.journalist_public_ids || data.journalist_ids || []).map((id: string) => ({
+            url: `${siteUrl}${buildEntityPath("journalists", undefined, id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
+    );
 
-    const outletIds: string[] = data.outlet_public_ids || data.outlet_ids || [];
-    const outletPages: MetadataRoute.Sitemap = outletIds.map(
-      (id: string) => ({
-        url: `${siteUrl}/outlets/${id}`,
-        changeFrequency: "weekly" as const,
-        priority: 0.7,
-      })
+    const outletEntries: Array<{ public_id: string; name?: string }> = data.outlet_entries || [];
+    const outletPages: MetadataRoute.Sitemap = (
+      outletEntries.length > 0
+        ? outletEntries.map((entry) => ({
+            url: `${siteUrl}${buildEntityPath("outlets", entry.name || entry.public_id, entry.public_id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
+        : (data.outlet_public_ids || data.outlet_ids || []).map((id: string) => ({
+            url: `${siteUrl}${buildEntityPath("outlets", undefined, id)}`,
+            changeFrequency: "weekly" as const,
+            priority: 0.7,
+          }))
     );
 
     return [...staticPages, ...gamePages, ...journalistPages, ...outletPages];

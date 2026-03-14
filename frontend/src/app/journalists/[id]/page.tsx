@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { getJournalist, getJournalistHistory } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -8,6 +9,12 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
+import {
+  buildEntityPath,
+  buildEntitySegment,
+  buildPathWithQuery,
+  parseEntityRouteSegment,
+} from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildEntitySnapshotShareUrl } from "@/lib/share-url";
 import {
@@ -70,9 +77,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const siteUrl = getSiteUrl();
 
   try {
-    const journalist = await getJournalist(id);
+    const requestedSegment = parseEntityRouteSegment(id);
+    const journalist = await getJournalist(requestedSegment.identifier);
     const canonicalId = journalist.public_id;
-    const canonicalPath = `/journalists/${canonicalId}`;
+    const canonicalPath = buildEntityPath("journalists", journalist.name, canonicalId);
     const requestedCardVersion = query.card?.trim() || JOURNALIST_CARD_VERSION;
     const shareMode = query.mode?.trim() === "chart"
       ? "chart"
@@ -148,7 +156,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.early != null
       || query.launch != null
       || query.late != null;
-    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", canonicalId, {
+    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", journalist.name, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
       critic: snapshotCriticScore,
@@ -239,14 +247,18 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
 export default async function JournalistDetailPage({
   params,
+  searchParams,
 }: PageProps) {
   const { id } = await params;
+  const query = await searchParams;
+  const requestedSegment = parseEntityRouteSegment(id);
+  const siteUrl = getSiteUrl();
 
   let journalist = null;
   let chartTrendEncoded = "";
 
   try {
-    journalist = await getJournalist(id);
+    journalist = await getJournalist(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching journalist:", error);
     notFound();
@@ -256,8 +268,10 @@ export default async function JournalistDetailPage({
     notFound();
   }
 
-  if (id !== journalist.public_id) {
-    redirect(`/journalists/${journalist.public_id}`);
+  const canonicalSegment = buildEntitySegment(journalist.name, journalist.public_id);
+  const canonicalPath = buildEntityPath("journalists", journalist.name, journalist.public_id);
+  if (id !== canonicalSegment) {
+    permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
   try {
@@ -285,7 +299,7 @@ export default async function JournalistDetailPage({
     metacriticScore: shareMetacriticScore,
     combinedDisparity: shareDisparity,
   });
-  const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
+  const shareUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", journalist.name, journalist.public_id, {
     card: JOURNALIST_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -293,7 +307,7 @@ export default async function JournalistDetailPage({
     metacritic: shareMetacriticScore,
     disparity: shareDisparity,
   });
-  const disparityChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
+  const disparityChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", journalist.name, journalist.public_id, {
     card: JOURNALIST_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -303,7 +317,7 @@ export default async function JournalistDetailPage({
     mode: "chart",
     trend: chartTrendEncoded || undefined,
   });
-  const timingChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "journalists", journalist.public_id, {
+  const timingChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", journalist.name, journalist.public_id, {
     card: JOURNALIST_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -341,15 +355,32 @@ export default async function JournalistDetailPage({
     "@context": "https://schema.org",
     "@type": "Person",
     name: journalist.name,
-    url: `/journalists/${journalist.public_id}`,
+    url: `${siteUrl}${canonicalPath}`,
     ...(journalist.image_url && { image: journalist.image_url }),
     ...(journalist.bio && { description: journalist.bio }),
     jobTitle: "Game Journalist",
+  };
+  const breadcrumbJsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${siteUrl}/` },
+      { "@type": "ListItem", position: 2, name: "Journalists", item: `${siteUrl}/journalists` },
+      { "@type": "ListItem", position: 3, name: journalist.name, item: `${siteUrl}${canonicalPath}` },
+    ],
   };
 
   return (
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
+      <JsonLd data={breadcrumbJsonLd} />
+      <Breadcrumbs
+        items={[
+          { href: "/", label: "Home" },
+          { href: "/journalists", label: "Journalists" },
+          { label: journalist.name },
+        ]}
+      />
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6" style={{ position: 'relative' }}>
         <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
@@ -562,7 +593,7 @@ export default async function JournalistDetailPage({
                 {journalist.outlet_breakdown.map((outlet) => (
                   <Link
                     key={outlet.outlet_id}
-                    href={`/outlets/${outlet.outlet_public_id ?? outlet.outlet_id}`}
+                    href={buildEntityPath("outlets", outlet.outlet_name, outlet.outlet_public_id ?? outlet.outlet_id)}
                     className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
                   >
                     <div>
