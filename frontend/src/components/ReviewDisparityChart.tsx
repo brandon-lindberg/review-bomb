@@ -50,6 +50,8 @@ const getThemeColors = (isDark: boolean) => ({
 });
 
 type DisparityType = "steam" | "metacritic" | "combined";
+type PointPosition = { x: number; y: number };
+type PointPositionsByType = Partial<Record<DisparityType, PointPosition>>;
 
 // Union type for both review types
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
@@ -81,6 +83,10 @@ interface ChartDataPoint {
   journalistName?: string;
   outletName?: string | null;
   criticScore?: number | null;
+}
+
+function isFiniteChartNumber(value: number | null | undefined): value is number {
+  return value != null && Number.isFinite(value);
 }
 
 // Calculate rolling average for a specific field
@@ -147,7 +153,7 @@ export function ReviewDisparityChart({
 
   const [chartMode, setChartMode] = useState<ChartMode>("trend");
   const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null);
-  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number } | null>(null);
+  const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
 
   // Responsive margins - smaller on mobile
@@ -244,6 +250,30 @@ export function ReviewDisparityChart({
     combined: chartData.some((p) => p.combinedDisparity != null),
   }), [chartData]);
 
+  const visibleTypeCount = useMemo(
+    () =>
+      (visibleLines.steam && hasData.steam ? 1 : 0)
+      + (visibleLines.metacritic && hasData.metacritic ? 1 : 0)
+      + (visibleLines.combined && hasData.combined ? 1 : 0),
+    [hasData, visibleLines]
+  );
+
+  const allPointsStyle = useMemo(() => {
+    const pointLoad = chartData.length * Math.max(1, visibleTypeCount);
+
+    if (pointLoad > 2500) {
+      return { pointRadius: 1.75, pointOpacity: 0.18, hoverRadius: 6, lineWidth: 2 };
+    }
+    if (pointLoad > 1200) {
+      return { pointRadius: 2.25, pointOpacity: 0.22, hoverRadius: 6.5, lineWidth: 2.25 };
+    }
+    if (pointLoad > 500) {
+      return { pointRadius: 2.75, pointOpacity: 0.28, hoverRadius: 7, lineWidth: 2.5 };
+    }
+
+    return { pointRadius: 3.25, pointOpacity: 0.38, hoverRadius: 7.5, lineWidth: 2.75 };
+  }, [chartData.length, visibleTypeCount]);
+
   // Calculate domain bounds for scaling
   const { xDomain, yDomain } = useMemo(() => {
     if (chartData.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
@@ -268,7 +298,7 @@ export function ReviewDisparityChart({
     const dateRange = maxDate - minDate || 86400000;
     const xPadding = Math.max(dateRange * 0.05, 86400000);
     const yRange = maxDisp - minDisp || 20;
-    const yPadding = yRange * 0.1;
+    const yPadding = Math.max(yRange * 0.12, 8);
 
     return {
       xDomain: [minDate - xPadding, maxDate + xPadding],
@@ -277,7 +307,15 @@ export function ReviewDisparityChart({
   }, [chartData, visibleLines]);
 
   // Store point positions after rendering
-  const pointPositionsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pointPositionsRef = useRef<Map<number, PointPositionsByType>>(new Map());
+
+  const setPointPosition = useCallback((index: number, type: DisparityType, x?: number, y?: number) => {
+    if (!isFiniteChartNumber(x) || !isFiniteChartNumber(y)) return;
+
+    const existing = pointPositionsRef.current.get(index) ?? {};
+    existing[type] = { x, y };
+    pointPositionsRef.current.set(index, existing);
+  }, []);
 
   // Handle mouse move to find closest point
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
@@ -299,22 +337,28 @@ export function ReviewDisparityChart({
 
       if (!hasVisibleData) continue;
 
-      const pos = pointPositionsRef.current.get(point.index);
-      if (!pos) continue;
+      const positions = pointPositionsRef.current.get(point.index);
+      if (!positions) continue;
 
-      const dx = mouseX - pos.x;
-      const dy = mouseY - pos.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      for (const type of ["steam", "metacritic", "combined"] as DisparityType[]) {
+        if (!visibleLines[type]) continue;
+        const pos = positions[type];
+        if (!pos) continue;
 
-      if (distance < closestDistance) {
-        closestDistance = distance;
-        closestPoint = point;
+        const dx = mouseX - pos.x;
+        const dy = mouseY - pos.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          closestPoint = point;
+        }
       }
     }
 
     if (closestPoint && closestDistance < 50) {
       setHoveredPoint(closestPoint);
-      setTooltipPosition({ x: mouseX, y: mouseY });
+      setTooltipPosition({ x: mouseX, y: mouseY, containerWidth: rect.width });
     } else {
       setHoveredPoint(null);
       setTooltipPosition(null);
@@ -361,11 +405,12 @@ export function ReviewDisparityChart({
 
     const data = hoveredPoint;
 
+    const tooltipWidth = 220;
     let tooltipX = tooltipPosition.x + 15;
-    let tooltipY = tooltipPosition.y - 10;
+    const tooltipY = tooltipPosition.y - 10;
 
-    if (chartContainerRef.current && tooltipX > chartContainerRef.current.offsetWidth - 220) {
-      tooltipX = tooltipPosition.x - 235;
+    if (tooltipX > tooltipPosition.containerWidth - tooltipWidth) {
+      tooltipX = tooltipPosition.x - (tooltipWidth + 15);
     }
 
     return (
@@ -486,14 +531,6 @@ export function ReviewDisparityChart({
         </div>
       </div>
     );
-  };
-
-  // Get the primary disparity for scatter point positioning (prefer combined > steam > metacritic)
-  const getPrimaryDisparity = (point: ChartDataPoint): number | null => {
-    if (visibleLines.combined && point.combinedDisparity != null) return point.combinedDisparity;
-    if (visibleLines.steam && point.steamDisparity != null) return point.steamDisparity;
-    if (visibleLines.metacritic && point.metacriticDisparity != null) return point.metacriticDisparity;
-    return null;
   };
 
   return (
@@ -624,6 +661,7 @@ export function ReviewDisparityChart({
                       stroke={colors.sage}
                       strokeWidth={3}
                       dot={false}
+                      activeDot={false}
                       connectNulls
                       isAnimationActive={false}
                     />
@@ -636,6 +674,7 @@ export function ReviewDisparityChart({
                       stroke={colors.orange}
                       strokeWidth={3}
                       dot={false}
+                      activeDot={false}
                       connectNulls
                       isAnimationActive={false}
                     />
@@ -648,53 +687,124 @@ export function ReviewDisparityChart({
                       stroke={colors.rust}
                       strokeWidth={3}
                       dot={false}
+                      activeDot={false}
                       connectNulls
                       isAnimationActive={false}
                     />
                   )}
-                  {/* Scatter points for hover detection - use combined position */}
-                  <Scatter
-                    dataKey="combinedDisparity"
-                    fill="transparent"
-                    isAnimationActive={false}
-                    shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                      if (!props.payload) return <circle r={0} />;
-                      if (props.cx != null && props.cy != null) {
-                        pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
-                      }
-                      const isHovered = hoveredPoint?.index === props.payload.index;
-                      if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={4} fill="transparent" />;
+                  {visibleLines.steam && hasData.steam && (
+                    <Scatter
+                      dataKey="steamDisparity"
+                      fill="transparent"
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.steamDisparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
 
-                      // Show multiple dots when hovered - one for each visible type
-                      return (
-                        <g>
-                          {visibleLines.steam && props.payload.steamDisparity != null && (
-                            <circle
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={8}
-                              fill={colors.sage}
-                              stroke={colors.background}
-                              strokeWidth={2}
-                            />
-                          )}
-                        </g>
-                      );
-                    }}
-                  />
+                        setPointPosition(props.payload.index, "steam", props.cx, props.cy);
+
+                        const isHovered = hoveredPoint?.index === props.payload.index;
+                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
+
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={7}
+                            fill={colors.sage}
+                            stroke={colors.background}
+                            strokeWidth={2}
+                          />
+                        );
+                      }}
+                    />
+                  )}
+                  {visibleLines.metacritic && hasData.metacritic && (
+                    <Scatter
+                      dataKey="metacriticDisparity"
+                      fill="transparent"
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.metacriticDisparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
+
+                        setPointPosition(props.payload.index, "metacritic", props.cx, props.cy);
+
+                        const isHovered = hoveredPoint?.index === props.payload.index;
+                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
+
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={7}
+                            fill={colors.orange}
+                            stroke={colors.background}
+                            strokeWidth={2}
+                          />
+                        );
+                      }}
+                    />
+                  )}
+                  {visibleLines.combined && hasData.combined && (
+                    <Scatter
+                      dataKey="combinedDisparity"
+                      fill="transparent"
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.combinedDisparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
+
+                        setPointPosition(props.payload.index, "combined", props.cx, props.cy);
+
+                        const isHovered = hoveredPoint?.index === props.payload.index;
+                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
+
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={7}
+                            fill={colors.rust}
+                            stroke={colors.background}
+                            strokeWidth={2}
+                          />
+                        );
+                      }}
+                    />
+                  )}
                 </>
               ) : (
                 <>
-                  {/* Steam line and points */}
+                  {/* Steam trend line and review points */}
                   {visibleLines.steam && hasData.steam && (
                     <>
                       <Line
                         type="monotone"
-                        dataKey="steamDisparity"
+                        dataKey="steamRollingAvg"
                         stroke={colors.sage}
-                        strokeWidth={1.5}
-                        strokeOpacity={0.4}
+                        strokeWidth={allPointsStyle.lineWidth}
+                        strokeOpacity={0.9}
                         dot={false}
+                        activeDot={false}
                         connectNulls
                         isAnimationActive={false}
                       />
@@ -704,21 +814,25 @@ export function ReviewDisparityChart({
                         fillOpacity={0.7}
                         isAnimationActive={false}
                         shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (!props.payload) return <circle r={0} />;
-                          if (props.cx && props.cy && props.payload.steamDisparity != null) {
-                            // Only set position if this is the primary type for this point
-                            if (getPrimaryDisparity(props.payload) === props.payload.steamDisparity) {
-                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
-                            }
+                          if (
+                            !props.payload
+                            || !isFiniteChartNumber(props.payload.steamDisparity)
+                            || !isFiniteChartNumber(props.cx)
+                            || !isFiniteChartNumber(props.cy)
+                          ) {
+                            return <circle r={0} />;
                           }
+
+                          setPointPosition(props.payload.index, "steam", props.cx, props.cy);
+
                           const isHovered = hoveredPoint?.index === props.payload.index;
                           return (
                             <circle
                               cx={props.cx}
                               cy={props.cy}
-                              r={isHovered ? 8 : 4}
+                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
                               fill={colors.sage}
-                              fillOpacity={isHovered ? 1 : 0.7}
+                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
                               stroke={isHovered ? colors.background : "none"}
                               strokeWidth={isHovered ? 2 : 0}
                             />
@@ -727,16 +841,17 @@ export function ReviewDisparityChart({
                       />
                     </>
                   )}
-                  {/* Metacritic line and points */}
+                  {/* Metacritic trend line and review points */}
                   {visibleLines.metacritic && hasData.metacritic && (
                     <>
                       <Line
                         type="monotone"
-                        dataKey="metacriticDisparity"
+                        dataKey="metacriticRollingAvg"
                         stroke={colors.orange}
-                        strokeWidth={1.5}
-                        strokeOpacity={0.4}
+                        strokeWidth={allPointsStyle.lineWidth}
+                        strokeOpacity={0.9}
                         dot={false}
+                        activeDot={false}
                         connectNulls
                         isAnimationActive={false}
                       />
@@ -746,20 +861,25 @@ export function ReviewDisparityChart({
                         fillOpacity={0.7}
                         isAnimationActive={false}
                         shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (!props.payload) return <circle r={0} />;
-                          if (props.cx && props.cy && props.payload.metacriticDisparity != null) {
-                            if (getPrimaryDisparity(props.payload) === props.payload.metacriticDisparity) {
-                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
-                            }
+                          if (
+                            !props.payload
+                            || !isFiniteChartNumber(props.payload.metacriticDisparity)
+                            || !isFiniteChartNumber(props.cx)
+                            || !isFiniteChartNumber(props.cy)
+                          ) {
+                            return <circle r={0} />;
                           }
+
+                          setPointPosition(props.payload.index, "metacritic", props.cx, props.cy);
+
                           const isHovered = hoveredPoint?.index === props.payload.index;
                           return (
                             <circle
                               cx={props.cx}
                               cy={props.cy}
-                              r={isHovered ? 8 : 4}
+                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
                               fill={colors.orange}
-                              fillOpacity={isHovered ? 1 : 0.7}
+                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
                               stroke={isHovered ? colors.background : "none"}
                               strokeWidth={isHovered ? 2 : 0}
                             />
@@ -768,16 +888,17 @@ export function ReviewDisparityChart({
                       />
                     </>
                   )}
-                  {/* Combined line and points */}
+                  {/* Combined trend line and review points */}
                   {visibleLines.combined && hasData.combined && (
                     <>
                       <Line
                         type="monotone"
-                        dataKey="combinedDisparity"
+                        dataKey="combinedRollingAvg"
                         stroke={colors.rust}
-                        strokeWidth={1.5}
-                        strokeOpacity={0.4}
+                        strokeWidth={allPointsStyle.lineWidth}
+                        strokeOpacity={0.9}
                         dot={false}
+                        activeDot={false}
                         connectNulls
                         isAnimationActive={false}
                       />
@@ -787,20 +908,25 @@ export function ReviewDisparityChart({
                         fillOpacity={0.7}
                         isAnimationActive={false}
                         shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (!props.payload) return <circle r={0} />;
-                          if (props.cx && props.cy && props.payload.combinedDisparity != null) {
-                            if (getPrimaryDisparity(props.payload) === props.payload.combinedDisparity) {
-                              pointPositionsRef.current.set(props.payload.index, { x: props.cx, y: props.cy });
-                            }
+                          if (
+                            !props.payload
+                            || !isFiniteChartNumber(props.payload.combinedDisparity)
+                            || !isFiniteChartNumber(props.cx)
+                            || !isFiniteChartNumber(props.cy)
+                          ) {
+                            return <circle r={0} />;
                           }
+
+                          setPointPosition(props.payload.index, "combined", props.cx, props.cy);
+
                           const isHovered = hoveredPoint?.index === props.payload.index;
                           return (
                             <circle
                               cx={props.cx}
                               cy={props.cy}
-                              r={isHovered ? 8 : 4}
+                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
                               fill={colors.rust}
-                              fillOpacity={isHovered ? 1 : 0.7}
+                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
                               stroke={isHovered ? colors.background : "none"}
                               strokeWidth={isHovered ? 2 : 0}
                             />
