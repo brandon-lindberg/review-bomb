@@ -15,8 +15,9 @@ import type {
   NewsArticle,
   TrendingGamesResponse,
 } from "@/types";
+import { getApiUrl } from "@/lib/api-base-url";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_URL = getApiUrl();
 const journalistAllReviewsCache = new Map<string, Promise<ReviewWithDisparity[]>>();
 const outletAllReviewsCache = new Map<string, Promise<ReviewWithJournalist[]>>();
 const gameAllReviewsCache = new Map<string, Promise<ReviewWithJournalist[]>>();

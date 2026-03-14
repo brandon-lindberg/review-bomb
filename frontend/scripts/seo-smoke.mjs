@@ -192,6 +192,7 @@ async function assertSitemapXml() {
 
   const locs = [...text.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((m) => m[1].trim());
   ok(locs.length > 0, "/sitemap.xml: no <loc> entries found");
+  let detailLocCount = 0;
 
   for (const loc of locs) {
     ok(
@@ -205,12 +206,18 @@ async function assertSitemapXml() {
     const pathname = new URL(loc).pathname;
     const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
     if (detailMatch) {
+      detailLocCount += 1;
       ok(
         detailMatch[2].includes("--"),
         `/sitemap.xml: detail URL should use slug--id canonical format (${loc})`,
       );
     }
   }
+
+  ok(
+    detailLocCount > 0,
+    "/sitemap.xml: no detail URLs found; sitemap appears to have collapsed to static pages only",
+  );
 
   return locs;
 }

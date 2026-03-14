@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import { getServerApiUrl } from "@/lib/api-base-url";
 import { buildEntityPath, type EntityRouteType } from "@/lib/entity-paths";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const API_URL = getServerApiUrl();
 const ENTITY_TYPES = new Set<EntityRouteType>(["games", "journalists", "outlets"]);
 
 function getEntityLabel(entityType: EntityRouteType, payload: Record<string, unknown>): string | null {
