@@ -2,6 +2,7 @@ import {
   encodeSnapshotCount,
   encodeSnapshotMetric,
 } from "./share-snapshot";
+import { buildEntityPath, type EntityRouteType } from "./entity-paths";
 
 export type SnapshotMode = "default" | "chart" | "timing";
 
@@ -67,11 +68,12 @@ export function buildSnapshotShareParams(input: SnapshotShareQueryInput): URLSea
 
 export function buildEntitySnapshotShareUrl(
   siteUrl: string,
-  entityType: "games" | "journalists" | "outlets",
+  entityType: EntityRouteType,
+  entityLabel: string,
   publicId: string,
   input: SnapshotShareQueryInput
 ): string {
-  return `${siteUrl}/${entityType}/${publicId}?${buildSnapshotShareParams(input).toString()}`;
+  return `${siteUrl}${buildEntityPath(entityType, entityLabel, publicId)}?${buildSnapshotShareParams(input).toString()}`;
 }
 
 export function buildCompareShareParams(input: CompareShareQueryInput): URLSearchParams {

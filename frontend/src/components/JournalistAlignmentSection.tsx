@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { buildEntityPath } from "@/lib/entity-paths";
 
 type PlatformFilter = "combined" | "steam" | "metacritic";
 
@@ -106,7 +107,7 @@ export function JournalistAlignmentSection({ journalists }: JournalistAlignmentS
     return (
       <Link
         key={j.id}
-        href={`/journalists/${j.publicId}`}
+        href={buildEntityPath("journalists", j.name, j.publicId)}
         className="flex items-center justify-between p-3 rounded-lg transition-colors"
         style={{ backgroundColor: "transparent" }}
         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = colors.hoverBg}

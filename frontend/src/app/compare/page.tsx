@@ -7,6 +7,7 @@ import { MiniDisparityChart } from "@/components/DisparityChart";
 import { CompareSelector } from "@/components/CompareSelector";
 import { ShareButtons } from "@/components/ShareButtons";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
+import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
 import { buildCompareShareUrl } from "@/lib/share-url";
@@ -136,6 +137,11 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
 
   const compareLabel = compareTypeLabel[type];
   const compareCount = Math.max(ids.length, labels.length);
+  const isParameterizedState = ids.length > 0
+    || labels.length > 0
+    || Boolean(params.snap?.trim())
+    || Boolean(params.card?.trim())
+    || Boolean(params.sx?.trim());
   const title = labels.length > 0
     ? `Compare ${labels.join(" vs ")}`
     : compareCount > 0
@@ -151,6 +157,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     title,
     description,
     alternates: { canonical: "/compare" },
+    ...(isParameterizedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: `${title} - ReviewDisparity`,
       description,
@@ -228,7 +235,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               steam_user_score: steamScore,
               metacritic_user_score: metacriticScore,
               history: result.history,
-              linkHref: `/journalists/${result.journalist.public_id}`,
+              linkHref: buildEntityPath("journalists", result.journalist.name, result.journalist.public_id),
             });
           }
         }
@@ -263,7 +270,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               steam_user_score: steamScore,
               metacritic_user_score: metacriticScore,
               history: result.history,
-              linkHref: `/outlets/${result.outlet.public_id}`,
+              linkHref: buildEntityPath("outlets", result.outlet.name, result.outlet.public_id),
             });
           }
         }
@@ -297,7 +304,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
               steam_user_score: result.game.steam_user_score ?? null,
               metacritic_user_score: result.game.metacritic_user_score ?? null,
               history: result.history,
-              linkHref: `/games/${result.game.public_id}`,
+              linkHref: buildEntityPath("games", result.game.title, result.game.public_id),
             });
           }
         }

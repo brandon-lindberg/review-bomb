@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import Link from "next/link";
 import { getJournalistAllReviews } from "@/lib/api";
+import { buildEntityPath } from "@/lib/entity-paths";
 import { ReviewScoreCards } from "./ReviewScoreTable";
 import type { ReviewWithDisparity } from "@/types";
 
@@ -136,17 +137,17 @@ export function JournalistReviewsSection({ journalistId }: JournalistReviewsSect
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <Link
-                        href={`/games/${review.game_public_id ?? review.game_id}`}
+                        href={buildEntityPath("games", review.game_title, review.game_public_id ?? review.game_id)}
                         className="relative z-10 font-medium hover:opacity-80"
                         style={{ color: "var(--foreground)" }}
                       >
                         {review.game_title}
                       </Link>
-                      {review.outlet_name && (
+                      {review.outlet_name && (review.outlet_public_id != null || review.outlet_id != null) && (
                         <>
                           <span style={{ color: "var(--foreground-muted)" }}>via</span>
                           <Link
-                            href={`/outlets/${review.outlet_public_id ?? review.outlet_id}`}
+                            href={buildEntityPath("outlets", review.outlet_name, review.outlet_public_id ?? review.outlet_id!)}
                             className="relative z-10 hover:opacity-80"
                             style={{ color: "var(--foreground-muted)" }}
                           >

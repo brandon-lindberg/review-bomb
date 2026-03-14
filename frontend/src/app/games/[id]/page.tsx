@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { getGame, getGameHistory, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
@@ -8,6 +9,12 @@ import { JsonLd } from "@/components/JsonLd";
 import { ExpandableText } from "@/components/ExpandableText";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
+import {
+  buildEntityPath,
+  buildEntitySegment,
+  buildPathWithQuery,
+  parseEntityRouteSegment,
+} from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 import {
   buildEntitySnapshotShareUrl,
@@ -59,9 +66,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const query = await searchParams;
   const siteUrl = getSiteUrl();
   try {
-    const game = await getGame(id);
+    const requestedSegment = parseEntityRouteSegment(id);
+    const game = await getGame(requestedSegment.identifier);
     const canonicalId = game.public_id;
-    const canonicalPath = `/games/${canonicalId}`;
+    const canonicalPath = buildEntityPath("games", game.title, canonicalId);
     const requestedCardVersion = query.card?.trim() || GAME_CARD_VERSION;
     const shareMode = query.mode?.trim() === "chart"
       ? "chart"
@@ -120,7 +128,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.launch != null
       || query.late != null
       || query.mode != null;
-    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "games", canonicalId, {
+    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
       critic: snapshotCritic,
@@ -227,8 +235,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   }
 }
 
-export default async function GameDetailPage({ params }: PageProps) {
+export default async function GameDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const query = await searchParams;
+  const requestedSegment = parseEntityRouteSegment(id);
+  const siteUrl = getSiteUrl();
 
   let game = null;
   let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
@@ -236,7 +247,7 @@ export default async function GameDetailPage({ params }: PageProps) {
   let chartTrendEncoded = "";
 
   try {
-    game = await getGame(id);
+    game = await getGame(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching game:", error);
     notFound();
@@ -246,8 +257,10 @@ export default async function GameDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  if (id !== game.public_id) {
-    redirect(`/games/${game.public_id}`);
+  const canonicalSegment = buildEntitySegment(game.title, game.public_id);
+  const canonicalPath = buildEntityPath("games", game.title, game.public_id);
+  if (id !== canonicalSegment) {
+    permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
   try {
@@ -269,7 +282,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "VideoGame",
     name: game.title,
-    url: `/games/${game.public_id}`,
+    url: `${siteUrl}${canonicalPath}`,
     ...(game.release_date && { datePublished: game.release_date }),
     ...(game.description && { description: game.description }),
     ...(game.avg_critic_score != null && {
@@ -288,7 +301,17 @@ export default async function GameDetailPage({ params }: PageProps) {
   const shareCriticScore = game.avg_critic_score != null ? Number(game.avg_critic_score).toFixed(0) : null;
   const releaseDateLabel = formatDateLabel(game.release_date);
   const shareSnapshotVersion = buildGameSnapshotVersion(game);
-  const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
+  const breadcrumbJsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${siteUrl}/` },
+      { "@type": "ListItem", position: 2, name: "Games", item: `${siteUrl}/games` },
+      { "@type": "ListItem", position: 3, name: game.title, item: `${siteUrl}${canonicalPath}` },
+    ],
+  };
+
+  const shareUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, game.public_id, {
     card: GAME_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: game.avg_critic_score,
@@ -296,7 +319,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     metacritic: game.metacritic_user_score,
     disparity: shareDisparity,
   });
-  const disparityChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
+  const disparityChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, game.public_id, {
     card: GAME_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: game.avg_critic_score,
@@ -306,7 +329,7 @@ export default async function GameDetailPage({ params }: PageProps) {
     mode: "chart",
     trend: chartTrendEncoded || undefined,
   });
-  const timingChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "games", game.public_id, {
+  const timingChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, game.public_id, {
     card: GAME_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: game.avg_critic_score,
@@ -362,6 +385,14 @@ export default async function GameDetailPage({ params }: PageProps) {
   return (
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
+      <JsonLd data={breadcrumbJsonLd} />
+      <Breadcrumbs
+        items={[
+          { href: "/", label: "Home" },
+          { href: "/games", label: "Games" },
+          { label: game.title },
+        ]}
+      />
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">

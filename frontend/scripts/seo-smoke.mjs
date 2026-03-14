@@ -15,14 +15,20 @@ const INDEXABLE_PAGES = [
   "/about",
   "/privacy",
   "/terms",
-  "/search",
 ];
 
-const NOINDEX_PAGINATED_PAGES = [
+const NOINDEX_PAGES = [
+  "/search",
   "/games?page=2",
+  "/games?search=halo",
   "/news?page=2",
+  "/news?source=IGN",
   "/journalists?page=2",
+  "/journalists?search=smith",
   "/outlets?page=2",
+  "/outlets?sort=name&order=asc",
+  "/compare?type=games&ids=1,2",
+  "/search?q=halo",
 ];
 
 const DETAIL_SAMPLES_PER_TYPE = Math.max(
@@ -164,6 +170,11 @@ function assertServerRenderedDetailContent(path, text) {
   ok(/<h1\b/i.test(text), `${path}: expected a server-rendered <h1>`);
 }
 
+function assertBreadcrumbContent(path, text) {
+  ok(text.includes('aria-label="Breadcrumb"'), `${path}: expected visible breadcrumb nav`);
+  ok(text.includes('"BreadcrumbList"'), `${path}: expected breadcrumb structured data`);
+}
+
 async function assertRobotsTxt() {
   const { response, text } = await fetchText("/robots.txt", { redirect: "follow" });
   ok(response.ok, `/robots.txt: expected 200, got ${response.status}`);
@@ -190,6 +201,15 @@ async function assertSitemapXml() {
     ok(!loc.startsWith("http://"), `/sitemap.xml: found http URL (${loc})`);
     ok(!loc.startsWith("https://www."), `/sitemap.xml: found www URL (${loc})`);
     ok(!loc.includes("?page="), `/sitemap.xml: paginated URL should not be listed (${loc})`);
+
+    const pathname = new URL(loc).pathname;
+    const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
+    if (detailMatch) {
+      ok(
+        detailMatch[2].includes("--"),
+        `/sitemap.xml: detail URL should use slug--id canonical format (${loc})`,
+      );
+    }
   }
 
   return locs;
@@ -401,6 +421,39 @@ function getDetailPathsToTest(sitemapLocs) {
   return unique;
 }
 
+function getLegacyDetailPath(path) {
+  const match = path.match(/^\/(games|journalists|outlets)\/([^/]+)$/);
+  if (!match) return null;
+
+  const segment = match[2];
+  const separatorIndex = segment.lastIndexOf("--");
+  if (separatorIndex <= 0 || separatorIndex === segment.length - 2) return null;
+
+  const identifier = segment.slice(separatorIndex + 2);
+  return `/${match[1]}/${identifier}`;
+}
+
+async function assertLegacyDetailRedirect(path) {
+  const legacyPath = getLegacyDetailPath(path);
+  if (!legacyPath) return;
+
+  const probePath = `${legacyPath}?legacy_probe=1`;
+  const expectedLocation = `${path}?legacy_probe=1`;
+  const { response, url } = await fetchText(probePath, { redirect: "manual" });
+
+  ok(
+    [301, 308].includes(response.status),
+    `${legacyPath}: expected 301/308 redirect, got ${response.status} (${url})`,
+  );
+
+  const location = response.headers.get("location");
+  ok(location, `${legacyPath}: missing Location header`);
+  ok(
+    normalizeCanonicalUrl(String(location)) === normalizeCanonicalUrl(new URL(expectedLocation, EXPECTED_CANONICAL_ORIGIN).toString()),
+    `${legacyPath}: expected redirect to ${expectedLocation}, got ${location}`,
+  );
+}
+
 async function run() {
   console.log(`SEO smoke checks against ${BASE_URL}`);
   console.log(`Expected canonical origin: ${EXPECTED_CANONICAL_ORIGIN}`);
@@ -410,7 +463,7 @@ async function run() {
     console.log(`PASS indexable ${path}`);
   }
 
-  for (const path of NOINDEX_PAGINATED_PAGES) {
+  for (const path of NOINDEX_PAGES) {
     await assertNoindexPage(path);
     console.log(`PASS noindex ${path}`);
   }
@@ -450,6 +503,8 @@ async function run() {
       ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
       ok(!robots.includes("noindex"), `${path}: should not be noindex`);
       assertServerRenderedDetailContent(path, text);
+      assertBreadcrumbContent(path, text);
+      await assertLegacyDetailRedirect(path);
       console.log(`PASS detail ${path}`);
     }
   }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { getOutlet, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
@@ -8,6 +9,12 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
+import {
+  buildEntityPath,
+  buildEntitySegment,
+  buildPathWithQuery,
+  parseEntityRouteSegment,
+} from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 import { buildEntitySnapshotShareUrl } from "@/lib/share-url";
 import {
@@ -70,9 +77,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const siteUrl = getSiteUrl();
 
   try {
-    const outlet = await getOutlet(id);
+    const requestedSegment = parseEntityRouteSegment(id);
+    const outlet = await getOutlet(requestedSegment.identifier);
     const canonicalId = outlet.public_id;
-    const canonicalPath = `/outlets/${canonicalId}`;
+    const canonicalPath = buildEntityPath("outlets", outlet.name, canonicalId);
     const requestedCardVersion = query.card?.trim() || OUTLET_CARD_VERSION;
     const shareMode = query.mode?.trim() === "chart"
       ? "chart"
@@ -137,7 +145,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.early != null
       || query.launch != null
       || query.late != null;
-    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", canonicalId, {
+    const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", outlet.name, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
       critic: snapshotCriticScore,
@@ -226,14 +234,17 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   }
 }
 
-export default async function OutletDetailPage({ params }: PageProps) {
+export default async function OutletDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const query = await searchParams;
+  const requestedSegment = parseEntityRouteSegment(id);
+  const siteUrl = getSiteUrl();
 
   let outlet = null;
   let chartTrendEncoded = "";
 
   try {
-    outlet = await getOutlet(id);
+    outlet = await getOutlet(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching outlet:", error);
     notFound();
@@ -243,8 +254,10 @@ export default async function OutletDetailPage({ params }: PageProps) {
     notFound();
   }
 
-  if (id !== outlet.public_id) {
-    redirect(`/outlets/${outlet.public_id}`);
+  const canonicalSegment = buildEntitySegment(outlet.name, outlet.public_id);
+  const canonicalPath = buildEntityPath("outlets", outlet.name, outlet.public_id);
+  if (id !== canonicalSegment) {
+    permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
   try {
@@ -266,7 +279,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     metacriticScore: shareMetacriticScore,
     combinedDisparity: shareDisparity,
   });
-  const shareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "outlets", outlet.public_id, {
+  const shareUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", outlet.name, outlet.public_id, {
     card: OUTLET_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -274,7 +287,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     metacritic: shareMetacriticScore,
     disparity: shareDisparity,
   });
-  const disparityChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "outlets", outlet.public_id, {
+  const disparityChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", outlet.name, outlet.public_id, {
     card: OUTLET_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -284,7 +297,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
     mode: "chart",
     trend: chartTrendEncoded || undefined,
   });
-  const timingChartShareUrl = buildEntitySnapshotShareUrl(getSiteUrl(), "outlets", outlet.public_id, {
+  const timingChartShareUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", outlet.name, outlet.public_id, {
     card: OUTLET_CHART_CARD_VERSION,
     version: shareSnapshotVersion,
     critic: shareCriticScore,
@@ -322,14 +335,31 @@ export default async function OutletDetailPage({ params }: PageProps) {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: outlet.name,
-    url: `/outlets/${outlet.public_id}`,
+    url: `${siteUrl}${canonicalPath}`,
     ...(outlet.logo_url && { logo: outlet.logo_url }),
     ...(outlet.website_url && { sameAs: [outlet.website_url] }),
+  };
+  const breadcrumbJsonLd: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: `${siteUrl}/` },
+      { "@type": "ListItem", position: 2, name: "Outlets", item: `${siteUrl}/outlets` },
+      { "@type": "ListItem", position: 3, name: outlet.name, item: `${siteUrl}${canonicalPath}` },
+    ],
   };
 
   return (
     <div className="space-y-8">
       <JsonLd data={jsonLdData} />
+      <JsonLd data={breadcrumbJsonLd} />
+      <Breadcrumbs
+        items={[
+          { href: "/", label: "Home" },
+          { href: "/outlets", label: "Outlets" },
+          { label: outlet.name },
+        ]}
+      />
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6" style={{ position: 'relative' }}>
         <div style={{ position: 'absolute', top: '16px', right: '16px' }}>
@@ -484,7 +514,7 @@ export default async function OutletDetailPage({ params }: PageProps) {
             {outlet.journalists.map((journalist) => (
               <Link
                 key={journalist.id}
-                href={`/journalists/${journalist.public_id}`}
+                href={buildEntityPath("journalists", journalist.name, journalist.public_id)}
                 className="flex items-center justify-between p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
                 <div className="flex items-center gap-3">

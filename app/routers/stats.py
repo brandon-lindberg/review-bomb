@@ -173,7 +173,7 @@ async def get_sitemap_data(
 ):
     """Get all entity identifiers for sitemap generation."""
     journalist_query = (
-        select(Journalist.id, Journalist.public_id)
+        select(Journalist.id, Journalist.public_id, Journalist.name)
         .where(
             Journalist.id.in_(
                 select(Review.journalist_id)
@@ -186,9 +186,16 @@ async def get_sitemap_data(
     journalist_rows = journalist_result.all()
     journalist_ids = [row[0] for row in journalist_rows]
     journalist_public_ids = [row[1] or str(row[0]) for row in journalist_rows]
+    journalist_entries = [
+        {
+            "public_id": row[1] or str(row[0]),
+            "name": row[2],
+        }
+        for row in journalist_rows
+    ]
 
     outlet_query = (
-        select(Outlet.id, Outlet.public_id)
+        select(Outlet.id, Outlet.public_id, Outlet.name)
         .where(
             Outlet.id.in_(
                 select(Review.outlet_id)
@@ -204,9 +211,16 @@ async def get_sitemap_data(
     outlet_rows = outlet_result.all()
     outlet_ids = [row[0] for row in outlet_rows]
     outlet_public_ids = [row[1] or str(row[0]) for row in outlet_rows]
+    outlet_entries = [
+        {
+            "public_id": row[1] or str(row[0]),
+            "name": row[2],
+        }
+        for row in outlet_rows
+    ]
 
     game_query = (
-        select(Game.id, Game.public_id)
+        select(Game.id, Game.public_id, Game.title)
         .where(
             Game.id.in_(
                 select(Review.game_id)
@@ -219,12 +233,22 @@ async def get_sitemap_data(
     game_rows = game_result.all()
     game_ids = [row[0] for row in game_rows]
     game_public_ids = [row[1] or str(row[0]) for row in game_rows]
+    game_entries = [
+        {
+            "public_id": row[1] or str(row[0]),
+            "title": row[2],
+        }
+        for row in game_rows
+    ]
 
     return {
         "journalist_ids": journalist_ids,
         "journalist_public_ids": journalist_public_ids,
+        "journalist_entries": journalist_entries,
         "outlet_ids": outlet_ids,
         "outlet_public_ids": outlet_public_ids,
+        "outlet_entries": outlet_entries,
         "game_ids": game_ids,
         "game_public_ids": game_public_ids,
+        "game_entries": game_entries,
     }

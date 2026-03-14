@@ -4,19 +4,20 @@ import { getJournalists } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
+import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
-  const { page: pageParam } = await searchParams;
-  const page = parseInt(pageParam || "1");
+  const { page: pageParam, sort, order, search } = await searchParams;
+  const hasFacetedState = Boolean(pageParam || sort || order || search?.trim());
 
   return {
     title: "Game Journalists",
     description:
       "Browse game journalists and see how their review scores compare to player opinions. Track critic-to-user score disparity.",
     alternates: { canonical: "/journalists" },
-    ...(page > 1 && { robots: { index: false, follow: true } }),
+    ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Game Journalists - ReviewDisparity",
       description:
@@ -112,7 +113,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                 return (
                   <Link
                     key={journalist.id}
-                    href={`/journalists/${journalist.public_id}`}
+                    href={buildEntityPath("journalists", journalist.name, journalist.public_id)}
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-start justify-between gap-3">
