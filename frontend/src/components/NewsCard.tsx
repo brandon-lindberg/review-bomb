@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { NewsArticle } from "@/types";
 
 interface NewsCardProps {
@@ -25,9 +26,12 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {article.image_url && (
             <div className="h-12 w-16 shrink-0 overflow-hidden rounded sm:h-16 sm:w-20">
-              <img
+              <Image
                 src={article.image_url}
                 alt=""
+                width={80}
+                height={64}
+                sizes="(max-width: 640px) 64px, 80px"
                 className="h-full w-full object-cover"
               />
             </div>
@@ -73,11 +77,13 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
       className="site-panel site-panel-interactive group overflow-hidden rounded-[1.5rem]"
     >
       {article.image_url && (
-        <div className="h-48 w-full overflow-hidden">
-          <img
+        <div className="relative h-48 w-full overflow-hidden">
+          <Image
             src={article.image_url}
             alt=""
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         </div>
       )}

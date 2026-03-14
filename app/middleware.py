@@ -20,7 +20,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if not path.startswith("/api/v1/"):
             return "no-store, no-cache, must-revalidate"
 
-        if path == "/api/v1/stats/sitemap-data":
+        if path.startswith("/api/v1/stats/sitemap-data"):
             return "public, max-age=3600, stale-while-revalidate=86400"
         if path == "/api/v1/news/sources":
             return "public, max-age=300, stale-while-revalidate=3600"

@@ -1,19 +1,88 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews, getGameNews } from "@/lib/api";
-import { ReviewDisparityChart } from "./ReviewDisparityChart";
-import { ReviewTimingChart } from "./ReviewTimingChart";
-import { GameDetailTabs } from "./GameDetailTabs";
-import { CriticReviewsSection } from "./CriticReviewsSection";
-import { JournalistAlignmentSection } from "./JournalistAlignmentSection";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
-import { NewsCard } from "./NewsCard";
 import { ShareButtons } from "./ShareButtons";
 import type { ReviewWithDisparity, ReviewWithJournalist, NewsArticle } from "@/types";
 import { withTrendSnapshot } from "@/lib/share-url";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
+
+function ChartModuleFallback() {
+  return (
+    <div
+      className="flex h-[300px] items-center justify-center rounded-[1.25rem]"
+      style={{ backgroundColor: "color-mix(in srgb, var(--background-card) 92%, var(--background) 8%)" }}
+    >
+      <div className="text-center">
+        <div
+          className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-b-2"
+          style={{ borderColor: "var(--color-rust)" }}
+        />
+        <p style={{ color: "var(--foreground-muted)" }}>Preparing chart module...</p>
+      </div>
+    </div>
+  );
+}
+
+function PanelModuleFallback({ label }: { label: string }) {
+  return (
+    <section className="bg-white rounded-lg shadow p-4 sm:p-6">
+      <div className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+        Loading {label}...
+      </div>
+    </section>
+  );
+}
+
+const ReviewDisparityChart = dynamic(
+  () => import("./ReviewDisparityChart").then((mod) => mod.ReviewDisparityChart),
+  {
+    ssr: false,
+    loading: () => <ChartModuleFallback />,
+  }
+);
+
+const ReviewTimingChart = dynamic(
+  () => import("./ReviewTimingChart").then((mod) => mod.ReviewTimingChart),
+  {
+    ssr: false,
+    loading: () => <ChartModuleFallback />,
+  }
+);
+
+const GameDetailTabs = dynamic(
+  () => import("./GameDetailTabs").then((mod) => mod.GameDetailTabs),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="detail tabs" />,
+  }
+);
+
+const CriticReviewsSection = dynamic(
+  () => import("./CriticReviewsSection").then((mod) => mod.CriticReviewsSection),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="critic reviews" />,
+  }
+);
+
+const JournalistAlignmentSection = dynamic(
+  () => import("./JournalistAlignmentSection").then((mod) => mod.JournalistAlignmentSection),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="alignment view" />,
+  }
+);
+
+const NewsCard = dynamic(
+  () => import("./NewsCard").then((mod) => mod.NewsCard),
+  {
+    ssr: false,
+  }
+);
 
 interface LazyChartSectionProps {
   entityType: "journalist" | "outlet" | "game";

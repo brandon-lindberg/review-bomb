@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { notFound, permanentRedirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
-import { getGame, getGameHistory, getGameNews } from "@/lib/api";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -29,6 +28,7 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
+import { getCachedGame, getCachedGameHistory, getCachedGameNews } from "@/lib/server-entity-loaders";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -68,7 +68,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
   const siteUrl = getSiteUrl();
   try {
     const requestedSegment = parseEntityRouteSegment(id);
-    const game = await getGame(requestedSegment.identifier);
+    const game = await getCachedGame(requestedSegment.identifier);
     const canonicalId = game.public_id;
     const canonicalPath = buildEntityPath("games", game.title, canonicalId);
     const requestedCardVersion = query.card?.trim() || GAME_CARD_VERSION;
@@ -83,7 +83,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     let snapshotTrend = snapshotTrendParam;
     if (shareMode === "chart" && snapshotTrend === undefined) {
       try {
-        const history = await getGameHistory(canonicalId, 180);
+        const history = await getCachedGameHistory(canonicalId, 180);
         snapshotTrend = toTrendSnapshot(history);
       } catch {
         snapshotTrend = [];
@@ -244,12 +244,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   const siteUrl = getSiteUrl();
 
   let game = null;
-  let newsArticles: Awaited<ReturnType<typeof getGameNews>>["items"] = [];
+  let newsArticles: Awaited<ReturnType<typeof getCachedGameNews>>["items"] = [];
   let newsTotalPages = 0;
   let chartTrendEncoded = "";
 
   try {
-    game = await getGame(requestedSegment.identifier);
+    game = await getCachedGame(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching game:", error);
     notFound();
@@ -265,19 +265,18 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  try {
-    const newsResponse = await getGameNews(game.public_id, 1, 5);
+  const [newsResponse, history] = await Promise.all([
+    getCachedGameNews(game.public_id, 1, 5).catch(() => null),
+    getCachedGameHistory(game.public_id, 180).catch(() => null),
+  ]);
+
+  if (newsResponse) {
     newsArticles = newsResponse.items;
     newsTotalPages = newsResponse.total_pages;
-  } catch {
-    // News is non-critical — silently continue without it
   }
 
-  try {
-    const history = await getGameHistory(game.public_id, 180);
+  if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
-  } catch {
-    // Chart share still works without trend payload, OG route will try live fetch
   }
 
   const jsonLdData: Record<string, unknown> = {

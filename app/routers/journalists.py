@@ -30,7 +30,7 @@ from app.schemas.schemas import (
     PaginatedResponse,
     DisparitySnapshot as DisparitySnapshotSchema,
 )
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_MEDIUM
 from app.public_ids import resolve_entity_by_identifier
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
@@ -305,7 +305,7 @@ async def list_journalists(
     await set_cached(
         f"journalists:list:{key_hash}",
         json.dumps(response.model_dump(mode="json")),
-        CACHE_TTL_MEDIUM,
+        CACHE_TTL_HOT,
     )
     return response
 

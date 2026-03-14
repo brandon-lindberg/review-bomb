@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -89,9 +90,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {journalist.image_url ? (
-                          <img
+                          <Image
                             src={journalist.image_url}
                             alt={journalist.name}
+                            width={40}
+                            height={40}
+                            sizes="40px"
                             className="w-10 h-10 rounded-full object-cover"
                           />
                         ) : (
@@ -134,9 +138,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {outlet.logo_url ? (
-                          <img
+                          <Image
                             src={outlet.logo_url}
                             alt={outlet.name}
+                            width={40}
+                            height={40}
+                            sizes="40px"
                             className="w-10 h-10 rounded object-contain bg-gray-100"
                           />
                         ) : (

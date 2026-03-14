@@ -1,5 +1,6 @@
 """Outlets API endpoints."""
 
+import json
 from typing import Optional
 from decimal import Decimal
 
@@ -11,6 +12,7 @@ from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.models import Outlet, Review, Journalist, Game, DisparitySnapshot
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT
 from app.public_ids import resolve_entity_by_identifier
 from app.schemas.schemas import (
     OutletSummary,
@@ -68,6 +70,18 @@ async def list_outlets(
     db: AsyncSession = Depends(get_db),
 ):
     """List all outlets with pagination, sorting, and search (uses denormalized columns)."""
+    key_hash = cache_key(
+        "outlets:list:v2",
+        page=page,
+        per_page=per_page,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    cached = await get_cached(f"outlets:list:{key_hash}")
+    if cached:
+        return PaginatedResponse[OutletWithStats](**json.loads(cached))
+
     # Use denormalized columns for fast queries.
     # For disparity sorting, enforce leaderboard anti-gaming thresholds.
     filters = [
@@ -246,13 +260,21 @@ async def list_outlets(
         for outlet in outlets
     ]
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        f"outlets:list:{key_hash}",
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_HOT,
+    )
+
+    return response
 
 
 @router.get("/{outlet_id}", response_model=OutletWithStats)

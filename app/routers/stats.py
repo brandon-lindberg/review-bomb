@@ -15,13 +15,79 @@ from app.schemas.schemas import (
     TrendingGamesResponse,
     TrendingGameItem,
 )
-from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
+from app.cache import get_cached, set_cached, CACHE_TTL_HOT
+from app.cache import CACHE_TTL_LONG, CACHE_TTL_SHORT
 from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.trending import TrendingAggregator
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
+
+
+async def _get_sitemap_entries(
+    db: AsyncSession,
+    entity_type: str,
+) -> list[dict[str, str | int]]:
+    cache_key = f"stats:sitemap-data:{entity_type}:v1"
+    cached = await get_cached(cache_key)
+    if cached:
+        return json.loads(cached)
+
+    if entity_type == "journalists":
+        query = (
+            select(Journalist.id, Journalist.public_id, Journalist.name)
+            .where(
+                Journalist.id.in_(
+                    select(Review.journalist_id)
+                    .where(Review.score_normalized.isnot(None))
+                    .distinct()
+                )
+            )
+        )
+    elif entity_type == "outlets":
+        query = (
+            select(Outlet.id, Outlet.public_id, Outlet.name)
+            .where(
+                Outlet.id.in_(
+                    select(Review.outlet_id)
+                    .where(
+                        Review.outlet_id.isnot(None),
+                        Review.score_normalized.isnot(None),
+                    )
+                    .distinct()
+                )
+            )
+        )
+    elif entity_type == "games":
+        query = (
+            select(Game.id, Game.public_id, Game.title)
+            .where(
+                Game.id.in_(
+                    select(Review.game_id)
+                    .where(Review.score_normalized.isnot(None))
+                    .distinct()
+                )
+            )
+        )
+    else:
+        raise ValueError(f"Unsupported sitemap entity type: {entity_type}")
+
+    result = await db.execute(query)
+    rows = result.all()
+
+    label_key = "title" if entity_type == "games" else "name"
+    entries = [
+        {
+            "id": row[0],
+            "public_id": row[1] or str(row[0]),
+            label_key: row[2],
+        }
+        for row in rows
+    ]
+
+    await set_cached(cache_key, json.dumps(entries), CACHE_TTL_LONG)
+    return entries
 
 @router.get("", response_model=SiteStats)
 async def get_stats(
@@ -43,7 +109,7 @@ async def get_recent_reviews(
 ):
     """Get most recent reviews site-wide (cached for 60 seconds)."""
     # Check cache first
-    cache_key = f"recent-reviews:v2:{limit}"
+    cache_key = f"recent-reviews:v3:{limit}"
     cached = await get_cached(cache_key)
     if cached:
         data = json.loads(cached)
@@ -133,7 +199,7 @@ async def get_recent_reviews(
         )
 
     # Cache the result for 60 seconds
-    await set_cached(cache_key, json.dumps([item.model_dump(mode='json') for item in items]), CACHE_TTL_SHORT)
+    await set_cached(cache_key, json.dumps([item.model_dump(mode='json') for item in items]), CACHE_TTL_HOT)
 
     return items
 
@@ -173,83 +239,108 @@ async def get_sitemap_data(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all entity identifiers for sitemap generation."""
-    journalist_query = (
-        select(Journalist.id, Journalist.public_id, Journalist.name)
-        .where(
-            Journalist.id.in_(
-                select(Review.journalist_id)
-                .where(Review.score_normalized.isnot(None))
-                .distinct()
-            )
-        )
-    )
-    journalist_result = await db.execute(journalist_query)
-    journalist_rows = journalist_result.all()
+    journalist_entries = await _get_sitemap_entries(db, "journalists")
+    outlet_entries = await _get_sitemap_entries(db, "outlets")
+    game_entries = await _get_sitemap_entries(db, "games")
+
+    journalist_rows = [
+        (entry["id"], entry["public_id"], entry["name"])
+        for entry in journalist_entries
+    ]
     journalist_ids = [row[0] for row in journalist_rows]
     journalist_public_ids = [row[1] or str(row[0]) for row in journalist_rows]
-    journalist_entries = [
-        {
-            "public_id": row[1] or str(row[0]),
-            "name": row[2],
-        }
-        for row in journalist_rows
-    ]
 
-    outlet_query = (
-        select(Outlet.id, Outlet.public_id, Outlet.name)
-        .where(
-            Outlet.id.in_(
-                select(Review.outlet_id)
-                .where(
-                    Review.outlet_id.isnot(None),
-                    Review.score_normalized.isnot(None),
-                )
-                .distinct()
-            )
-        )
-    )
-    outlet_result = await db.execute(outlet_query)
-    outlet_rows = outlet_result.all()
+    outlet_rows = [
+        (entry["id"], entry["public_id"], entry["name"])
+        for entry in outlet_entries
+    ]
     outlet_ids = [row[0] for row in outlet_rows]
     outlet_public_ids = [row[1] or str(row[0]) for row in outlet_rows]
-    outlet_entries = [
-        {
-            "public_id": row[1] or str(row[0]),
-            "name": row[2],
-        }
-        for row in outlet_rows
-    ]
 
-    game_query = (
-        select(Game.id, Game.public_id, Game.title)
-        .where(
-            Game.id.in_(
-                select(Review.game_id)
-                .where(Review.score_normalized.isnot(None))
-                .distinct()
-            )
-        )
-    )
-    game_result = await db.execute(game_query)
-    game_rows = game_result.all()
+    game_rows = [
+        (entry["id"], entry["public_id"], entry["title"])
+        for entry in game_entries
+    ]
     game_ids = [row[0] for row in game_rows]
     game_public_ids = [row[1] or str(row[0]) for row in game_rows]
-    game_entries = [
-        {
-            "public_id": row[1] or str(row[0]),
-            "title": row[2],
-        }
-        for row in game_rows
-    ]
 
     return {
         "journalist_ids": journalist_ids,
         "journalist_public_ids": journalist_public_ids,
-        "journalist_entries": journalist_entries,
+        "journalist_entries": [
+            {
+                "public_id": entry["public_id"],
+                "name": entry["name"],
+            }
+            for entry in journalist_entries
+        ],
         "outlet_ids": outlet_ids,
         "outlet_public_ids": outlet_public_ids,
-        "outlet_entries": outlet_entries,
+        "outlet_entries": [
+            {
+                "public_id": entry["public_id"],
+                "name": entry["name"],
+            }
+            for entry in outlet_entries
+        ],
         "game_ids": game_ids,
         "game_public_ids": game_public_ids,
-        "game_entries": game_entries,
+        "game_entries": [
+            {
+                "public_id": entry["public_id"],
+                "title": entry["title"],
+            }
+            for entry in game_entries
+        ],
+    }
+
+
+@router.get("/sitemap-data/journalists")
+async def get_sitemap_journalist_data(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get journalist sitemap entries."""
+    entries = await _get_sitemap_entries(db, "journalists")
+    return {
+        "entries": [
+            {
+                "public_id": entry["public_id"],
+                "name": entry["name"],
+            }
+            for entry in entries
+        ]
+    }
+
+
+@router.get("/sitemap-data/outlets")
+async def get_sitemap_outlet_data(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get outlet sitemap entries."""
+    entries = await _get_sitemap_entries(db, "outlets")
+    return {
+        "entries": [
+            {
+                "public_id": entry["public_id"],
+                "name": entry["name"],
+            }
+            for entry in entries
+        ]
+    }
+
+
+@router.get("/sitemap-data/games")
+async def get_sitemap_game_data(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get game sitemap entries."""
+    entries = await _get_sitemap_entries(db, "games")
+    return {
+        "entries": [
+            {
+                "public_id": entry["public_id"],
+                "title": entry["title"],
+            }
+            for entry in entries
+        ]
     }

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import {
   getJournalistLeaderboard,
@@ -193,9 +194,12 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                     {/* Avatar (journalists/outlets only) */}
                     {tab !== "games" && (
                       imageUrl ? (
-                        <img
+                        <Image
                           src={imageUrl}
                           alt={name}
+                          width={32}
+                          height={32}
+                          sizes="32px"
                           className={`flex-shrink-0 ${
                             tab === "journalists"
                               ? "w-8 h-8 rounded-full object-cover"

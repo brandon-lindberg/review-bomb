@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getJournalists } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -144,11 +145,13 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                           }}
                         >
                           {journalist.image_url ? (
-                            <img
+                            <Image
                               src={journalist.image_url}
                               alt={journalist.name}
+                              width={48}
+                              height={48}
+                              sizes="48px"
                               className="w-full h-full object-cover"
-                              loading="lazy"
                             />
                           ) : (
                             <span

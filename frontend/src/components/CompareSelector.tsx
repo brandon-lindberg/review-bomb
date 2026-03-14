@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, useRef, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Game, Journalist, Outlet } from "@/types";
@@ -165,9 +166,12 @@ export function CompareSelector({
                     disabled={isNavigating}
                   >
                     {item.image_url ? (
-                      <img
+                      <Image
                         src={item.image_url}
                         alt={item.name}
+                        width={32}
+                        height={32}
+                        sizes="32px"
                         className="w-8 h-8 rounded-full object-cover"
                       />
                     ) : (
@@ -209,9 +213,12 @@ export function CompareSelector({
               }}
             >
               {item.image_url ? (
-                <img
+                <Image
                   src={item.image_url}
                   alt={item.name}
+                  width={20}
+                  height={20}
+                  sizes="20px"
                   className="w-5 h-5 rounded-full object-cover"
                 />
               ) : (

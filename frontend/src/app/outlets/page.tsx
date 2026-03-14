@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getOutlets } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -137,9 +138,12 @@ export default async function OutletsPage({ searchParams }: PageProps) {
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-4 min-w-0 flex-1">
                         {outlet.logo_url ? (
-                          <img
+                          <Image
                             src={outlet.logo_url}
                             alt={outlet.name}
+                            width={48}
+                            height={48}
+                            sizes="48px"
                             className="w-12 h-12 shrink-0 rounded object-contain bg-gray-100"
                           />
                         ) : (

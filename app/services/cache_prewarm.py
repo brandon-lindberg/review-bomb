@@ -9,7 +9,7 @@ from __future__ import annotations
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_maker
-from app.routers import games, journalists, news, stats
+from app.routers import games, journalists, news, outlets, stats
 from app.services.site_stats import refresh_site_stats_snapshot
 
 # Call undecorated functions when invoking route handlers directly for prewarm.
@@ -56,10 +56,27 @@ async def prewarm_core_caches_with_db(
         sort_order="desc",
         db=db,
     )
+    await games.list_games(
+        page=1,
+        per_page=20,
+        year=None,
+        search=None,
+        sort_by="release_date",
+        sort_order="desc",
+        db=db,
+    )
     await prewarm_news_caches_with_db(db)
 
-    # 3) Journalists list (default page).
+    # 3) Journalists + outlets list (default pages).
     journalist_list = await journalists.list_journalists(
+        page=1,
+        per_page=20,
+        search=None,
+        sort_by="latest_review",
+        sort_order="desc",
+        db=db,
+    )
+    await outlets.list_outlets(
         page=1,
         per_page=20,
         search=None,

@@ -17,7 +17,9 @@ import type {
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+const journalistAllReviewsCache = new Map<string, Promise<ReviewWithDisparity[]>>();
 const outletAllReviewsCache = new Map<string, Promise<ReviewWithJournalist[]>>();
+const gameAllReviewsCache = new Map<string, Promise<ReviewWithJournalist[]>>();
 
 type NextFetchOptions = RequestInit & {
   next?: {
@@ -27,6 +29,10 @@ type NextFetchOptions = RequestInit & {
 };
 
 function getServerRevalidateSeconds(endpoint: string): number {
+  if (endpoint.startsWith("/stats/recent-reviews")) return 15;
+  if (endpoint.startsWith("/journalists")) return 15;
+  if (endpoint.startsWith("/outlets")) return 15;
+  if (endpoint.startsWith("/games")) return 15;
   if (endpoint.startsWith("/stats/sitemap-data")) return 3600;
   if (endpoint.startsWith("/news/sources")) return 300;
   if (endpoint.startsWith("/search")) return 30;
@@ -64,15 +70,33 @@ async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promis
   return response.json();
 }
 
+async function fetchAllPaginatedReviews<T>(
+  buildEndpoint: (page: number) => string
+): Promise<T[]> {
+  const firstPage = await fetchAPI<PaginatedResponse<T>>(buildEndpoint(1));
+  if (firstPage.total_pages <= 1) {
+    return firstPage.items;
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: firstPage.total_pages - 1 }, (_, index) =>
+      fetchAPI<PaginatedResponse<T>>(buildEndpoint(index + 2))
+    )
+  );
+
+  return [
+    ...firstPage.items,
+    ...remainingPages.flatMap((page) => page.items),
+  ];
+}
+
 // Stats
 export async function getStats(): Promise<SiteStats> {
   return fetchAPI<SiteStats>("/stats");
 }
 
 export async function getRecentReviews(limit = 10): Promise<ReviewWithJournalist[]> {
-  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`, {
-    cache: "no-store",
-  });
+  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`);
 }
 
 // Journalists
@@ -85,7 +109,7 @@ export async function getJournalists(
 ): Promise<PaginatedResponse<Journalist>> {
   let url = `/journalists?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<Journalist>>(url, { cache: "no-store" });
+  return fetchAPI<PaginatedResponse<Journalist>>(url);
 }
 
 export async function getJournalist(id: string | number): Promise<JournalistDetail> {
@@ -112,7 +136,7 @@ export async function getOutlets(
 ): Promise<PaginatedResponse<OutletWithStats>> {
   let url = `/outlets?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<OutletWithStats>>(url, { cache: "no-store" });
+  return fetchAPI<PaginatedResponse<OutletWithStats>>(url);
 }
 
 export async function getOutlet(id: string | number): Promise<OutletWithStats> {
@@ -141,7 +165,7 @@ export async function getGames(
   let url = `/games?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (year) url += `&year=${year}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<GameWithScores>>(url, { cache: "no-store" });
+  return fetchAPI<PaginatedResponse<GameWithScores>>(url);
 }
 
 export async function getGame(id: string | number): Promise<GameWithScores> {
@@ -223,20 +247,31 @@ export async function getGameHistory(
 export async function getJournalistAllReviews(
   id: string | number
 ): Promise<ReviewWithDisparity[]> {
-  const allReviews: ReviewWithDisparity[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const response = await fetchAPI<PaginatedResponse<ReviewWithDisparity>>(
-      `/journalists/${id}/reviews?page=${page}&per_page=500`
-    );
-    allReviews.push(...response.items);
-    hasMore = page < response.total_pages;
-    page++;
+  const cacheKey = String(id);
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    const cached = journalistAllReviewsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
-  return allReviews;
+  const request = fetchAllPaginatedReviews<ReviewWithDisparity>(
+    (page) => `/journalists/${id}/reviews?page=${page}&per_page=500`
+  );
+
+  if (isBrowser) {
+    journalistAllReviewsCache.set(cacheKey, request);
+  }
+
+  try {
+    return await request;
+  } catch (error) {
+    if (isBrowser) {
+      journalistAllReviewsCache.delete(cacheKey);
+    }
+    throw error;
+  }
 }
 
 export async function getOutletAllReviews(
@@ -252,20 +287,9 @@ export async function getOutletAllReviews(
   }
 
   const request = (async () => {
-    const allReviews: ReviewWithJournalist[] = [];
-    let page = 1;
-    let hasMore = true;
-
-    while (hasMore) {
-      const response = await fetchAPI<PaginatedResponse<ReviewWithJournalist>>(
-        `/outlets/${id}/reviews?page=${page}&per_page=500`
-      );
-      allReviews.push(...response.items);
-      hasMore = page < response.total_pages;
-      page++;
-    }
-
-    return allReviews;
+    return fetchAllPaginatedReviews<ReviewWithJournalist>(
+      (page) => `/outlets/${id}/reviews?page=${page}&per_page=500`
+    );
   })();
 
   if (isBrowser) {
@@ -285,20 +309,31 @@ export async function getOutletAllReviews(
 export async function getGameAllReviews(
   id: string | number
 ): Promise<ReviewWithJournalist[]> {
-  const allReviews: ReviewWithJournalist[] = [];
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const response = await fetchAPI<PaginatedResponse<ReviewWithJournalist>>(
-      `/games/${id}/reviews?page=${page}&per_page=100`
-    );
-    allReviews.push(...response.items);
-    hasMore = page < response.total_pages;
-    page++;
+  const cacheKey = String(id);
+  const isBrowser = typeof window !== "undefined";
+  if (isBrowser) {
+    const cached = gameAllReviewsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
-  return allReviews;
+  const request = fetchAllPaginatedReviews<ReviewWithJournalist>(
+    (page) => `/games/${id}/reviews?page=${page}&per_page=500`
+  );
+
+  if (isBrowser) {
+    gameAllReviewsCache.set(cacheKey, request);
+  }
+
+  try {
+    return await request;
+  } catch (error) {
+    if (isBrowser) {
+      gameAllReviewsCache.delete(cacheKey);
+    }
+    throw error;
+  }
 }
 
 // News

@@ -7,9 +7,9 @@ import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
 
-// Keep the home page shell revalidating frequently so section freshness is driven
-// by the underlying API/fetch caches (typically ~60s), not an extra 60s page cache.
-export const revalidate = 1;
+// Keep the home page fresh without forcing near-continuous server regeneration.
+// Hot sub-sections already use shorter API/fetch caches where needed.
+export const revalidate = 15;
 
 const siteUrl = getSiteUrl();
 

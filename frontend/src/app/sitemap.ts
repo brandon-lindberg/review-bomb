@@ -4,6 +4,26 @@ import { getSiteUrl } from "@/lib/site-url";
 
 const siteUrl = getSiteUrl();
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+export const revalidate = 3600;
+
+interface SitemapEntityEntry {
+  public_id: string;
+  name?: string;
+  title?: string;
+}
+
+async function fetchSitemapEntries(path: string): Promise<SitemapEntityEntry[]> {
+  const response = await fetch(`${apiUrl}${path}`, {
+    next: { revalidate },
+  });
+
+  if (!response.ok) {
+    return [];
+  }
+
+  const data = await response.json();
+  return Array.isArray(data.entries) ? data.entries : [];
+}
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
@@ -20,58 +40,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   try {
-    const response = await fetch(`${apiUrl}/stats/sitemap-data`, {
-      next: { revalidate: 3600 },
-    });
+    const [gameEntries, journalistEntries, outletEntries] = await Promise.all([
+      fetchSitemapEntries("/stats/sitemap-data/games"),
+      fetchSitemapEntries("/stats/sitemap-data/journalists"),
+      fetchSitemapEntries("/stats/sitemap-data/outlets"),
+    ]);
 
-    if (!response.ok) return staticPages;
+    const gamePages: MetadataRoute.Sitemap = gameEntries.map((entry) => ({
+      url: `${siteUrl}${buildEntityPath("games", entry.title || entry.public_id, entry.public_id)}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+    }));
 
-    const data = await response.json();
+    const journalistPages: MetadataRoute.Sitemap = journalistEntries.map((entry) => ({
+      url: `${siteUrl}${buildEntityPath("journalists", entry.name || entry.public_id, entry.public_id)}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+    }));
 
-    const gameEntries: Array<{ public_id: string; title?: string }> = data.game_entries || [];
-    const gamePages: MetadataRoute.Sitemap = (
-      gameEntries.length > 0
-        ? gameEntries.map((entry) => ({
-            url: `${siteUrl}${buildEntityPath("games", entry.title || entry.public_id, entry.public_id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-        : (data.game_public_ids || data.game_ids || []).map((id: string) => ({
-            url: `${siteUrl}${buildEntityPath("games", undefined, id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-    );
-
-    const journalistEntries: Array<{ public_id: string; name?: string }> = data.journalist_entries || [];
-    const journalistPages: MetadataRoute.Sitemap = (
-      journalistEntries.length > 0
-        ? journalistEntries.map((entry) => ({
-            url: `${siteUrl}${buildEntityPath("journalists", entry.name || entry.public_id, entry.public_id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-        : (data.journalist_public_ids || data.journalist_ids || []).map((id: string) => ({
-            url: `${siteUrl}${buildEntityPath("journalists", undefined, id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-    );
-
-    const outletEntries: Array<{ public_id: string; name?: string }> = data.outlet_entries || [];
-    const outletPages: MetadataRoute.Sitemap = (
-      outletEntries.length > 0
-        ? outletEntries.map((entry) => ({
-            url: `${siteUrl}${buildEntityPath("outlets", entry.name || entry.public_id, entry.public_id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-        : (data.outlet_public_ids || data.outlet_ids || []).map((id: string) => ({
-            url: `${siteUrl}${buildEntityPath("outlets", undefined, id)}`,
-            changeFrequency: "weekly" as const,
-            priority: 0.7,
-          }))
-    );
+    const outletPages: MetadataRoute.Sitemap = outletEntries.map((entry) => ({
+      url: `${siteUrl}${buildEntityPath("outlets", entry.name || entry.public_id, entry.public_id)}`,
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+    }));
 
     return [...staticPages, ...gamePages, ...journalistPages, ...outletPages];
   } catch {

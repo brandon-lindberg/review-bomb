@@ -38,10 +38,11 @@ export function Header() {
   return (
     <>
       <header
-        className="sticky top-0 z-20 border-b backdrop-blur-xl"
+        className="sticky top-0 z-20 border-b"
         style={{
           borderColor: "var(--border)",
-          backgroundColor: "color-mix(in srgb, var(--background) 72%, transparent)",
+          background:
+            "linear-gradient(180deg, color-mix(in srgb, var(--background-card-strong) 94%, var(--background) 6%), color-mix(in srgb, var(--background-card) 92%, var(--background) 8%))",
         }}
       >
         <div className="mx-auto max-w-[88rem] px-4 py-4 sm:px-6 lg:px-8">
@@ -137,7 +138,7 @@ export function Header() {
       {mobileMenuOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/55 backdrop-blur-sm lg:hidden"
+            className="fixed inset-0 z-40 bg-black/55 lg:hidden"
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />

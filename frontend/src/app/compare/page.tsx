@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getGame, getGameHistory, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -415,9 +416,12 @@ export default async function ComparePage({ searchParams }: PageProps) {
                     >
                       <div className="flex flex-col items-center gap-2">
                         {item.image_url ? (
-                          <img
+                          <Image
                             src={item.image_url}
                             alt={item.name}
+                            width={48}
+                            height={48}
+                            sizes="48px"
                             className="w-12 h-12 rounded-full object-cover"
                           />
                         ) : (
