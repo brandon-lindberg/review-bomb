@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.normalizeEntityRouteSegment = normalizeEntityRouteSegment;
 exports.slugifyEntityLabel = slugifyEntityLabel;
 exports.buildEntitySegment = buildEntitySegment;
 exports.buildEntityPath = buildEntityPath;
@@ -7,6 +8,15 @@ exports.buildEntityUrl = buildEntityUrl;
 exports.parseEntityRouteSegment = parseEntityRouteSegment;
 exports.buildPathWithQuery = buildPathWithQuery;
 const ENTITY_SEGMENT_SEPARATOR = "--";
+function normalizeEntityRouteSegment(segment) {
+    const trimmedSegment = segment.trim().replace(/^\/+|\/+$/g, "");
+    try {
+        return decodeURIComponent(trimmedSegment);
+    }
+    catch {
+        return trimmedSegment;
+    }
+}
 function slugifyEntityLabel(label) {
     if (!label)
         return "";
@@ -32,7 +42,7 @@ function buildEntityUrl(siteUrl, entityType, label, publicId) {
     return `${siteUrl}${buildEntityPath(entityType, label, publicId)}`;
 }
 function parseEntityRouteSegment(segment) {
-    const normalizedSegment = segment.trim().replace(/^\/+|\/+$/g, "");
+    const normalizedSegment = normalizeEntityRouteSegment(segment);
     const separatorIndex = normalizedSegment.lastIndexOf(ENTITY_SEGMENT_SEPARATOR);
     if (separatorIndex <= 0 || separatorIndex === normalizedSegment.length - ENTITY_SEGMENT_SEPARATOR.length) {
         return {

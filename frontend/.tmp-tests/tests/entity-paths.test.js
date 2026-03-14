@@ -13,6 +13,7 @@ const entity_paths_1 = require("../src/lib/entity-paths");
 });
 (0, node_test_1.default)("buildEntityPath produces slug plus stable id canonicals", () => {
     strict_1.default.equal((0, entity_paths_1.buildEntityPath)("games", "High Guard", "abc123"), "/games/high-guard--abc123");
+    strict_1.default.equal((0, entity_paths_1.buildEntityPath)("games", "Pokémon FireRed Version and Pokémon LeafGreen Version", "poke123"), "/games/pokémon-firered-version-and-pokémon-leafgreen-version--poke123");
     strict_1.default.equal((0, entity_paths_1.buildEntityPath)("journalists", "Joe Terrible", "crit42"), "/journalists/joe-terrible--crit42");
 });
 (0, node_test_1.default)("parseEntityRouteSegment handles canonical, bare id, and numeric legacy routes", () => {
@@ -31,6 +32,14 @@ const entity_paths_1 = require("../src/lib/entity-paths");
         slug: null,
         isSlugged: false,
     });
+    strict_1.default.deepEqual((0, entity_paths_1.parseEntityRouteSegment)("pok%C3%A9mon-firered-version-and-pok%C3%A9mon-leafgreen-version--abc123"), {
+        identifier: "abc123",
+        slug: "pokémon-firered-version-and-pokémon-leafgreen-version",
+        isSlugged: true,
+    });
+});
+(0, node_test_1.default)("normalizeEntityRouteSegment decodes percent-encoded slugs for canonical comparisons", () => {
+    strict_1.default.equal((0, entity_paths_1.normalizeEntityRouteSegment)("pok%C3%A9mon-firered-version-and-pok%C3%A9mon-leafgreen-version--abc123"), "pokémon-firered-version-and-pokémon-leafgreen-version--abc123");
 });
 (0, node_test_1.default)("stale slugs can be rebuilt into the current canonical segment", () => {
     const parsed = (0, entity_paths_1.parseEntityRouteSegment)("old-title--abc123");

@@ -13,6 +13,7 @@ import {
   buildEntityPath,
   buildEntitySegment,
   buildPathWithQuery,
+  normalizeEntityRouteSegment,
   parseEntityRouteSegment,
 } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
@@ -238,6 +239,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 export default async function GameDetailPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
+  const normalizedId = normalizeEntityRouteSegment(id);
   const requestedSegment = parseEntityRouteSegment(id);
   const siteUrl = getSiteUrl();
 
@@ -259,7 +261,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
 
   const canonicalSegment = buildEntitySegment(game.title, game.public_id);
   const canonicalPath = buildEntityPath("games", game.title, game.public_id);
-  if (id !== canonicalSegment) {
+  if (normalizedId !== canonicalSegment) {
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 

@@ -8,6 +8,16 @@ export interface ParsedEntityRouteSegment {
   isSlugged: boolean;
 }
 
+export function normalizeEntityRouteSegment(segment: string): string {
+  const trimmedSegment = segment.trim().replace(/^\/+|\/+$/g, "");
+
+  try {
+    return decodeURIComponent(trimmedSegment);
+  } catch {
+    return trimmedSegment;
+  }
+}
+
 export function slugifyEntityLabel(label: string | null | undefined): string {
   if (!label) return "";
 
@@ -49,7 +59,7 @@ export function buildEntityUrl(
 }
 
 export function parseEntityRouteSegment(segment: string): ParsedEntityRouteSegment {
-  const normalizedSegment = segment.trim().replace(/^\/+|\/+$/g, "");
+  const normalizedSegment = normalizeEntityRouteSegment(segment);
   const separatorIndex = normalizedSegment.lastIndexOf(ENTITY_SEGMENT_SEPARATOR);
 
   if (separatorIndex <= 0 || separatorIndex === normalizedSegment.length - ENTITY_SEGMENT_SEPARATOR.length) {

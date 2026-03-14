@@ -13,6 +13,7 @@ import {
   buildEntityPath,
   buildEntitySegment,
   buildPathWithQuery,
+  normalizeEntityRouteSegment,
   parseEntityRouteSegment,
 } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
@@ -251,6 +252,7 @@ export default async function JournalistDetailPage({
 }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
+  const normalizedId = normalizeEntityRouteSegment(id);
   const requestedSegment = parseEntityRouteSegment(id);
   const siteUrl = getSiteUrl();
 
@@ -270,7 +272,7 @@ export default async function JournalistDetailPage({
 
   const canonicalSegment = buildEntitySegment(journalist.name, journalist.public_id);
   const canonicalPath = buildEntityPath("journalists", journalist.name, journalist.public_id);
-  if (id !== canonicalSegment) {
+  if (normalizedId !== canonicalSegment) {
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
