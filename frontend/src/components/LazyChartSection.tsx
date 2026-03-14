@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews, getGameNews } from "@/lib/api";
 import { ReviewDisparityChart } from "./ReviewDisparityChart";
 import { ReviewTimingChart } from "./ReviewTimingChart";
@@ -11,6 +11,7 @@ import type { AlignmentJournalist } from "./JournalistAlignmentSection";
 import { NewsCard } from "./NewsCard";
 import { ShareButtons } from "./ShareButtons";
 import type { ReviewWithDisparity, ReviewWithJournalist, NewsArticle } from "@/types";
+import { withTrendSnapshot } from "@/lib/share-url";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
 
@@ -51,6 +52,13 @@ export function LazyChartSection({
   const [newsPage, setNewsPage] = useState(1);
   const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
   const [newsLoading, setNewsLoading] = useState(false);
+  const [trendShareState, setTrendShareState] = useState<{
+    trend: string;
+    window: string;
+    windowLabel: string;
+    series: "steam" | "metacritic" | "combined";
+    seriesLabel: string;
+  } | null>(null);
 
   // Intersection Observer: trigger fetch when section scrolls into view
   useEffect(() => {
@@ -131,13 +139,31 @@ export function LazyChartSection({
     && timingChartShareText
     && effectiveTimingCounts
   );
+  const effectiveDisparityChartShareUrl = useMemo(() => {
+    if (!disparityChartShareUrl || !trendShareState) return disparityChartShareUrl;
+    return withTrendSnapshot(disparityChartShareUrl, {
+      trend: trendShareState.trend,
+      window: trendShareState.window,
+      series: trendShareState.series,
+    });
+  }, [disparityChartShareUrl, trendShareState]);
+  const effectiveDisparityChartShareText = useMemo(() => {
+    if (!disparityChartShareText || !trendShareState) return disparityChartShareText;
+
+    const details = [`Window: ${trendShareState.windowLabel}`];
+    if (trendShareState.series !== "combined") {
+      details.unshift(`Series: ${trendShareState.seriesLabel}`);
+    }
+
+    return `${disparityChartShareText} — ${details.join(" — ")}`;
+  }, [disparityChartShareText, trendShareState]);
   const isTimingTabActive = chartTab === "timing" && hasTimingShare;
   const activeShareUrl = isTimingTabActive
     ? timingChartShareUrl
-    : disparityChartShareUrl ?? timingChartShareUrl;
+    : effectiveDisparityChartShareUrl ?? timingChartShareUrl;
   const activeShareText = isTimingTabActive
     ? timingChartShareText
-    : disparityChartShareText ?? timingChartShareText;
+    : effectiveDisparityChartShareText ?? timingChartShareText;
   const gameReviews = (reviews ?? []) as ReviewWithJournalist[];
   const latestNewsContent = allNews.length > 0 ? (
     <div>
@@ -240,6 +266,7 @@ export function LazyChartSection({
                     reviews={reviews}
                     context={entityType}
                     height={300}
+                    onTrendShareStateChange={setTrendShareState}
                     {...(entityType === "game" && gameTitle ? { gameTitle } : {})}
                   />
                   <p className="mt-4 text-sm text-gray-500 text-center">

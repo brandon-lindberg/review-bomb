@@ -13,6 +13,7 @@ import {
   ReferenceArea,
 } from "recharts";
 import type { ReviewWithDisparity, ReviewWithJournalist } from "@/types";
+import { encodeTrendSnapshot } from "@/lib/share-snapshot";
 
 // Hook to detect dark mode
 function useIsDarkMode() {
@@ -67,6 +68,13 @@ type TrendSpanSegment = {
   start: { x: number; y: number };
   end: { x: number; y: number };
 };
+type TrendShareState = {
+  trend: string;
+  window: TrendRange;
+  windowLabel: string;
+  series: DisparityType;
+  seriesLabel: string;
+};
 
 // Union type for both review types
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
@@ -112,6 +120,12 @@ function getDisparityValue(point: ChartDataPoint, type: DisparityType): number |
   return point.combinedDisparity;
 }
 
+function getTrendValue(point: ChartDataPoint, type: DisparityType): number | null {
+  if (type === "steam") return point.steamRollingAvg ?? null;
+  if (type === "metacritic") return point.metacriticRollingAvg ?? null;
+  return point.combinedRollingAvg ?? null;
+}
+
 function toUtcDateOnlyTimestamp(value: string): number | null {
   if (!value) return null;
 
@@ -155,6 +169,13 @@ const GAME_TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
   { value: "pre", label: "PRE" },
   ...TRAILING_TREND_RANGE_OPTIONS,
 ];
+
+const TREND_SERIES_PRIORITY: DisparityType[] = ["combined", "steam", "metacritic"];
+const TREND_SERIES_LABELS: Record<DisparityType, string> = {
+  combined: "Combined",
+  steam: "Steam",
+  metacritic: "Metacritic",
+};
 
 function getTrendRangeStartTimestamp(latestTimestamp: number, range: TrendRange): number | null {
   if (range === "max" || range === "pre") return null;
@@ -300,6 +321,7 @@ interface ReviewDisparityChartProps {
    * For game context, we need to pass the game title since ReviewWithJournalist doesn't have it
    */
   gameTitle?: string;
+  onTrendShareStateChange?: (state: TrendShareState | null) => void;
 }
 
 type ChartMode = "trend" | "map";
@@ -309,6 +331,7 @@ export function ReviewDisparityChart({
   height = 300,
   context,
   gameTitle,
+  onTrendShareStateChange,
 }: ReviewDisparityChartProps) {
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
@@ -490,6 +513,37 @@ export function ReviewDisparityChart({
       year: "numeric",
     })}.`;
   }, [effectiveTrendRange, hasReleaseAnchoredTrend, latestTrendTimestamp, trendRangeOptions]);
+
+  const trendShareState = useMemo<TrendShareState | null>(() => {
+    const selectedSeries = TREND_SERIES_PRIORITY.find((type) =>
+      visibleLines[type] && trendChartData.some((point) => isFiniteChartNumber(getTrendValue(point, type)))
+    );
+
+    if (!selectedSeries) return null;
+
+    const trendPoints = trendChartData
+      .map((point) => getTrendValue(point, selectedSeries))
+      .filter((value): value is number => isFiniteChartNumber(value));
+
+    if (trendPoints.length < 2) return null;
+
+    const trend = encodeTrendSnapshot(trendPoints);
+    if (!trend) return null;
+
+    const windowLabel = trendRangeOptions.find((option) => option.value === effectiveTrendRange)?.label ?? effectiveTrendRange.toUpperCase();
+
+    return {
+      trend,
+      window: effectiveTrendRange,
+      windowLabel,
+      series: selectedSeries,
+      seriesLabel: TREND_SERIES_LABELS[selectedSeries],
+    };
+  }, [effectiveTrendRange, trendChartData, trendRangeOptions, visibleLines]);
+
+  useEffect(() => {
+    onTrendShareStateChange?.(trendShareState);
+  }, [onTrendShareStateChange, trendShareState]);
 
   const trendWindowSpanSegments = useMemo<TrendSpanSegment[]>(() => {
     if (!(chartMode === "trend" && hasReleaseAnchoredTrend)) return [];

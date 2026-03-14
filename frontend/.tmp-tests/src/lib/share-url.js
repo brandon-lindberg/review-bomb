@@ -5,6 +5,7 @@ exports.buildEntitySnapshotShareUrl = buildEntitySnapshotShareUrl;
 exports.buildCompareShareParams = buildCompareShareParams;
 exports.buildCompareShareUrl = buildCompareShareUrl;
 exports.withSnapshotNonce = withSnapshotNonce;
+exports.withTrendSnapshot = withTrendSnapshot;
 exports.buildRedditShareUrl = buildRedditShareUrl;
 exports.buildXIntentUrl = buildXIntentUrl;
 const share_snapshot_1 = require("./share-snapshot");
@@ -69,6 +70,30 @@ function withSnapshotNonce(url, nonce) {
     try {
         const parsed = new URL(url);
         parsed.searchParams.set("sx", nonce);
+        return parsed.toString();
+    }
+    catch {
+        return url;
+    }
+}
+function withTrendSnapshot(url, input) {
+    try {
+        const parsed = new URL(url);
+        const trend = input.trend.trim();
+        if (trend)
+            parsed.searchParams.set("t", trend);
+        else
+            parsed.searchParams.delete("t");
+        const window = input.window?.trim();
+        if (window)
+            parsed.searchParams.set("tw", window);
+        else
+            parsed.searchParams.delete("tw");
+        const series = input.series?.trim();
+        if (series)
+            parsed.searchParams.set("ts", series);
+        else
+            parsed.searchParams.delete("ts");
         return parsed.toString();
     }
     catch {

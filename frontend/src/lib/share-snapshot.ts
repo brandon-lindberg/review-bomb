@@ -52,6 +52,27 @@ export function formatSnapshotDisplay(value: number | null | undefined, digits =
 
 const TREND_SNAPSHOT_MAX_POINTS = 16;
 
+function compressTrendSnapshotPoints(points: number[], maxPoints = TREND_SNAPSHOT_MAX_POINTS): number[] {
+  const normalized = points
+    .map((value) => Number(value))
+    .filter((value) => Number.isFinite(value))
+    .map((value) => Number(value.toFixed(1)));
+
+  const limit = Math.max(1, maxPoints);
+  if (normalized.length <= limit) return normalized;
+  if (limit === 1) return [normalized[normalized.length - 1]];
+
+  const sampled: number[] = [];
+  const lastIndex = normalized.length - 1;
+
+  for (let index = 0; index < limit; index += 1) {
+    const sourceIndex = Math.round((index / (limit - 1)) * lastIndex);
+    sampled.push(normalized[sourceIndex]);
+  }
+
+  return sampled;
+}
+
 export function toTrendSnapshot(
   history: DisparitySnapshot[],
   maxPoints = TREND_SNAPSHOT_MAX_POINTS
@@ -70,17 +91,14 @@ export function toTrendSnapshot(
     })
     .filter((value): value is number => value != null);
 
-  return points.slice(-Math.max(1, maxPoints));
+  return compressTrendSnapshotPoints(points, maxPoints);
 }
 
 export function encodeTrendSnapshot(
   points: number[],
   maxPoints = TREND_SNAPSHOT_MAX_POINTS
 ): string {
-  const normalized = points
-    .slice(-Math.max(1, maxPoints))
-    .map((value) => Number(value))
-    .filter((value) => Number.isFinite(value))
+  const normalized = compressTrendSnapshotPoints(points, maxPoints)
     .map((value) => Number(value).toFixed(1));
   return normalized.join(",");
 }

@@ -10,6 +10,7 @@ import {
   buildSnapshotShareParams,
   buildXIntentUrl,
   withSnapshotNonce,
+  withTrendSnapshot,
 } from "../src/lib/share-url";
 
 test("buildSnapshotShareParams includes expected base metrics", () => {
@@ -185,6 +186,20 @@ test("reddit and X share builders create expected intent urls", () => {
   const xParams = new URL(xIntent).searchParams;
   assert.equal(xParams.get("text"), text);
   assert.equal(new URL(xParams.get("url") ?? "").searchParams.get("sx"), nonce);
+});
+
+test("withTrendSnapshot replaces trend payload and trend labels", () => {
+  const baseUrl = "https://reviewdisparity.com/games/game-1?card=g15&v=1&mode=chart&t=1.0,2.0";
+  const updated = withTrendSnapshot(baseUrl, {
+    trend: "3.0,4.0,5.0",
+    window: "1m",
+    series: "steam",
+  });
+
+  const params = new URL(updated).searchParams;
+  assert.equal(params.get("t"), "3.0,4.0,5.0");
+  assert.equal(params.get("tw"), "1m");
+  assert.equal(params.get("ts"), "steam");
 });
 
 test("share surfaces use the centralized share-url builders", () => {

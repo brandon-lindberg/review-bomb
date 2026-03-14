@@ -61,6 +61,24 @@ function formatSnapshotDisplay(value, digits = 0) {
     return Number(value).toFixed(digits);
 }
 const TREND_SNAPSHOT_MAX_POINTS = 16;
+function compressTrendSnapshotPoints(points, maxPoints = TREND_SNAPSHOT_MAX_POINTS) {
+    const normalized = points
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+        .map((value) => Number(value.toFixed(1)));
+    const limit = Math.max(1, maxPoints);
+    if (normalized.length <= limit)
+        return normalized;
+    if (limit === 1)
+        return [normalized[normalized.length - 1]];
+    const sampled = [];
+    const lastIndex = normalized.length - 1;
+    for (let index = 0; index < limit; index += 1) {
+        const sourceIndex = Math.round((index / (limit - 1)) * lastIndex);
+        sampled.push(normalized[sourceIndex]);
+    }
+    return sampled;
+}
 function toTrendSnapshot(history, maxPoints = TREND_SNAPSHOT_MAX_POINTS) {
     if (!history || history.length === 0)
         return [];
@@ -76,13 +94,10 @@ function toTrendSnapshot(history, maxPoints = TREND_SNAPSHOT_MAX_POINTS) {
         return Number(Number(combined).toFixed(1));
     })
         .filter((value) => value != null);
-    return points.slice(-Math.max(1, maxPoints));
+    return compressTrendSnapshotPoints(points, maxPoints);
 }
 function encodeTrendSnapshot(points, maxPoints = TREND_SNAPSHOT_MAX_POINTS) {
-    const normalized = points
-        .slice(-Math.max(1, maxPoints))
-        .map((value) => Number(value))
-        .filter((value) => Number.isFinite(value))
+    const normalized = compressTrendSnapshotPoints(points, maxPoints)
         .map((value) => Number(value).toFixed(1));
     return normalized.join(",");
 }

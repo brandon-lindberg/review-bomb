@@ -37,10 +37,44 @@ function parseCount(rawValue?: string | null): number | null {
 }
 
 type SnapshotMode = "default" | "chart" | "timing";
+type TrendSeriesKind = "combined" | "steam" | "metacritic";
 
 function normalizeMode(rawMode?: string | null): SnapshotMode {
   if (rawMode === "chart" || rawMode === "timing") return rawMode;
   return "default";
+}
+
+function normalizeTrendWindow(rawWindow?: string | null): string | null {
+  const normalized = rawWindow?.trim().toLowerCase();
+  if (normalized === "pre") return "PRE";
+  if (normalized === "1m") return "1M";
+  if (normalized === "3m") return "3M";
+  if (normalized === "6m") return "6M";
+  if (normalized === "1y") return "1Y";
+  if (normalized === "3y") return "3Y";
+  if (normalized === "max") return "MAX";
+  return null;
+}
+
+function normalizeTrendSeries(rawSeries?: string | null): TrendSeriesKind | null {
+  if (rawSeries === "steam" || rawSeries === "metacritic" || rawSeries === "combined") {
+    return rawSeries;
+  }
+  return null;
+}
+
+function trendSeriesLabel(series: TrendSeriesKind | null): string | null {
+  if (series === "steam") return "Steam";
+  if (series === "metacritic") return "Metacritic";
+  if (series === "combined") return "Combined";
+  return null;
+}
+
+function trendSeriesColor(series: TrendSeriesKind | null, disparity: number | null): string {
+  if (series === "steam") return "#708160";
+  if (series === "metacritic") return "#DD7631";
+  if (series === "combined") return "#BB3B0E";
+  return getDisparityColor(disparity);
 }
 
 function kindSubtitle(kind: EntityKind, mode: SnapshotMode): string {
@@ -92,6 +126,9 @@ export async function GET(request: Request) {
   const launch = parseCount(searchParams.get("launch"));
   const late = parseCount(searchParams.get("late"));
   const totalTiming = (early ?? 0) + (launch ?? 0) + (late ?? 0);
+  const trendWindow = normalizeTrendWindow(searchParams.get("tw"));
+  const trendSeries = normalizeTrendSeries(searchParams.get("ts"));
+  const trendSeriesText = trendSeriesLabel(trendSeries);
   let trend = readTrendSnapshot(searchParams.get("t")) ?? [];
   if (mode === "chart" && trend.length < 2 && entityId) {
     try {
@@ -105,7 +142,7 @@ export async function GET(request: Request) {
       trend = [];
     }
   }
-  const trendColor = getDisparityColor(disparity);
+  const trendColor = trendSeriesColor(trendSeries, disparity);
   const compactMetrics = mode !== "default";
   const chartWidth = 1068;
   const chartHeight = 138;
@@ -184,8 +221,11 @@ export async function GET(request: Request) {
               padding: "12px 14px",
             }}
           >
-            <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8", letterSpacing: "0.3px" }}>
-              Disparity trend
+            <div style={{ display: "flex", fontSize: 18, color: "#CFC5B8", letterSpacing: "0.3px", justifyContent: "space-between", width: "100%" }}>
+              <span>Disparity trend</span>
+              <span style={{ display: "flex", fontSize: 16, color: "#B8AFA3" }}>
+                {[trendSeriesText, trendWindow].filter(Boolean).join(" • ") || "Recent view"}
+              </span>
             </div>
             {trend.length > 1 ? (
               <svg

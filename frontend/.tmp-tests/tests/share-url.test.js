@@ -162,6 +162,18 @@ const share_url_1 = require("../src/lib/share-url");
     strict_1.default.equal(xParams.get("text"), text);
     strict_1.default.equal(new URL(xParams.get("url") ?? "").searchParams.get("sx"), nonce);
 });
+(0, node_test_1.default)("withTrendSnapshot replaces trend payload and trend labels", () => {
+    const baseUrl = "https://reviewdisparity.com/games/game-1?card=g15&v=1&mode=chart&t=1.0,2.0";
+    const updated = (0, share_url_1.withTrendSnapshot)(baseUrl, {
+        trend: "3.0,4.0,5.0",
+        window: "1m",
+        series: "steam",
+    });
+    const params = new URL(updated).searchParams;
+    strict_1.default.equal(params.get("t"), "3.0,4.0,5.0");
+    strict_1.default.equal(params.get("tw"), "1m");
+    strict_1.default.equal(params.get("ts"), "steam");
+});
 (0, node_test_1.default)("share surfaces use the centralized share-url builders", () => {
     const root = process.cwd();
     const expectations = [
