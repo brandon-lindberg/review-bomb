@@ -10,6 +10,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 import type { ReviewWithDisparity, ReviewWithJournalist } from "@/types";
 
@@ -52,6 +53,20 @@ const getThemeColors = (isDark: boolean) => ({
 type DisparityType = "steam" | "metacritic" | "combined";
 type PointPosition = { x: number; y: number };
 type PointPositionsByType = Partial<Record<DisparityType, PointPosition>>;
+type SecondaryMapKind = "release" | "score";
+type TrendRange = "pre" | "1m" | "3m" | "6m" | "1y" | "3y" | "max";
+type SecondaryMapPoint = {
+  x: number;
+  disparity: number;
+  point: ChartDataPoint;
+  type: DisparityType;
+  axisValue: number;
+};
+type TrendSpanSegment = {
+  type: DisparityType;
+  start: { x: number; y: number };
+  end: { x: number; y: number };
+};
 
 // Union type for both review types
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
@@ -78,6 +93,8 @@ interface ChartDataPoint {
   steamRollingAvg?: number | null;
   metacriticRollingAvg?: number | null;
   combinedRollingAvg?: number | null;
+  daysFromRelease?: number | null;
+  reviewTiming?: string;
   // Context info for tooltip
   gameName?: string;
   journalistName?: string;
@@ -87,6 +104,158 @@ interface ChartDataPoint {
 
 function isFiniteChartNumber(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value);
+}
+
+function getDisparityValue(point: ChartDataPoint, type: DisparityType): number | null {
+  if (type === "steam") return point.steamDisparity;
+  if (type === "metacritic") return point.metacriticDisparity;
+  return point.combinedDisparity;
+}
+
+function toUtcDateOnlyTimestamp(value: string): number | null {
+  if (!value) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    return Date.UTC(year, month - 1, day);
+  }
+
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+}
+
+function calculateDaysFromRelease(publishedAt: string | null | undefined, releaseDate: string | null | undefined): number | null {
+  if (!publishedAt || !releaseDate) return null;
+
+  const publishedTs = toUtcDateOnlyTimestamp(publishedAt);
+  const releaseTs = toUtcDateOnlyTimestamp(releaseDate);
+  if (publishedTs == null || releaseTs == null) return null;
+
+  return Math.round((publishedTs - releaseTs) / 86400000);
+}
+
+function formatDaysFromRelease(daysFromRelease: number | null | undefined): string | null {
+  if (daysFromRelease == null) return null;
+  if (daysFromRelease === 0) return "Release day";
+  if (daysFromRelease > 0) return `Day +${daysFromRelease}`;
+  return `Day ${daysFromRelease}`;
+}
+
+const TRAILING_TREND_RANGE_OPTIONS: Array<{ value: Exclude<TrendRange, "pre">; label: string }> = [
+  { value: "1m", label: "1M" },
+  { value: "3m", label: "3M" },
+  { value: "6m", label: "6M" },
+  { value: "1y", label: "1Y" },
+  { value: "3y", label: "3Y" },
+  { value: "max", label: "MAX" },
+];
+
+const GAME_TREND_RANGE_OPTIONS: Array<{ value: TrendRange; label: string }> = [
+  { value: "pre", label: "PRE" },
+  ...TRAILING_TREND_RANGE_OPTIONS,
+];
+
+function getTrendRangeStartTimestamp(latestTimestamp: number, range: TrendRange): number | null {
+  if (range === "max" || range === "pre") return null;
+
+  const date = new Date(latestTimestamp);
+  const start = new Date(latestTimestamp);
+
+  if (range === "1m") start.setMonth(date.getMonth() - 1);
+  if (range === "3m") start.setMonth(date.getMonth() - 3);
+  if (range === "6m") start.setMonth(date.getMonth() - 6);
+  if (range === "1y") start.setFullYear(date.getFullYear() - 1);
+  if (range === "3y") start.setFullYear(date.getFullYear() - 3);
+
+  return start.getTime();
+}
+
+function withRollingAverages(data: ChartDataPoint[], windowSize: number): ChartDataPoint[] {
+  const processed = data.map((point) => ({
+    ...point,
+    steamRollingAvg: null,
+    metacriticRollingAvg: null,
+    combinedRollingAvg: null,
+  }));
+
+  calculateRollingAverageForField(
+    processed,
+    windowSize,
+    (p) => p.steamDisparity,
+    (p, val) => { p.steamRollingAvg = val; }
+  );
+  calculateRollingAverageForField(
+    processed,
+    windowSize,
+    (p) => p.metacriticDisparity,
+    (p, val) => { p.metacriticRollingAvg = val; }
+  );
+  calculateRollingAverageForField(
+    processed,
+    windowSize,
+    (p) => p.combinedDisparity,
+    (p, val) => { p.combinedRollingAvg = val; }
+  );
+
+  return processed;
+}
+
+function buildSecondaryMapData(
+  data: ChartDataPoint[],
+  type: DisparityType,
+  kind: SecondaryMapKind
+): SecondaryMapPoint[] {
+  const groups = new Map<number, Array<{ point: ChartDataPoint; disparity: number }>>();
+  const seriesOffset = kind === "release"
+    ? type === "steam" ? -0.18 : type === "metacritic" ? 0 : 0.18
+    : type === "steam" ? -0.32 : type === "metacritic" ? 0 : 0.32;
+
+  data.forEach((point) => {
+    const disparity = getDisparityValue(point, type);
+    const axisValue = kind === "release"
+      ? point.daysFromRelease
+      : point.criticScore != null
+        ? Math.round(point.criticScore)
+        : null;
+
+    if (!isFiniteChartNumber(disparity) || !isFiniteChartNumber(axisValue)) return;
+
+    const group = groups.get(axisValue) ?? [];
+    group.push({ point, disparity });
+    groups.set(axisValue, group);
+  });
+
+  const mapPoints: SecondaryMapPoint[] = [];
+
+  for (const [axisValue, entries] of Array.from(groups.entries()).sort((a, b) => a[0] - b[0])) {
+    const sortedEntries = entries
+      .slice()
+      .sort((a, b) => a.disparity - b.disparity || a.point.index - b.point.index);
+
+    const spread = sortedEntries.length <= 1
+      ? 0
+      : kind === "release"
+        ? Math.min(0.86, Math.max(0.24, (sortedEntries.length - 1) * 0.045))
+        : Math.min(0.92, Math.max(0.28, (sortedEntries.length - 1) * 0.06));
+    const step = sortedEntries.length <= 1 ? 0 : spread / (sortedEntries.length - 1);
+
+    sortedEntries.forEach((entry, entryIndex) => {
+      const centeredOffset = sortedEntries.length <= 1
+        ? 0
+        : -spread / 2 + step * entryIndex;
+
+      mapPoints.push({
+        x: axisValue + centeredOffset + seriesOffset,
+        disparity: entry.disparity,
+        point: entry.point,
+        type,
+        axisValue,
+      });
+    });
+  }
+
+  return mapPoints;
 }
 
 // Calculate rolling average for a specific field
@@ -133,7 +302,7 @@ interface ReviewDisparityChartProps {
   gameTitle?: string;
 }
 
-type ChartMode = "trend" | "all";
+type ChartMode = "trend" | "map";
 
 export function ReviewDisparityChart({
   reviews,
@@ -152,6 +321,7 @@ export function ReviewDisparityChart({
   });
 
   const [chartMode, setChartMode] = useState<ChartMode>("trend");
+  const [trendRange, setTrendRange] = useState<TrendRange>("max");
   const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ x: number; y: number; containerWidth: number } | null>(null);
   const chartContainerRef = useRef<HTMLDivElement>(null);
@@ -176,7 +346,7 @@ export function ReviewDisparityChart({
 
   // Transform reviews into chart data points with all disparity types
   const chartData = useMemo(() => {
-    const data = reviews
+    return reviews
       .filter((review) => review.published_at != null)
       .map((review, idx) => {
         const date = new Date(review.published_at!);
@@ -202,6 +372,8 @@ export function ReviewDisparityChart({
           steamDisparity: steamDisp,
           metacriticDisparity: mcDisp,
           combinedDisparity: combinedDisp,
+          daysFromRelease: calculateDaysFromRelease(review.published_at, review.game_release_date),
+          reviewTiming: review.review_timing,
           criticScore: review.score_normalized != null ? Number(review.score_normalized) : null,
           outletName: review.outlet_name,
         };
@@ -222,26 +394,7 @@ export function ReviewDisparityChart({
         return point;
       })
       .sort((a, b) => a.date - b.date);
-
-    // Calculate rolling averages for each disparity type
-    calculateRollingAverageForField(
-      data, rollingWindowSize,
-      p => p.steamDisparity,
-      (p, val) => { p.steamRollingAvg = val; }
-    );
-    calculateRollingAverageForField(
-      data, rollingWindowSize,
-      p => p.metacriticDisparity,
-      (p, val) => { p.metacriticRollingAvg = val; }
-    );
-    calculateRollingAverageForField(
-      data, rollingWindowSize,
-      p => p.combinedDisparity,
-      (p, val) => { p.combinedRollingAvg = val; }
-    );
-
-    return data;
-  }, [reviews, context, gameTitle, rollingWindowSize]);
+  }, [reviews, context, gameTitle]);
 
   // Check which disparity types have data
   const hasData = useMemo(() => ({
@@ -258,31 +411,181 @@ export function ReviewDisparityChart({
     [hasData, visibleLines]
   );
 
-  const allPointsStyle = useMemo(() => {
-    const pointLoad = chartData.length * Math.max(1, visibleTypeCount);
+  const hasReleaseAnchoredTrend = useMemo(
+    () => context === "game" && chartData.some((point) => point.daysFromRelease != null),
+    [chartData, context]
+  );
+
+  const hasPreReleaseTrendData = useMemo(
+    () => hasReleaseAnchoredTrend && chartData.some((point) => (point.daysFromRelease ?? Infinity) < 0),
+    [chartData, hasReleaseAnchoredTrend]
+  );
+
+  const trendRangeOptions = useMemo(
+    () => (hasReleaseAnchoredTrend ? GAME_TREND_RANGE_OPTIONS : TRAILING_TREND_RANGE_OPTIONS),
+    [hasReleaseAnchoredTrend]
+  );
+
+  const effectiveTrendRange: TrendRange = useMemo(() => {
+    if (trendRange === "pre" && !hasReleaseAnchoredTrend) return "max";
+    if (trendRange === "pre" && hasReleaseAnchoredTrend && !hasPreReleaseTrendData) return "1m";
+    return trendRange;
+  }, [hasPreReleaseTrendData, hasReleaseAnchoredTrend, trendRange]);
+
+  const latestTrendTimestamp = useMemo(
+    () => (chartData.length > 0 ? chartData[chartData.length - 1].date : null),
+    [chartData]
+  );
+
+  const trendRangeStart = useMemo(
+    () => (latestTrendTimestamp != null ? getTrendRangeStartTimestamp(latestTrendTimestamp, effectiveTrendRange) : null),
+    [effectiveTrendRange, latestTrendTimestamp]
+  );
+
+  const trendWindowData = useMemo(() => {
+    if (hasReleaseAnchoredTrend) {
+      const filtered = chartData.filter((point) => {
+        if (point.daysFromRelease == null) return false;
+
+        if (effectiveTrendRange === "pre") return point.daysFromRelease < 0;
+        if (effectiveTrendRange === "1m") return point.daysFromRelease >= 0 && point.daysFromRelease <= 30;
+        if (effectiveTrendRange === "3m") return point.daysFromRelease >= 0 && point.daysFromRelease <= 90;
+        if (effectiveTrendRange === "6m") return point.daysFromRelease >= 0 && point.daysFromRelease <= 180;
+        if (effectiveTrendRange === "1y") return point.daysFromRelease >= 0 && point.daysFromRelease <= 365;
+        if (effectiveTrendRange === "3y") return point.daysFromRelease >= 0 && point.daysFromRelease <= 1095;
+        return true;
+      });
+
+      if (filtered.length > 0) return filtered;
+      return [];
+    }
+
+    if (trendRangeStart == null) return chartData;
+
+    const filtered = chartData.filter((point) => point.date >= trendRangeStart);
+    return filtered.length > 0 ? filtered : chartData.slice(-1);
+  }, [chartData, effectiveTrendRange, hasReleaseAnchoredTrend, trendRangeStart]);
+
+  const trendChartData = useMemo(
+    () => withRollingAverages(trendWindowData, rollingWindowSize),
+    [rollingWindowSize, trendWindowData]
+  );
+
+  const trendSummaryText = useMemo(() => {
+    if (hasReleaseAnchoredTrend) {
+      if (effectiveTrendRange === "pre") return "Viewing pre-release reviews only.";
+      if (effectiveTrendRange === "1m") return "Viewing the first 30 days after release.";
+      if (effectiveTrendRange === "3m") return "Viewing the first 90 days after release.";
+      if (effectiveTrendRange === "6m") return "Viewing the first 180 days after release.";
+      if (effectiveTrendRange === "1y") return "Viewing the first year after release.";
+      if (effectiveTrendRange === "3y") return "Viewing the first 3 years after release.";
+      return "Viewing the full review history.";
+    }
+
+    if (latestTrendTimestamp == null) return null;
+    const selectedRangeLabel = trendRangeOptions.find((option) => option.value === effectiveTrendRange)?.label ?? effectiveTrendRange.toUpperCase();
+    return `Viewing ${effectiveTrendRange === "max" ? "the full review history" : `the last ${selectedRangeLabel}`} ending ${new Date(latestTrendTimestamp).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    })}.`;
+  }, [effectiveTrendRange, hasReleaseAnchoredTrend, latestTrendTimestamp, trendRangeOptions]);
+
+  const trendWindowSpanSegments = useMemo<TrendSpanSegment[]>(() => {
+    if (!(chartMode === "trend" && hasReleaseAnchoredTrend)) return [];
+
+    return (["steam", "metacritic", "combined"] as DisparityType[]).flatMap((type) => {
+      if (!visibleLines[type]) return [];
+
+      const seriesPoints = trendChartData.filter((point) => isFiniteChartNumber(getDisparityValue(point, type)));
+      if (seriesPoints.length < 2) return [];
+
+      const firstPoint = seriesPoints[0];
+      const lastPoint = seriesPoints[seriesPoints.length - 1];
+      const firstValue = getDisparityValue(firstPoint, type);
+      const lastValue = getDisparityValue(lastPoint, type);
+      if (!isFiniteChartNumber(firstValue) || !isFiniteChartNumber(lastValue)) return [];
+
+      return [{
+        type,
+        start: { x: firstPoint.date, y: firstValue },
+        end: { x: lastPoint.date, y: lastValue },
+      }];
+    });
+  }, [chartMode, hasReleaseAnchoredTrend, trendChartData, visibleLines]);
+
+  const secondaryMapKind: SecondaryMapKind = context === "game" ? "release" : "score";
+  const secondaryMapLabel = secondaryMapKind === "release" ? "Release Map" : "Score Map";
+
+  const secondaryMapData = useMemo(
+    () => ({
+      steam: buildSecondaryMapData(chartData, "steam", secondaryMapKind),
+      metacritic: buildSecondaryMapData(chartData, "metacritic", secondaryMapKind),
+      combined: buildSecondaryMapData(chartData, "combined", secondaryMapKind),
+    }),
+    [chartData, secondaryMapKind]
+  );
+
+  const plottedReviewIndexes = useMemo(() => {
+    const indexes = new Set<number>();
+    if (visibleLines.steam) secondaryMapData.steam.forEach((item) => indexes.add(item.point.index));
+    if (visibleLines.metacritic) secondaryMapData.metacritic.forEach((item) => indexes.add(item.point.index));
+    if (visibleLines.combined) secondaryMapData.combined.forEach((item) => indexes.add(item.point.index));
+    return indexes;
+  }, [secondaryMapData, visibleLines]);
+
+  const plottedReviewCount = useMemo(
+    () => plottedReviewIndexes.size,
+    [plottedReviewIndexes]
+  );
+
+  const plottedPointCount = useMemo(
+    () =>
+      (visibleLines.steam ? secondaryMapData.steam.length : 0)
+      + (visibleLines.metacritic ? secondaryMapData.metacritic.length : 0)
+      + (visibleLines.combined ? secondaryMapData.combined.length : 0),
+    [secondaryMapData, visibleLines]
+  );
+
+  const hiddenReviewCount = Math.max(0, reviews.length - plottedReviewCount);
+
+  const hasVisibleTrendData = useMemo(
+    () => trendChartData.some((point) =>
+      (visibleLines.steam && isFiniteChartNumber(point.steamRollingAvg))
+      || (visibleLines.metacritic && isFiniteChartNumber(point.metacriticRollingAvg))
+      || (visibleLines.combined && isFiniteChartNumber(point.combinedRollingAvg))
+    ),
+    [trendChartData, visibleLines]
+  );
+
+  const mapPointStyle = useMemo(() => {
+    const pointLoad = plottedPointCount || chartData.length * Math.max(1, visibleTypeCount);
 
     if (pointLoad > 2500) {
-      return { pointRadius: 1.75, pointOpacity: 0.18, hoverRadius: 6, lineWidth: 2 };
+      return { pointRadius: 1.75, pointOpacity: 0.18, hoverRadius: 6 };
     }
     if (pointLoad > 1200) {
-      return { pointRadius: 2.25, pointOpacity: 0.22, hoverRadius: 6.5, lineWidth: 2.25 };
+      return { pointRadius: 2.25, pointOpacity: 0.22, hoverRadius: 6.5 };
     }
     if (pointLoad > 500) {
-      return { pointRadius: 2.75, pointOpacity: 0.28, hoverRadius: 7, lineWidth: 2.5 };
+      return { pointRadius: 2.75, pointOpacity: 0.28, hoverRadius: 7 };
     }
 
-    return { pointRadius: 3.25, pointOpacity: 0.38, hoverRadius: 7.5, lineWidth: 2.75 };
-  }, [chartData.length, visibleTypeCount]);
+    return { pointRadius: 3.25, pointOpacity: 0.38, hoverRadius: 7.5 };
+  }, [chartData.length, plottedPointCount, visibleTypeCount]);
 
   // Calculate domain bounds for scaling
   const { xDomain, yDomain } = useMemo(() => {
-    if (chartData.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
-
-    const dates = chartData.map(d => d.date);
-
-    // Collect all visible disparities for y-domain calculation
+    const visibleChartData = chartMode === "trend" ? trendChartData : chartData;
     const disparities: number[] = [];
-    chartData.forEach(d => {
+    visibleChartData.forEach(d => {
+      if (chartMode === "trend") {
+        if (visibleLines.steam && d.steamRollingAvg != null) disparities.push(d.steamRollingAvg);
+        if (visibleLines.metacritic && d.metacriticRollingAvg != null) disparities.push(d.metacriticRollingAvg);
+        if (visibleLines.combined && d.combinedRollingAvg != null) disparities.push(d.combinedRollingAvg);
+        return;
+      }
+
       if (visibleLines.steam && d.steamDisparity != null) disparities.push(d.steamDisparity);
       if (visibleLines.metacritic && d.metacriticDisparity != null) disparities.push(d.metacriticDisparity);
       if (visibleLines.combined && d.combinedDisparity != null) disparities.push(d.combinedDisparity);
@@ -290,24 +593,58 @@ export function ReviewDisparityChart({
 
     if (disparities.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
 
-    const minDate = Math.min(...dates);
-    const maxDate = Math.max(...dates);
     const minDisp = Math.min(...disparities);
     const maxDisp = Math.max(...disparities);
-
-    const dateRange = maxDate - minDate || 86400000;
-    const xPadding = Math.max(dateRange * 0.05, 86400000);
     const yRange = maxDisp - minDisp || 20;
     const yPadding = Math.max(yRange * 0.12, 8);
+
+    if (chartMode === "map") {
+      const mapXs: number[] = [];
+      if (visibleLines.steam) mapXs.push(...secondaryMapData.steam.map((point) => point.x));
+      if (visibleLines.metacritic) mapXs.push(...secondaryMapData.metacritic.map((point) => point.x));
+      if (visibleLines.combined) mapXs.push(...secondaryMapData.combined.map((point) => point.x));
+
+      if (mapXs.length === 0) return { xDomain: [-1, 1], yDomain: [minDisp - yPadding, maxDisp + yPadding] };
+
+      const minX = secondaryMapKind === "release"
+        ? Math.min(...mapXs, 0)
+        : Math.max(0, Math.min(...mapXs) - 3);
+      const maxX = secondaryMapKind === "release"
+        ? Math.max(...mapXs, 0)
+        : Math.min(100, Math.max(...mapXs) + 3);
+      const xRange = maxX - minX || (secondaryMapKind === "release" ? 6 : 20);
+      const xPadding = secondaryMapKind === "release"
+        ? Math.max(xRange * 0.05, 1.5)
+        : 0;
+
+      return {
+        xDomain: [minX - xPadding, maxX + xPadding],
+        yDomain: [minDisp - yPadding, maxDisp + yPadding],
+      };
+    }
+
+    if (visibleChartData.length === 0) return { xDomain: [0, 1], yDomain: [-10, 10] };
+
+    const dates = visibleChartData.map(d => d.date);
+    const minDate = Math.min(...dates);
+    const maxDate = Math.max(...dates);
+    const dateRange = maxDate - minDate || 86400000;
+    const xPadding = Math.max(dateRange * 0.05, 86400000);
 
     return {
       xDomain: [minDate - xPadding, maxDate + xPadding],
       yDomain: [minDisp - yPadding, maxDisp + yPadding],
     };
-  }, [chartData, visibleLines]);
+  }, [chartData, chartMode, secondaryMapData, secondaryMapKind, trendChartData, visibleLines]);
 
   // Store point positions after rendering
   const pointPositionsRef = useRef<Map<number, PointPositionsByType>>(new Map());
+
+  const resetHoverState = useCallback(() => {
+    pointPositionsRef.current.clear();
+    setHoveredPoint(null);
+    setTooltipPosition(null);
+  }, []);
 
   const setPointPosition = useCallback((index: number, type: DisparityType, x?: number, y?: number) => {
     if (!isFiniteChartNumber(x) || !isFiniteChartNumber(y)) return;
@@ -319,7 +656,7 @@ export function ReviewDisparityChart({
 
   // Handle mouse move to find closest point
   const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    if (!chartContainerRef.current || chartData.length === 0) return;
+    if (chartMode !== "map" || !chartContainerRef.current || chartData.length === 0) return;
 
     const rect = chartContainerRef.current.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -363,17 +700,22 @@ export function ReviewDisparityChart({
       setHoveredPoint(null);
       setTooltipPosition(null);
     }
-  }, [chartData, visibleLines]);
+  }, [chartData, chartMode, visibleLines]);
 
   const handleMouseLeave = useCallback(() => {
-    setHoveredPoint(null);
-    setTooltipPosition(null);
-  }, []);
+    resetHoverState();
+  }, [resetHoverState]);
 
   // Toggle line visibility
   const toggleLine = (type: DisparityType) => {
     if (!hasData[type]) return;
+    resetHoverState();
     setVisibleLines(prev => ({ ...prev, [type]: !prev[type] }));
+  };
+
+  const changeChartMode = (mode: ChartMode) => {
+    resetHoverState();
+    setChartMode(mode);
   };
 
   if (!reviews || reviews.length === 0) {
@@ -398,10 +740,13 @@ export function ReviewDisparityChart({
     (visibleLines.steam && hasData.steam) ||
     (visibleLines.metacritic && hasData.metacritic) ||
     (visibleLines.combined && hasData.combined);
+  const effectiveHeight = chartMode === "map"
+    ? Math.max(height, secondaryMapKind === "release" ? 360 : 420)
+    : height;
 
   // Render custom tooltip
   const renderTooltip = () => {
-    if (!hoveredPoint || !tooltipPosition) return null;
+    if (chartMode !== "map" || !hoveredPoint || !tooltipPosition) return null;
 
     const data = hoveredPoint;
 
@@ -460,6 +805,13 @@ export function ReviewDisparityChart({
           {data.dateLabel}
         </p>
 
+        {data.daysFromRelease != null && (
+          <p style={{ color: colors.axis }}>
+            {formatDaysFromRelease(data.daysFromRelease)}
+            {data.reviewTiming && data.reviewTiming !== "unknown" ? ` • ${data.reviewTiming.replace("_", " ")}` : ""}
+          </p>
+        )}
+
         {/* Scores */}
         <div className="mt-2 pt-2 border-t" style={{ borderColor: colors.border }}>
           {data.criticScore != null && (
@@ -505,29 +857,6 @@ export function ReviewDisparityChart({
             )}
           </div>
 
-          {/* Rolling averages in trend mode */}
-          {chartMode === "trend" && (
-            <div className="mt-2 pt-2 border-t text-xs" style={{ borderColor: colors.border }}>
-              <p className="mb-1" style={{ color: colors.axis }}>{rollingWindowSize}-review trend:</p>
-              <div className="space-y-0.5">
-                {visibleLines.steam && data.steamRollingAvg != null && (
-                  <p style={{ color: colors.sage }}>
-                    Steam: {data.steamRollingAvg > 0 ? "+" : ""}{data.steamRollingAvg.toFixed(1)}
-                  </p>
-                )}
-                {visibleLines.metacritic && data.metacriticRollingAvg != null && (
-                  <p style={{ color: colors.orange }}>
-                    MC: {data.metacriticRollingAvg > 0 ? "+" : ""}{data.metacriticRollingAvg.toFixed(1)}
-                  </p>
-                )}
-                {visibleLines.combined && data.combinedRollingAvg != null && (
-                  <p style={{ color: colors.rust }}>
-                    Combined: {data.combinedRollingAvg > 0 ? "+" : ""}{data.combinedRollingAvg.toFixed(1)}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
     );
@@ -536,7 +865,7 @@ export function ReviewDisparityChart({
   return (
     <div>
       {/* Toggle buttons */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         {/* Disparity type toggles - now checkboxes */}
         <div className="flex gap-2">
           {(["steam", "metacritic", "combined"] as DisparityType[]).map((type) => {
@@ -576,32 +905,71 @@ export function ReviewDisparityChart({
           })}
         </div>
 
-        {/* Chart mode toggle */}
-        <div className="flex gap-1 text-xs">
-          <button
-            onClick={() => setChartMode("trend")}
-            className={`px-2 py-1 rounded transition-colors ${
-              chartMode === "trend"
-                ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
-                : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
-            }`}
-            style={chartMode !== "trend" ? { color: colors.text } : {}}
-          >
-            Trend
-          </button>
-          <button
-            onClick={() => setChartMode("all")}
-            className={`px-2 py-1 rounded transition-colors ${
-              chartMode === "all"
-                ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
-                : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
-            }`}
-            style={chartMode !== "all" ? { color: colors.text } : {}}
-          >
-            All Points
-          </button>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          {/* Chart mode toggle */}
+          <div className="flex gap-1 text-xs">
+            <button
+              onClick={() => changeChartMode("trend")}
+              className={`px-2 py-1 rounded transition-colors ${
+                chartMode === "trend"
+                  ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                  : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
+              }`}
+              style={chartMode !== "trend" ? { color: colors.text } : {}}
+            >
+              Trend
+            </button>
+            <button
+              onClick={() => changeChartMode("map")}
+              className={`px-2 py-1 rounded transition-colors ${
+                chartMode === "map"
+                  ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                  : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
+              }`}
+              style={chartMode !== "map" ? { color: colors.text } : {}}
+            >
+              {secondaryMapLabel}
+            </button>
+          </div>
+
+          {chartMode === "trend" && chartData.length > 1 && (
+            <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs">
+              {trendRangeOptions
+                .filter((option) => option.value !== "pre" || hasPreReleaseTrendData)
+                .map((option) => (
+                <button
+                  key={option.value}
+                  onClick={() => setTrendRange(option.value)}
+                  className={`px-2 py-1 rounded transition-colors ${
+                    effectiveTrendRange === option.value
+                      ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
+                      : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
+                  }`}
+                  style={effectiveTrendRange !== option.value ? { color: colors.text } : {}}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
+
+      {chartMode === "trend" && trendSummaryText && (
+        <p className="mb-4 text-xs sm:text-sm" style={{ color: colors.axis }}>
+          {trendSummaryText}
+        </p>
+      )}
+
+      {chartMode === "map" && hasVisibleLine && (
+        <p className="mb-4 text-xs sm:text-sm" style={{ color: colors.axis }}>
+          Showing {plottedPointCount.toLocaleString()} plotted point{plottedPointCount === 1 ? "" : "s"} across {plottedReviewCount.toLocaleString()} review{plottedReviewCount === 1 ? "" : "s"} on a {secondaryMapKind === "release" ? "days-from-release" : "score-vs-disparity"} map.
+          {" "}
+          {hiddenReviewCount > 0
+            ? `${hiddenReviewCount.toLocaleString()} loaded review${hiddenReviewCount === 1 ? "" : "s"} are omitted because the selected sources do not have plottable disparity or ${secondaryMapKind === "release" ? "release-date" : "score"} context.`
+            : `All ${reviews.length.toLocaleString()} loaded reviews are represented.`}
+        </p>
+      )}
 
       {!hasVisibleLine ? (
         <div
@@ -610,30 +978,58 @@ export function ReviewDisparityChart({
         >
           Select at least one disparity type to display
         </div>
+      ) : chartMode === "trend" && !hasVisibleTrendData ? (
+        <div
+          className="flex items-center justify-center text-gray-500 text-sm"
+          style={{ height }}
+        >
+          No reviews fall within the selected trend window
+        </div>
       ) : (
         <div
           ref={chartContainerRef}
           className="relative"
-          onMouseMove={handleMouseMove}
+          onMouseMove={chartMode === "map" ? handleMouseMove : undefined}
           onMouseLeave={handleMouseLeave}
         >
-          <ResponsiveContainer width="100%" height={height}>
+          <ResponsiveContainer width="100%" height={effectiveHeight}>
             <ComposedChart
-              data={chartData}
+              data={chartMode === "trend" ? trendChartData : []}
               margin={isMobile ? { top: 5, right: 10, left: 5, bottom: 20 } : { top: 10, right: 15, left: 10, bottom: 25 }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
               <XAxis
-                dataKey="date"
+                dataKey={chartMode === "trend" ? "date" : "x"}
                 type="number"
                 domain={xDomain as [number, number]}
                 tick={{ fontSize: isMobile ? 10 : 12, fill: colors.text }}
                 tickLine={{ stroke: colors.axis }}
                 axisLine={{ stroke: colors.axis }}
                 tickFormatter={(value) => {
+                  if (chartMode === "map") {
+                    const rounded = Math.round(Number(value));
+                    if (secondaryMapKind === "release") {
+                      if (rounded === 0) return "Release";
+                      return `${rounded > 0 ? "+" : ""}${rounded}d`;
+                    }
+                    return `${rounded}`;
+                  }
+
                   const date = new Date(value);
+                  if (effectiveTrendRange === "pre" || effectiveTrendRange === "1m" || effectiveTrendRange === "3m" || effectiveTrendRange === "6m") {
+                    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                  }
+                  if (effectiveTrendRange === "1y") {
+                    return date.toLocaleDateString("en-US", { month: "short", year: isMobile ? undefined : "2-digit" });
+                  }
                   return date.toLocaleDateString("en-US", { month: "short", year: isMobile ? "2-digit" : "numeric" });
                 }}
+                label={isMobile ? undefined : chartMode === "map" ? {
+                  value: secondaryMapKind === "release" ? "Days From Release" : "Critic Score",
+                  position: "insideBottom",
+                  offset: -10,
+                  style: { fill: colors.text, fontSize: 12 },
+                } : undefined}
               />
               <YAxis
                 tick={{ fontSize: isMobile ? 10 : 12, fill: colors.text }}
@@ -650,6 +1046,43 @@ export function ReviewDisparityChart({
                 }}
               />
               <ReferenceLine y={0} stroke={colors.tan} strokeWidth={2} strokeDasharray="5 5" />
+              {trendWindowSpanSegments.map((segment) => {
+                const stroke = segment.type === "steam"
+                  ? colors.sage
+                  : segment.type === "metacritic"
+                    ? colors.orange
+                    : colors.rust;
+
+                return (
+                  <ReferenceLine
+                    key={`first-month-span-${segment.type}`}
+                    ifOverflow="extendDomain"
+                    segment={[segment.start, segment.end]}
+                    stroke={stroke}
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    strokeOpacity={0.75}
+                  />
+                );
+              })}
+              {chartMode === "map" && secondaryMapKind === "release" && (
+                <>
+                  {Number(xDomain[1]) > 0 && (
+                    <ReferenceArea
+                      x1={0}
+                      x2={Math.min(60, Number(xDomain[1]))}
+                      ifOverflow="extendDomain"
+                      fill={colors.tan}
+                      fillOpacity={0.08}
+                      strokeOpacity={0}
+                    />
+                  )}
+                  <ReferenceLine x={0} stroke={colors.axis} strokeDasharray="4 4" />
+                  {Number(xDomain[1]) > 60 && (
+                    <ReferenceLine x={60} stroke={colors.axis} strokeDasharray="4 4" />
+                  )}
+                </>
+              )}
 
               {chartMode === "trend" ? (
                 <>
@@ -692,248 +1125,113 @@ export function ReviewDisparityChart({
                       isAnimationActive={false}
                     />
                   )}
-                  {visibleLines.steam && hasData.steam && (
-                    <Scatter
-                      dataKey="steamDisparity"
-                      fill="transparent"
-                      isAnimationActive={false}
-                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                        if (
-                          !props.payload
-                          || !isFiniteChartNumber(props.payload.steamDisparity)
-                          || !isFiniteChartNumber(props.cx)
-                          || !isFiniteChartNumber(props.cy)
-                        ) {
-                          return <circle r={0} />;
-                        }
-
-                        setPointPosition(props.payload.index, "steam", props.cx, props.cy);
-
-                        const isHovered = hoveredPoint?.index === props.payload.index;
-                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
-
-                        return (
-                          <circle
-                            cx={props.cx}
-                            cy={props.cy}
-                            r={7}
-                            fill={colors.sage}
-                            stroke={colors.background}
-                            strokeWidth={2}
-                          />
-                        );
-                      }}
-                    />
-                  )}
-                  {visibleLines.metacritic && hasData.metacritic && (
-                    <Scatter
-                      dataKey="metacriticDisparity"
-                      fill="transparent"
-                      isAnimationActive={false}
-                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                        if (
-                          !props.payload
-                          || !isFiniteChartNumber(props.payload.metacriticDisparity)
-                          || !isFiniteChartNumber(props.cx)
-                          || !isFiniteChartNumber(props.cy)
-                        ) {
-                          return <circle r={0} />;
-                        }
-
-                        setPointPosition(props.payload.index, "metacritic", props.cx, props.cy);
-
-                        const isHovered = hoveredPoint?.index === props.payload.index;
-                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
-
-                        return (
-                          <circle
-                            cx={props.cx}
-                            cy={props.cy}
-                            r={7}
-                            fill={colors.orange}
-                            stroke={colors.background}
-                            strokeWidth={2}
-                          />
-                        );
-                      }}
-                    />
-                  )}
-                  {visibleLines.combined && hasData.combined && (
-                    <Scatter
-                      dataKey="combinedDisparity"
-                      fill="transparent"
-                      isAnimationActive={false}
-                      shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                        if (
-                          !props.payload
-                          || !isFiniteChartNumber(props.payload.combinedDisparity)
-                          || !isFiniteChartNumber(props.cx)
-                          || !isFiniteChartNumber(props.cy)
-                        ) {
-                          return <circle r={0} />;
-                        }
-
-                        setPointPosition(props.payload.index, "combined", props.cx, props.cy);
-
-                        const isHovered = hoveredPoint?.index === props.payload.index;
-                        if (!isHovered) return <circle cx={props.cx} cy={props.cy} r={0} fill="transparent" />;
-
-                        return (
-                          <circle
-                            cx={props.cx}
-                            cy={props.cy}
-                            r={7}
-                            fill={colors.rust}
-                            stroke={colors.background}
-                            strokeWidth={2}
-                          />
-                        );
-                      }}
-                    />
-                  )}
                 </>
               ) : (
                 <>
-                  {/* Steam trend line and review points */}
+                  {/* Steam release map */}
                   {visibleLines.steam && hasData.steam && (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="steamRollingAvg"
-                        stroke={colors.sage}
-                        strokeWidth={allPointsStyle.lineWidth}
-                        strokeOpacity={0.9}
-                        dot={false}
-                        activeDot={false}
-                        connectNulls
-                        isAnimationActive={false}
-                      />
-                      <Scatter
-                        dataKey="steamDisparity"
-                        fill={colors.sage}
-                        fillOpacity={0.7}
-                        isAnimationActive={false}
-                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (
-                            !props.payload
-                            || !isFiniteChartNumber(props.payload.steamDisparity)
-                            || !isFiniteChartNumber(props.cx)
-                            || !isFiniteChartNumber(props.cy)
-                          ) {
-                            return <circle r={0} />;
-                          }
+                    <Scatter
+                      data={secondaryMapData.steam}
+                      dataKey="disparity"
+                      fill={colors.sage}
+                      fillOpacity={0.7}
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: SecondaryMapPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.disparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
 
-                          setPointPosition(props.payload.index, "steam", props.cx, props.cy);
+                        setPointPosition(props.payload.point.index, "steam", props.cx, props.cy);
 
-                          const isHovered = hoveredPoint?.index === props.payload.index;
-                          return (
-                            <circle
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
-                              fill={colors.sage}
-                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
-                              stroke={isHovered ? colors.background : "none"}
-                              strokeWidth={isHovered ? 2 : 0}
-                            />
-                          );
-                        }}
-                      />
-                    </>
+                        const isHovered = hoveredPoint?.index === props.payload.point.index;
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={isHovered ? mapPointStyle.hoverRadius : mapPointStyle.pointRadius}
+                            fill={colors.sage}
+                            fillOpacity={isHovered ? 0.95 : mapPointStyle.pointOpacity}
+                            stroke={isHovered ? colors.background : "none"}
+                            strokeWidth={isHovered ? 2 : 0}
+                          />
+                        );
+                      }}
+                    />
                   )}
-                  {/* Metacritic trend line and review points */}
+                  {/* Metacritic release map */}
                   {visibleLines.metacritic && hasData.metacritic && (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="metacriticRollingAvg"
-                        stroke={colors.orange}
-                        strokeWidth={allPointsStyle.lineWidth}
-                        strokeOpacity={0.9}
-                        dot={false}
-                        activeDot={false}
-                        connectNulls
-                        isAnimationActive={false}
-                      />
-                      <Scatter
-                        dataKey="metacriticDisparity"
-                        fill={colors.orange}
-                        fillOpacity={0.7}
-                        isAnimationActive={false}
-                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (
-                            !props.payload
-                            || !isFiniteChartNumber(props.payload.metacriticDisparity)
-                            || !isFiniteChartNumber(props.cx)
-                            || !isFiniteChartNumber(props.cy)
-                          ) {
-                            return <circle r={0} />;
-                          }
+                    <Scatter
+                      data={secondaryMapData.metacritic}
+                      dataKey="disparity"
+                      fill={colors.orange}
+                      fillOpacity={0.7}
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: SecondaryMapPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.disparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
 
-                          setPointPosition(props.payload.index, "metacritic", props.cx, props.cy);
+                        setPointPosition(props.payload.point.index, "metacritic", props.cx, props.cy);
 
-                          const isHovered = hoveredPoint?.index === props.payload.index;
-                          return (
-                            <circle
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
-                              fill={colors.orange}
-                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
-                              stroke={isHovered ? colors.background : "none"}
-                              strokeWidth={isHovered ? 2 : 0}
-                            />
-                          );
-                        }}
-                      />
-                    </>
+                        const isHovered = hoveredPoint?.index === props.payload.point.index;
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={isHovered ? mapPointStyle.hoverRadius : mapPointStyle.pointRadius}
+                            fill={colors.orange}
+                            fillOpacity={isHovered ? 0.95 : mapPointStyle.pointOpacity}
+                            stroke={isHovered ? colors.background : "none"}
+                            strokeWidth={isHovered ? 2 : 0}
+                          />
+                        );
+                      }}
+                    />
                   )}
-                  {/* Combined trend line and review points */}
+                  {/* Combined release map */}
                   {visibleLines.combined && hasData.combined && (
-                    <>
-                      <Line
-                        type="monotone"
-                        dataKey="combinedRollingAvg"
-                        stroke={colors.rust}
-                        strokeWidth={allPointsStyle.lineWidth}
-                        strokeOpacity={0.9}
-                        dot={false}
-                        activeDot={false}
-                        connectNulls
-                        isAnimationActive={false}
-                      />
-                      <Scatter
-                        dataKey="combinedDisparity"
-                        fill={colors.rust}
-                        fillOpacity={0.7}
-                        isAnimationActive={false}
-                        shape={(props: { cx?: number; cy?: number; payload?: ChartDataPoint }) => {
-                          if (
-                            !props.payload
-                            || !isFiniteChartNumber(props.payload.combinedDisparity)
-                            || !isFiniteChartNumber(props.cx)
-                            || !isFiniteChartNumber(props.cy)
-                          ) {
-                            return <circle r={0} />;
-                          }
+                    <Scatter
+                      data={secondaryMapData.combined}
+                      dataKey="disparity"
+                      fill={colors.rust}
+                      fillOpacity={0.7}
+                      isAnimationActive={false}
+                      shape={(props: { cx?: number; cy?: number; payload?: SecondaryMapPoint }) => {
+                        if (
+                          !props.payload
+                          || !isFiniteChartNumber(props.payload.disparity)
+                          || !isFiniteChartNumber(props.cx)
+                          || !isFiniteChartNumber(props.cy)
+                        ) {
+                          return <circle r={0} />;
+                        }
 
-                          setPointPosition(props.payload.index, "combined", props.cx, props.cy);
+                        setPointPosition(props.payload.point.index, "combined", props.cx, props.cy);
 
-                          const isHovered = hoveredPoint?.index === props.payload.index;
-                          return (
-                            <circle
-                              cx={props.cx}
-                              cy={props.cy}
-                              r={isHovered ? allPointsStyle.hoverRadius : allPointsStyle.pointRadius}
-                              fill={colors.rust}
-                              fillOpacity={isHovered ? 0.95 : allPointsStyle.pointOpacity}
-                              stroke={isHovered ? colors.background : "none"}
-                              strokeWidth={isHovered ? 2 : 0}
-                            />
-                          );
-                        }}
-                      />
-                    </>
+                        const isHovered = hoveredPoint?.index === props.payload.point.index;
+                        return (
+                          <circle
+                            cx={props.cx}
+                            cy={props.cy}
+                            r={isHovered ? mapPointStyle.hoverRadius : mapPointStyle.pointRadius}
+                            fill={colors.rust}
+                            fillOpacity={isHovered ? 0.95 : mapPointStyle.pointOpacity}
+                            stroke={isHovered ? colors.background : "none"}
+                            strokeWidth={isHovered ? 2 : 0}
+                          />
+                        );
+                      }}
+                    />
                   )}
                 </>
               )}
@@ -951,6 +1249,21 @@ export function ReviewDisparityChart({
         <span className="w-1 h-1 rounded-full" style={{ backgroundColor: colors.axis }}></span>
         <span>Negative = critic lower than users</span>
       </div>
+      {chartMode === "trend" && hasReleaseAnchoredTrend && trendWindowSpanSegments.length > 0 && (
+        <div className="mt-2 text-center text-xs" style={{ color: colors.axis }}>
+          Dashed lines mark the change from the first review to the last review inside the selected release window.
+        </div>
+      )}
+      {chartMode === "map" && secondaryMapKind === "release" && (
+        <div className="mt-2 text-center text-xs" style={{ color: colors.axis }}>
+          Day 0 marks release. The shaded band covers the first 60 days after launch.
+        </div>
+      )}
+      {chartMode === "map" && secondaryMapKind === "score" && (
+        <div className="mt-2 text-center text-xs" style={{ color: colors.axis }}>
+          X-axis shows critic score. Each dot is a review positioned against its critic-to-user disparity.
+        </div>
+      )}
     </div>
   );
 }
