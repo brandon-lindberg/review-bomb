@@ -1,3 +1,4 @@
+import Image from "next/image";
 import type { NewsArticle } from "@/types";
 
 interface NewsCardProps {
@@ -20,51 +21,50 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
         href={article.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="flex gap-3 p-3 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        className="site-list-item flex w-full items-start justify-between gap-4 rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0 hover:bg-transparent"
       >
-        {article.image_url && (
-          <div className="flex-shrink-0 w-16 h-12 sm:w-20 sm:h-16 rounded overflow-hidden">
-            <img
-              src={article.image_url}
-              alt=""
-              className="w-full h-full object-cover"
-            />
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <p
-            className="font-medium text-sm line-clamp-2"
-            style={{ color: "var(--foreground)" }}
-          >
-            {article.title}
-          </p>
-          <div
-            className="flex items-center gap-1.5 text-xs mt-1"
-            style={{ color: "var(--foreground-muted)" }}
-          >
-            <span className="font-medium">{article.source_name}</span>
-            {formattedDate && (
-              <>
-                <span>·</span>
-                <span>{formattedDate}</span>
-              </>
-            )}
-          </div>
-          {article.description && (
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          {article.image_url && (
+            <div className="h-12 w-16 shrink-0 overflow-hidden rounded sm:h-16 sm:w-20">
+              <Image
+                src={article.image_url}
+                alt=""
+                width={80}
+                height={64}
+                sizes="(max-width: 640px) 64px, 80px"
+                className="h-full w-full object-cover"
+              />
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
             <p
-              className="hidden sm:block text-xs mt-1 line-clamp-1"
+              className="line-clamp-2 text-sm font-medium"
+              style={{ color: "var(--foreground)" }}
+            >
+              {article.title}
+            </p>
+            <div
+              className="mt-1 flex items-center gap-1.5 text-xs"
               style={{ color: "var(--foreground-muted)" }}
             >
-              {article.description}
-            </p>
-          )}
+              <span className="font-medium">{article.source_name}</span>
+              {formattedDate && (
+                <>
+                  <span>·</span>
+                  <span>{formattedDate}</span>
+                </>
+              )}
+            </div>
+            {article.description && (
+              <p
+                className="mt-1 hidden line-clamp-1 text-xs sm:block"
+                style={{ color: "var(--foreground-muted)" }}
+              >
+                {article.description}
+              </p>
+            )}
+          </div>
         </div>
-        <span
-          className="hidden sm:inline-flex flex-shrink-0 text-sm px-3 py-1 rounded hover:opacity-80 whitespace-nowrap self-center"
-          style={{ backgroundColor: "var(--color-rust)", color: "white" }}
-        >
-          Read Article
-        </span>
       </a>
     );
   }
@@ -74,24 +74,26 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
       href={article.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden hover:shadow-md transition-shadow group"
+      className="site-panel site-panel-interactive group overflow-hidden rounded-[1.5rem]"
     >
       {article.image_url && (
-        <div className="w-full h-44 overflow-hidden">
-          <img
+        <div className="relative h-48 w-full overflow-hidden">
+          <Image
             src={article.image_url}
             alt=""
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            fill
+            sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         </div>
       )}
-      <div className="p-4">
+      <div className="p-5">
         <div
-          className="flex items-center gap-2 text-xs mb-2"
+          className="mb-3 flex flex-wrap items-center gap-2 text-xs"
           style={{ color: "var(--foreground-muted)" }}
         >
           <span
-            className="font-semibold uppercase tracking-wide"
+            className="site-chip site-chip--accent font-semibold uppercase tracking-wide"
             style={{ color: "var(--color-rust)" }}
           >
             {article.source_name}
@@ -110,7 +112,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
           )}
         </div>
         <h3
-          className="font-semibold text-base line-clamp-2 mb-2"
+          className="mb-3 text-lg font-semibold line-clamp-2"
           style={{ color: "var(--foreground)" }}
         >
           {article.title}
@@ -123,24 +125,6 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
             {article.description}
           </p>
         )}
-        <div className="flex items-center gap-1 mt-3 text-xs" style={{ color: "var(--color-rust)" }}>
-          <span>Read article</span>
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-            <polyline points="15 3 21 3 21 9" />
-            <line x1="10" y1="14" x2="21" y2="3" />
-          </svg>
-        </div>
       </div>
     </a>
   );

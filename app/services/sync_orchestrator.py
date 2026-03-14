@@ -1322,6 +1322,11 @@ class SyncOrchestrator:
                             f"  Matched Steam: {game.title} -> "
                             f"{match_result['steam_app_id']}"
                         )
+                    if await self._sync_single_game_image_from_steam(
+                        game,
+                        matcher.steam_service,
+                    ):
+                        print(f"  Added Steam image: {game.title}")
 
                 if match_result["metacritic_slug"] and not game.metacritic_slug:
                     game.metacritic_slug = match_result["metacritic_slug"]
@@ -1347,6 +1352,111 @@ class SyncOrchestrator:
             "\nMatching complete: "
             f"{stats['steam_matched']} Steam IDs matched, "
             f"{stats['metacritic_slugs_assigned']} Metacritic slugs assigned, "
+            f"{stats['failed']} failed"
+        )
+        return stats
+
+    async def _sync_single_game_image_from_steam(
+        self,
+        game: Game,
+        steam_service: SteamService,
+        *,
+        overwrite: bool = False,
+    ) -> bool:
+        """Fetch and store a game's image from Steam app details."""
+        if game.steam_app_id is None:
+            return False
+        if not overwrite and game.image_url:
+            return False
+
+        app_details = await steam_service.get_app_details(game.steam_app_id)
+        if not app_details:
+            return False
+
+        steam_data = SteamService.transform_app_details(app_details, game.steam_app_id)
+        image_url = steam_data.get("image_url")
+        if not image_url or game.image_url == image_url:
+            return False
+
+        game.image_url = image_url
+        return True
+
+    async def backfill_game_images_from_steam(
+        self,
+        limit: Optional[int] = None,
+        days: Optional[int] = None,
+        *,
+        overwrite: bool = False,
+    ) -> Dict[str, Any]:
+        """Backfill missing game images from Steam for games with Steam app IDs."""
+        steam_service = SteamService()
+
+        query = select(Game).where(Game.steam_app_id.isnot(None))
+        mode = "with Steam app IDs"
+
+        if not overwrite:
+            query = query.where(or_(Game.image_url.is_(None), Game.image_url == ""))
+            mode = "with Steam app IDs and missing images"
+
+        if days is not None:
+            now = datetime.now(timezone.utc)
+            cutoff_date = (now - timedelta(days=days)).date()
+            query = query.where(
+                Game.release_date.isnot(None),
+                Game.release_date >= cutoff_date,
+            )
+            mode = f"{mode}, released in the last {days} days"
+
+        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+        if limit:
+            query = query.limit(limit)
+
+        result = await self.db.execute(query)
+        games = result.scalars().all()
+
+        print(f"Backfilling Steam images for {len(games)} games {mode}...")
+
+        stats = {
+            "total": len(games),
+            "updated": 0,
+            "skipped": 0,
+            "failed": 0,
+        }
+
+        processed = 0
+
+        try:
+            for game in games:
+                processed += 1
+                try:
+                    updated = await self._sync_single_game_image_from_steam(
+                        game,
+                        steam_service,
+                        overwrite=overwrite,
+                    )
+                    if updated:
+                        stats["updated"] += 1
+                        print(f"  Updated image: {game.title}")
+                    else:
+                        stats["skipped"] += 1
+                except Exception as exc:
+                    print(f"  Error updating image for {game.title}: {exc}")
+                    stats["failed"] += 1
+
+                if processed % 10 == 0 or processed == len(games):
+                    await self.db.commit()
+                    print(
+                        f"  Processed {processed}/{len(games)} games "
+                        f"({stats['updated']} updated, {stats['skipped']} skipped, {stats['failed']} failed)"
+                    )
+        finally:
+            await self.db.commit()
+            await steam_service.aclose()
+
+        print(
+            "\nSteam image backfill complete: "
+            f"{stats['updated']} updated, "
+            f"{stats['skipped']} skipped, "
             f"{stats['failed']} failed"
         )
         return stats

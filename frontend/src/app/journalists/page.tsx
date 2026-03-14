@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { getJournalists } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
+import { PaginationControls } from "@/components/PaginationControls";
 import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 60;
@@ -86,23 +88,40 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Journalists</h1>
+      <section className="space-y-5 py-2 text-center">
+        <div className="mx-auto max-w-4xl space-y-4">
+          <h1
+            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
+            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+          >
+            Find the critics closest to players and the ones furthest away.
+          </h1>
+          <p
+            className="mx-auto max-w-4xl text-lg leading-8 sm:text-xl"
+            style={{ color: "var(--foreground-muted)" }}
+          >
+            Browse individual journalists, inspect their latest review activity, and sort by recency,
+            review volume, or disparity to surface the voices that track closest to audience sentiment.
+          </p>
+        </div>
 
-        <div className="flex gap-2 items-center">
-          <SearchInput defaultValue={search} placeholder="Search journalists..." />
+        <div className="grid w-full gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:gap-6">
+          <div className="w-full">
+            <SearchInput defaultValue={search} placeholder="Search journalists..." />
+          </div>
           <SortSelect
             options={sortOptions}
             defaultValue={`${sortBy}-${sortOrder}`}
             paramName="sort"
             paramName2="order"
+            className="w-full md:min-w-[18rem]"
           />
         </div>
-      </div>
+      </section>
 
       {journalists ? (
         <>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="site-list">
             <div className="divide-y divide-gray-200">
               {journalists.items.map((journalist) => {
                 const latestReview = journalist.latest_review ?? null;
@@ -114,7 +133,7 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                   <Link
                     key={journalist.id}
                     href={buildEntityPath("journalists", journalist.name, journalist.public_id)}
-                    className="block p-4 hover:bg-gray-50 transition-colors"
+                    className="site-list-item block"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-4 min-w-0 flex-1">
@@ -126,11 +145,13 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                           }}
                         >
                           {journalist.image_url ? (
-                            <img
+                            <Image
                               src={journalist.image_url}
                               alt={journalist.name}
+                              width={48}
+                              height={48}
+                              sizes="48px"
                               className="w-full h-full object-cover"
-                              loading="lazy"
                             />
                           ) : (
                             <span
@@ -158,15 +179,15 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
                               </p>
                               <div className="mt-1 flex flex-wrap items-center gap-2">
                                 {latestReview.outlet_name && (
-                                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium border bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700/60 dark:text-gray-200 dark:border-gray-600">
+                                  <span className="site-chip">
                                     {latestReview.outlet_name}
                                   </span>
                                 )}
-                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium border bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700/60 dark:text-gray-200 dark:border-gray-600">
+                                <span className="site-chip">
                                   {formatDate(latestReview.published_at)}
                                 </span>
                                 {latestReview.score_normalized != null && (
-                                  <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium border bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700/60 dark:text-gray-200 dark:border-gray-600">
+                                  <span className="site-chip">
                                     Score {Number(latestReview.score_normalized).toFixed(0)}
                                   </span>
                                 )}
@@ -203,33 +224,16 @@ export default async function JournalistsPage({ searchParams }: PageProps) {
             </div>
           </div>
 
-          {/* Pagination */}
-          {journalists.total_pages > 1 && (
-            <div className="flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/journalists?page=${page - 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {journalists.total_pages}
-              </span>
-              {page < journalists.total_pages && (
-                <Link
-                  href={`/journalists?page=${page + 1}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
+          <PaginationControls
+            page={page}
+            totalPages={journalists.total_pages}
+            buildHref={(nextPage) =>
+              `/journalists?page=${nextPage}&sort=${sortBy}&order=${sortOrder}${search ? `&search=${encodeURIComponent(search)}` : ""}`
+            }
+          />
         </>
       ) : (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="site-empty">
           <p className="text-gray-600">
             Unable to load journalists. Make sure the backend API is running.
           </p>

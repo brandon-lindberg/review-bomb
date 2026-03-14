@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { getNews, getNewsSources } from "@/lib/api";
 import { NewsCard } from "@/components/NewsCard";
 import { SourceFilter } from "@/components/SourceFilter";
+import { PaginationControls } from "@/components/PaginationControls";
 
 export const revalidate = 60;
 
@@ -51,15 +51,21 @@ export default async function NewsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>
-          Gaming News
-        </h1>
+      <section className="route-header">
+        <div className="route-header__row">
+          <div className="space-y-2">
+            <span className="site-eyebrow">News</span>
+            <h1 className="route-header__title">Gaming News</h1>
+            <p className="route-header__subtitle">
+              A filtered feed of outlet coverage related to the games and publishers in your orbit.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
-          <SourceFilter sources={sources} defaultValue={source} />
+          <div className="route-toolbar">
+            <SourceFilter sources={sources} defaultValue={source} />
+          </div>
         </div>
-      </div>
+      </section>
 
       {news && news.items.length > 0 ? (
         <>
@@ -69,39 +75,22 @@ export default async function NewsPage({ searchParams }: PageProps) {
             ))}
           </div>
 
-          {/* Pagination */}
-          {news.total_pages > 1 && (
-            <div className="flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/news?page=${page - 1}${source ? `&source=${encodeURIComponent(source)}` : ""}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {news.total_pages}
-              </span>
-              {page < news.total_pages && (
-                <Link
-                  href={`/news?page=${page + 1}${source ? `&source=${encodeURIComponent(source)}` : ""}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
+          <PaginationControls
+            page={page}
+            totalPages={news.total_pages}
+            buildHref={(nextPage) =>
+              `/news?page=${nextPage}${source ? `&source=${encodeURIComponent(source)}` : ""}`
+            }
+          />
         </>
       ) : news && news.items.length === 0 ? (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="site-empty">
           <p style={{ color: "var(--foreground-muted)" }}>
             No news articles found.{source ? " Try a different source filter." : " Run the news sync to populate articles."}
           </p>
         </div>
       ) : (
-        <div className="text-center py-12 bg-white dark:bg-gray-800 rounded-lg shadow">
+        <div className="site-empty">
           <p style={{ color: "var(--foreground-muted)" }}>
             Unable to load news. Make sure the backend API is running.
           </p>

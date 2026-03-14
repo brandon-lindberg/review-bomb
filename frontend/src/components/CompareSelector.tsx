@@ -1,9 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect, useRef, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { GameAvatar } from "@/components/GameAvatar";
 import type { Game, Journalist, Outlet } from "@/types";
-import { emitNavigationStart } from "@/lib/navigation-progress";
 
 interface SelectedItem {
   id: number;
@@ -115,9 +116,8 @@ export function CompareSelector({
     }
     params.set("type", type);
     const nextUrl = params.toString() ? `${pathname}?${params.toString()}` : pathname;
-    emitNavigationStart();
     startTransition(() => {
-      router.replace(nextUrl);
+      router.replace(nextUrl, { scroll: false });
     });
   };
 
@@ -137,10 +137,10 @@ export function CompareSelector({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="relative z-20 space-y-4 overflow-visible">
       {/* Search Input */}
       {selectedIds.length < maxSelections && (
-        <div className="relative" ref={dropdownRef}>
+        <div className="relative overflow-visible" ref={dropdownRef}>
           <input
             ref={inputRef}
             type="text"
@@ -148,28 +148,39 @@ export function CompareSelector({
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setShowDropdown(true)}
             placeholder={`Search ${type}...`}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:opacity-70"
+            className="site-field w-full px-4 py-3 outline-none disabled:opacity-70"
             disabled={isNavigating}
             aria-busy={isNavigating}
           />
 
           {/* Dropdown */}
           {showDropdown && (query.length >= 2 || isLoading) && (
-            <div className="absolute z-10 w-full mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-60 overflow-y-auto">
+            <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-72 overflow-y-auto rounded-[1.25rem] bg-white shadow-lg">
               {isLoading ? (
-                <div className="px-4 py-3 text-gray-500">Searching...</div>
+                <div className="px-4 py-4 text-sm text-gray-500">Searching...</div>
               ) : results.length > 0 ? (
                 results.map((item) => (
                   <button
                     key={item.id}
                     onClick={() => handleSelect(item)}
-                    className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-3 transition-colors disabled:opacity-70"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50 disabled:opacity-70"
                     disabled={isNavigating}
                   >
-                    {item.image_url ? (
-                      <img
+                    {type === "games" ? (
+                      <GameAvatar
+                        title={item.name}
+                        imageUrl={item.image_url}
+                        size={32}
+                        sizes="32px"
+                        className="w-8 h-8 rounded-lg object-cover"
+                      />
+                    ) : item.image_url ? (
+                      <Image
                         src={item.image_url}
                         alt={item.name}
+                        width={32}
+                        height={32}
+                        sizes="32px"
                         className="w-8 h-8 rounded-full object-cover"
                       />
                     ) : (
@@ -179,7 +190,7 @@ export function CompareSelector({
                         </span>
                       </div>
                     )}
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-medium text-gray-900">{item.name}</p>
                       {item.review_count !== undefined && (
                         <p className="text-sm text-gray-500">
@@ -190,7 +201,7 @@ export function CompareSelector({
                   </button>
                 ))
               ) : query.length >= 2 ? (
-                <div className="px-4 py-3 text-gray-500">No results found</div>
+                <div className="px-4 py-4 text-sm text-gray-500">No results found</div>
               ) : null}
             </div>
           )}
@@ -203,23 +214,42 @@ export function CompareSelector({
           {selectedItems.map((item) => (
             <span
               key={item.id}
-              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-800 rounded-full text-sm"
+              className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm"
+              style={{
+                borderColor: "color-mix(in srgb, var(--color-rust) 20%, transparent)",
+                backgroundColor: "color-mix(in srgb, var(--background-card-strong) 86%, var(--color-rust) 14%)",
+                color: "var(--foreground)",
+              }}
             >
-              {item.image_url ? (
-                <img
+              {type === "games" ? (
+                <GameAvatar
+                  title={item.name}
+                  imageUrl={item.image_url}
+                  size={20}
+                  sizes="20px"
+                  className="h-5 w-5 rounded-md object-cover"
+                />
+              ) : item.image_url ? (
+                <Image
                   src={item.image_url}
                   alt={item.name}
+                  width={20}
+                  height={20}
+                  sizes="20px"
                   className="w-5 h-5 rounded-full object-cover"
                 />
               ) : (
-                <span className="w-5 h-5 rounded-full bg-blue-200 flex items-center justify-center text-xs font-medium">
+                <span
+                  className="flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium"
+                  style={{ backgroundColor: "rgba(187, 59, 14, 0.16)", color: "var(--color-rust)" }}
+                >
                   {item.name.charAt(0)}
                 </span>
               )}
               <span className="font-medium">{item.name}</span>
               <button
                 onClick={() => handleRemove(item.id)}
-                className="hover:text-blue-600 transition-colors disabled:opacity-60"
+                className="transition-colors hover:text-rust disabled:opacity-60"
                 aria-label="Remove"
                 disabled={isNavigating}
               >

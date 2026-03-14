@@ -1,13 +1,19 @@
 "use client";
 
+import { getDisparityColor } from "@/lib/disparity-colors";
+
 interface ScoreDisplayProps {
   criticScore: number | null | undefined;
   userScore?: number | null | undefined;
   steamUserScore?: number | null | undefined;
   metacriticUserScore?: number | null | undefined;
+  criticDisparity?: number | null | undefined;
+  steamDisparity?: number | null | undefined;
+  metacriticDisparity?: number | null | undefined;
   label?: string;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   alwaysShowAll?: boolean;
+  useDisparityPalette?: boolean;
 }
 
 export function ScoreDisplay({
@@ -15,9 +21,13 @@ export function ScoreDisplay({
   userScore,
   steamUserScore,
   metacriticUserScore,
+  criticDisparity,
+  steamDisparity,
+  metacriticDisparity,
   label,
   size = "md",
   alwaysShowAll = false,
+  useDisparityPalette = false,
 }: ScoreDisplayProps) {
   const sizeClasses = {
     sm: {
@@ -38,6 +48,12 @@ export function ScoreDisplay({
       gap: "gap-5",
       sectionMinWidth: "min-w-[92px]",
     },
+    xl: {
+      label: "text-[11px] sm:text-xs",
+      score: "text-3xl sm:text-4xl",
+      gap: "gap-5 sm:gap-7",
+      sectionMinWidth: "min-w-[64px] sm:min-w-[76px]",
+    },
   };
 
   const classes = sizeClasses[size];
@@ -48,18 +64,21 @@ export function ScoreDisplay({
       label: "Critics",
       value: criticScore,
       colorClass: "text-purple-600",
+      disparity: criticDisparity,
     },
     {
       key: "steam",
       label: "Steam",
       value: steamUserScore,
       colorClass: "text-blue-600",
+      disparity: steamDisparity,
     },
     {
       key: "metacritic",
       label: "Metacritic",
       value: metacriticUserScore,
       colorClass: "text-orange-500",
+      disparity: metacriticDisparity,
     },
   ].filter((section) => {
     if (alwaysShowAll) return true;
@@ -81,6 +100,13 @@ export function ScoreDisplay({
               : section.key === "steam" && fallbackUserScore != null
                 ? fallbackUserScore
                 : null;
+          const scoreStyle = useDisparityPalette
+            ? {
+                color: value != null && section.disparity != null
+                  ? getDisparityColor(section.disparity)
+                  : "var(--color-disparity-neutral)",
+              }
+            : undefined;
 
           return (
             <div key={section.key} className={`text-center ${classes.sectionMinWidth}`}>
@@ -88,7 +114,8 @@ export function ScoreDisplay({
                 {section.label}
               </div>
               <div
-                className={`${classes.score} font-bold ${value != null ? section.colorClass : "text-gray-300"}`}
+                className={`${classes.score} font-bold ${!useDisparityPalette ? (value != null ? section.colorClass : "text-gray-300") : ""}`}
+                style={scoreStyle}
               >
                 {value != null ? Number(value).toFixed(0) : "—"}
               </div>

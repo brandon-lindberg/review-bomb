@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import {
   getJournalistLeaderboard,
@@ -7,7 +8,9 @@ import {
 } from "@/lib/api";
 import { DisparityScores } from "@/components/DisparityScores";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { GameAvatar } from "@/components/GameAvatar";
 import { SortSelect } from "@/components/SortSelect";
+import { PaginationControls } from "@/components/PaginationControls";
 import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 60;
@@ -61,45 +64,54 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>Leaderboards</h1>
-
-        <div className="flex gap-2">
-          <SortSelect
-            options={[
-              { value: "recent", label: "Most Recent" },
-              { value: "highest", label: "Highest Disparity" },
-              { value: "lowest", label: "Lowest Disparity" },
-            ]}
-            defaultValue={sort}
-            paramName="sort"
-          />
+      <section className="space-y-5 py-2 text-center">
+        <div className="mx-auto max-w-4xl space-y-4">
+          <h1
+            className="mx-auto max-w-4xl text-5xl font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
+            style={{ color: "var(--foreground)", lineHeight: 0.95 }}
+          >
+            See the biggest gaps and the strongest alignment at a glance.
+          </h1>
+          <p
+            className="mx-auto max-w-4xl text-lg leading-8 sm:text-xl"
+            style={{ color: "var(--foreground-muted)" }}
+          >
+            Rank journalists, outlets, or games by disparity and recency to surface the entities
+            with the most visible separation from player consensus.
+          </p>
         </div>
-      </div>
+
+      </section>
 
       {/* Tab Navigation */}
-      <div className="border-b" style={{ borderColor: "var(--border)" }}>
-        <nav className="flex gap-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <nav className="site-tab-nav">
           {tabs.map((t) => (
             <Link
               key={t.id}
               href={`/leaderboards?tab=${t.id}&sort=${sort}`}
-              className="py-3 px-1 border-b-2 font-medium text-sm transition-colors"
-              style={tab === t.id
-                ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                : { borderColor: "transparent", color: "var(--foreground-muted)" }
-              }
+              className={`site-tab-link${tab === t.id ? " site-tab-link--active" : ""}`}
             >
               {t.label}
             </Link>
           ))}
         </nav>
+        <SortSelect
+          options={[
+            { value: "recent", label: "Most Recent" },
+            { value: "highest", label: "Highest Disparity" },
+            { value: "lowest", label: "Lowest Disparity" },
+          ]}
+          defaultValue={sort}
+          paramName="sort"
+          className="w-full md:w-auto md:min-w-[16rem]"
+        />
       </div>
 
       {/* Leaderboard Content */}
       {data ? (
         <>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="site-list overflow-hidden">
             {/* Desktop table header */}
             <div className="hidden md:flex items-center bg-gray-50 px-4 py-3 text-sm font-medium text-gray-500 gap-3">
               <div className="w-12 shrink-0">{sort === "recent" ? "#" : "Rank"}</div>
@@ -173,38 +185,46 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                   <Link
                     key={id}
                     href={linkHref}
-                    className="flex items-center px-4 py-4 hover:bg-gray-50 transition-colors gap-3"
+                    className="site-list-item flex items-center gap-3 px-4 py-4"
                   >
                     {/* Rank */}
                     <div className="w-8 md:w-12 shrink-0 text-sm text-gray-500">
                       {rank}
                     </div>
 
-                    {/* Avatar (journalists/outlets only) */}
-                    {tab !== "games" && (
-                      imageUrl ? (
-                        <img
-                          src={imageUrl}
-                          alt={name}
-                          className={`flex-shrink-0 ${
-                            tab === "journalists"
-                              ? "w-8 h-8 rounded-full object-cover"
-                              : "w-8 h-8 rounded object-contain bg-gray-100"
-                          }`}
-                        />
-                      ) : (
-                        <div
-                          className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
-                            tab === "journalists"
-                              ? "w-8 h-8 rounded-full"
-                              : "w-8 h-8 rounded"
-                          }`}
-                        >
-                          <span className="text-gray-500 text-xs font-medium">
-                            {name.charAt(0)}
-                          </span>
-                        </div>
-                      )
+                    {tab === "games" ? (
+                      <GameAvatar
+                        title={name}
+                        imageUrl={imageUrl}
+                        size={32}
+                        sizes="32px"
+                        className="w-8 h-8 flex-shrink-0 rounded-lg object-cover"
+                      />
+                    ) : imageUrl ? (
+                      <Image
+                        src={imageUrl}
+                        alt={name}
+                        width={32}
+                        height={32}
+                        sizes="32px"
+                        className={`flex-shrink-0 ${
+                          tab === "journalists"
+                            ? "w-8 h-8 rounded-full object-cover"
+                            : "w-8 h-8 rounded object-contain bg-gray-100"
+                        }`}
+                      />
+                    ) : (
+                      <div
+                        className={`flex-shrink-0 flex items-center justify-center bg-gray-200 ${
+                          tab === "journalists"
+                            ? "w-8 h-8 rounded-full"
+                            : "w-8 h-8 rounded"
+                        }`}
+                      >
+                        <span className="text-gray-500 text-xs font-medium">
+                          {name.charAt(0)}
+                        </span>
+                      </div>
                     )}
 
                     {/* Name + subtitle */}
@@ -255,33 +275,14 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
             </div>
           </div>
 
-          {/* Pagination */}
-          {data.total_pages > 1 && (
-            <div className="flex justify-center gap-2">
-              {page > 1 && (
-                <Link
-                  href={`/leaderboards?tab=${tab}&sort=${sort}&page=${page - 1}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Previous
-                </Link>
-              )}
-              <span className="px-4 py-2 text-gray-600">
-                Page {page} of {data.total_pages}
-              </span>
-              {page < data.total_pages && (
-                <Link
-                  href={`/leaderboards?tab=${tab}&sort=${sort}&page=${page + 1}`}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
-                >
-                  Next
-                </Link>
-              )}
-            </div>
-          )}
+          <PaginationControls
+            page={page}
+            totalPages={data.total_pages}
+            buildHref={(nextPage) => `/leaderboards?tab=${tab}&sort=${sort}&page=${nextPage}`}
+          />
         </>
       ) : (
-        <div className="text-center py-12 bg-white rounded-lg shadow">
+        <div className="site-empty">
           <p className="text-gray-600">
             Unable to load leaderboard. Make sure the backend API is running.
           </p>

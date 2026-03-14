@@ -76,6 +76,7 @@ class OutletWithStats(OutletSummary):
     min_score_given: Optional[Decimal] = None
     max_score_given: Optional[Decimal] = None
     score_std_deviation: Optional[Decimal] = None  # Std dev of scores given
+    latest_review: Optional["ReviewWithJournalist"] = None
 
 
 class OutletDetail(OutletSummary):
@@ -217,6 +218,7 @@ class GameWithScores(GameSummary):
     avg_critic_score: Optional[Decimal] = None
     disparity_steam: Optional[Decimal] = None
     disparity_metacritic: Optional[Decimal] = None
+    latest_review: Optional["ReviewWithJournalist"] = None
 
 
 class GameDetail(GameWithScores):

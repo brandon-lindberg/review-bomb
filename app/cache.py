@@ -107,6 +107,7 @@ async def close_redis():
 
 
 # Cache TTL constants (in seconds)
+CACHE_TTL_HOT = 15  # 15 seconds - for high-traffic recent data
 CACHE_TTL_SHORT = 60  # 1 minute - for frequently changing data
 CACHE_TTL_MEDIUM = 300  # 5 minutes - for leaderboards, stats
 CACHE_TTL_LONG = 900  # 15 minutes - for rarely changing data

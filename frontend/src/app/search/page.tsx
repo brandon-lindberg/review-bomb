@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
+import { GameAvatar } from "@/components/GameAvatar";
 import { buildEntityPath } from "@/lib/entity-paths";
 
 export const revalidate = 30;
@@ -89,9 +91,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {journalist.image_url ? (
-                          <img
+                          <Image
                             src={journalist.image_url}
                             alt={journalist.name}
+                            width={40}
+                            height={40}
+                            sizes="40px"
                             className="w-10 h-10 rounded-full object-cover"
                           />
                         ) : (
@@ -134,9 +139,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-3">
                         {outlet.logo_url ? (
-                          <img
+                          <Image
                             src={outlet.logo_url}
                             alt={outlet.name}
+                            width={40}
+                            height={40}
+                            sizes="40px"
                             className="w-10 h-10 rounded object-contain bg-gray-100"
                           />
                         ) : (
@@ -177,13 +185,22 @@ export default async function SearchPage({ searchParams }: PageProps) {
                     className="block p-4 hover:bg-gray-50 transition-colors"
                   >
                     <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-medium text-gray-900">{game.title}</p>
-                        {game.release_date && (
-                          <p className="text-sm text-gray-500">
-                            {new Date(game.release_date).toLocaleDateString()}
-                          </p>
-                        )}
+                      <div className="flex items-center gap-3">
+                        <GameAvatar
+                          title={game.title}
+                          imageUrl={game.image_url}
+                          size={40}
+                          sizes="40px"
+                          className="w-10 h-10 shrink-0 rounded-lg object-cover"
+                        />
+                        <div>
+                          <p className="font-medium text-gray-900">{game.title}</p>
+                          {game.release_date && (
+                            <p className="text-sm text-gray-500">
+                              {new Date(game.release_date).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
                       </div>
                       <DisparityBadge disparity={game.disparity} />
                     </div>

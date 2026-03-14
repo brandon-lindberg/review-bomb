@@ -1,5 +1,6 @@
 """Games API endpoints."""
 
+import json
 from typing import Optional
 from datetime import timedelta
 from decimal import Decimal
@@ -21,8 +22,10 @@ from app.schemas.schemas import (
     NewsArticleSummary,
     PaginatedResponse,
 )
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
+from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -44,6 +47,19 @@ async def list_games(
     db: AsyncSession = Depends(get_db),
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
+    key_hash = cache_key(
+        "games:list:v2",
+        page=page,
+        per_page=per_page,
+        year=year,
+        search=search,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
+    cached = await get_cached(f"games:list:{key_hash}")
+    if cached:
+        return PaginatedResponse[GameWithScores](**json.loads(cached))
+
     filters = [
         # Include games with either:
         # - at least one valid user-score signal, or
@@ -169,6 +185,107 @@ async def list_games(
             count_query = count_query.where(Game.title.ilike(f"%{search}%"))
         total = (await db.execute(count_query)).scalar() or 0
 
+    latest_review_lookup: dict[int, ReviewWithJournalist] = {}
+    game_ids = [game.id for game in games]
+    tokyo_cutoff_utc = tokyo_tomorrow_start_utc()
+
+    if game_ids:
+        ranked_reviews = (
+            select(
+                Review.id.label("review_id"),
+                Review.journalist_id.label("journalist_id"),
+                Review.outlet_id.label("outlet_id"),
+                Review.game_id.label("game_id"),
+                Review.review_url.label("review_url"),
+                Review.snippet.label("snippet"),
+                Review.score_raw.label("score_raw"),
+                Review.score_scale.label("score_scale"),
+                Review.score_normalized.label("score_normalized"),
+                Review.published_at.label("published_at"),
+                func.row_number().over(
+                    partition_by=Review.game_id,
+                    order_by=(Review.published_at.desc(), Review.id.desc()),
+                ).label("rn"),
+            )
+            .where(
+                Review.game_id.in_(game_ids),
+                Review.score_normalized.isnot(None),
+                Review.published_at.isnot(None),
+                Review.published_at < tokyo_cutoff_utc,
+            )
+            .subquery()
+        )
+
+        latest_reviews_query = (
+            select(
+                ranked_reviews.c.game_id,
+                ranked_reviews.c.review_id,
+                ranked_reviews.c.journalist_id,
+                ranked_reviews.c.outlet_id,
+                ranked_reviews.c.review_url,
+                ranked_reviews.c.snippet,
+                ranked_reviews.c.score_raw,
+                ranked_reviews.c.score_scale,
+                ranked_reviews.c.score_normalized,
+                ranked_reviews.c.published_at,
+                Journalist.name.label("journalist_name"),
+                Journalist.public_id.label("journalist_public_id"),
+                Journalist.image_url.label("journalist_image_url"),
+                Outlet.name.label("outlet_name"),
+                Outlet.public_id.label("outlet_public_id"),
+                Game.title.label("game_title"),
+                Game.public_id.label("game_public_id"),
+                Game.release_date.label("game_release_date"),
+            )
+            .join(Game, ranked_reviews.c.game_id == Game.id)
+            .join(Journalist, ranked_reviews.c.journalist_id == Journalist.id)
+            .outerjoin(Outlet, ranked_reviews.c.outlet_id == Outlet.id)
+            .where(ranked_reviews.c.rn == 1)
+        )
+
+        latest_reviews_result = await db.execute(latest_reviews_query)
+
+        for row in latest_reviews_result:
+            corrected_score, _ = corrected_normalized_score(
+                score_raw=row.score_raw,
+                score_scale=row.score_scale,
+                stored_score_normalized=row.score_normalized,
+            )
+            review_timing = "unknown"
+            review_date = to_tokyo_date(row.published_at)
+            if review_date and row.game_release_date:
+                review_timing = (
+                    "early"
+                    if review_date < row.game_release_date
+                    else "launch_window"
+                    if review_date <= row.game_release_date + timedelta(days=60)
+                    else "late"
+                )
+            latest_review_lookup[row.game_id] = ReviewWithJournalist(
+                id=row.review_id,
+                journalist_id=row.journalist_id,
+                journalist_public_id=row.journalist_public_id or str(row.journalist_id),
+                game_id=row.game_id,
+                game_public_id=row.game_public_id or str(row.game_id),
+                outlet_id=row.outlet_id,
+                outlet_public_id=(row.outlet_public_id or str(row.outlet_id)) if row.outlet_id is not None else None,
+                score_raw=row.score_raw,
+                score_scale=row.score_scale,
+                score_normalized=corrected_score,
+                review_url=row.review_url,
+                snippet=row.snippet,
+                published_at=row.published_at,
+                journalist_name=row.journalist_name,
+                journalist_image_url=row.journalist_image_url,
+                outlet_name=row.outlet_name,
+                game_title=row.game_title,
+                game_release_date=row.game_release_date,
+                disparity_steam=None,
+                disparity_metacritic=None,
+                is_launch_window=review_timing == "launch_window",
+                review_timing=review_timing,
+            )
+
     items = []
     for game in games:
         # Check which scores are valid based on sample size
@@ -197,16 +314,25 @@ async def list_games(
                 avg_critic_score=game.avg_critic_score,
                 disparity_steam=game.disparity_steam if steam_valid else None,
                 disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
+                latest_review=latest_review_lookup.get(game.id),
             )
         )
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        f"games:list:{key_hash}",
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_HOT,
+    )
+
+    return response
 
 
 @router.get("/{game_id}", response_model=GameDetail)
@@ -456,7 +582,7 @@ async def get_game_reviews(
     request: Request,
     game_id: str,
     page: int = Query(1, ge=1, le=100),
-    per_page: int = Query(20, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=500),
     review_timing: Optional[str] = Query(None, regex="^(early|launch_window|late)$"),
     sort_order: Optional[str] = Query(None, regex="^(asc|desc)$"),
     db: AsyncSession = Depends(get_db),

@@ -1,31 +1,47 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useSyncExternalStore } from "react";
 import { useTheme } from "./ThemeProvider";
 
-export function ThemeToggle() {
-  const [mounted, setMounted] = useState(false);
+const subscribe = () => () => {};
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+interface ThemeToggleProps {
+  className?: string;
+  labelMode?: "responsive" | "always" | "hidden";
+  fullWidth?: boolean;
+}
+
+export function ThemeToggle({
+  className,
+  labelMode = "responsive",
+  fullWidth = false,
+}: ThemeToggleProps) {
+  const mounted = useSyncExternalStore(subscribe, () => true, () => false);
 
   // Don't render anything until mounted to avoid hydration mismatch
   if (!mounted) {
     return (
       <div
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg"
-        style={{ color: "var(--foreground-muted)", backgroundColor: "var(--background)" }}
+        className={`flex items-center rounded-2xl border px-3 py-2${fullWidth ? " w-full justify-between" : " gap-2"}${className ? ` ${className}` : ""}`}
+        style={{
+          color: "var(--foreground-muted)",
+          backgroundColor: "var(--background-card-strong)",
+          borderColor: "var(--border)",
+        }}
       >
         <div className="w-5 h-5" />
       </div>
     );
   }
 
-  return <ThemeToggleInner />;
+  return <ThemeToggleInner className={className} labelMode={labelMode} fullWidth={fullWidth} />;
 }
 
-function ThemeToggleInner() {
+function ThemeToggleInner({
+  className,
+  labelMode,
+  fullWidth,
+}: ThemeToggleProps) {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
   const cycleTheme = () => {
@@ -106,19 +122,34 @@ function ThemeToggleInner() {
     return "Light";
   };
 
+  const labelClassName =
+    labelMode === "always"
+      ? "text-xs font-medium"
+      : labelMode === "hidden"
+        ? "hidden"
+        : "text-xs font-medium hidden sm:inline";
+
   return (
     <button
       onClick={cycleTheme}
-      className="flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors hover:opacity-80"
+      className={`flex items-center rounded-2xl border px-3 py-2 transition-colors hover:opacity-80${fullWidth ? " w-full justify-between" : " gap-2"}${className ? ` ${className}` : ""}`}
       style={{
         color: "var(--foreground-muted)",
-        backgroundColor: "var(--background)"
+        backgroundColor: "var(--background-card-strong)",
+        borderColor: "var(--border)",
       }}
       title={`Theme: ${getLabel()}. Click to change.`}
       aria-label={`Current theme: ${getLabel()}. Click to change theme.`}
     >
-      {getIcon()}
-      <span className="text-xs font-medium hidden sm:inline">{getLabel()}</span>
+      <span className={`flex items-center${fullWidth ? " gap-3" : " gap-2"}`}>
+        {getIcon()}
+        <span className={labelClassName}>{getLabel()}</span>
+      </span>
+      {fullWidth && (
+        <span className="text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: "var(--foreground-muted)" }}>
+          Theme
+        </span>
+      )}
     </button>
   );
 }

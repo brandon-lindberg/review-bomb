@@ -11,6 +11,7 @@ Usage:
     python -m app match --days 180  Match only games released in last 180 days
     python -m app steam             Sync Steam user scores
     python -m app steam --days 30   Sync Steam scores for games released in last 30 days
+    python -m app game-images       Backfill missing game images from Steam
     python -m app metacritic        Sync Metacritic scores (skips recently synced games)
     python -m app metacritic --recent  Sync only games released in last 90 days
     python -m app disparity         Calculate disparity snapshots
@@ -886,6 +887,36 @@ async def cmd_match(args):
         print(f"  Failed: {stats['failed']}")
 
 
+async def cmd_game_images(args):
+    """Handle Steam game image backfill command."""
+    async with async_session_maker() as db:
+        orchestrator = SyncOrchestrator(db)
+
+        print(f"\n{'='*50}")
+        print("Backfilling game images from Steam")
+        if args.overwrite:
+            print("Mode: overwrite existing image URLs")
+        else:
+            print("Mode: only games missing image URLs")
+        if args.days is not None:
+            print(f"Release-date filter: last {args.days} days")
+        if args.limit:
+            print(f"Limit: {args.limit} games")
+        print(f"{'='*50}\n")
+
+        stats = await orchestrator.backfill_game_images_from_steam(
+            limit=args.limit,
+            days=args.days,
+            overwrite=args.overwrite,
+        )
+
+        print(f"\nBackfill complete!")
+        print(f"  Total games: {stats['total']}")
+        print(f"  Updated: {stats['updated']}")
+        print(f"  Skipped: {stats['skipped']}")
+        print(f"  Failed: {stats['failed']}")
+
+
 async def cmd_clear(args):
     """Handle clear command - removes all data from database."""
     from sqlalchemy import text
@@ -1505,6 +1536,16 @@ def main():
     steam_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     steam_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
+    # Game image backfill command
+    game_images_parser = subparsers.add_parser("game-images", help="Backfill game images from Steam")
+    game_images_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    game_images_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
+    game_images_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing game image URLs with Steam header images",
+    )
+
     # Metacritic command
     metacritic_parser = subparsers.add_parser("metacritic", help="Sync Metacritic scores (user + metascore)")
     metacritic_parser.add_argument("--limit", type=int, help="Limit number of games to process")
@@ -1600,6 +1641,8 @@ def main():
         return asyncio.run(cmd_match(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
+    elif args.command == "game-images":
+        return asyncio.run(cmd_game_images(args))
     elif args.command == "metacritic":
         return asyncio.run(cmd_metacritic(args))
     elif args.command == "disparity":

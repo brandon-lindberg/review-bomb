@@ -1,7 +1,7 @@
 """Journalists API endpoints."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from typing import Optional
 from decimal import Decimal
 
@@ -30,10 +30,11 @@ from app.schemas.schemas import (
     PaginatedResponse,
     DisparitySnapshot as DisparitySnapshotSchema,
 )
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_MEDIUM
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_MEDIUM
 from app.public_ids import resolve_entity_by_identifier
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
+from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -79,7 +80,7 @@ async def list_journalists(
 ):
     """List all journalists with pagination, sorting, and search (uses denormalized columns)."""
     key_hash = cache_key(
-        "journalists:list:v5",
+        "journalists:list:v6",
         page=page,
         per_page=per_page,
         search=search,
@@ -90,7 +91,7 @@ async def list_journalists(
     if cached:
         return PaginatedResponse[JournalistSummary](**json.loads(cached))
 
-    now = datetime.now(timezone.utc)
+    tokyo_cutoff_utc = tokyo_tomorrow_start_utc()
 
     # For disparity sorting, enforce leaderboard anti-gaming thresholds.
     # For non-disparity sorts, include all journalists with at least one scored review.
@@ -162,7 +163,7 @@ async def list_journalists(
         if sort_by == "latest_review":
             query = query.where(
                 Journalist.last_review_at.isnot(None),
-                Journalist.last_review_at <= now,
+                Journalist.last_review_at < tokyo_cutoff_utc,
             )
 
         if search:
@@ -190,7 +191,7 @@ async def list_journalists(
             if sort_by == "latest_review":
                 count_query = count_query.where(
                     Journalist.last_review_at.isnot(None),
-                    Journalist.last_review_at <= now,
+                    Journalist.last_review_at < tokyo_cutoff_utc,
                 )
             if search:
                 count_query = count_query.where(Journalist.name.ilike(f"%{search}%"))
@@ -221,7 +222,7 @@ async def list_journalists(
                 Review.journalist_id.in_(journalist_ids),
                 Review.score_normalized.isnot(None),
                 Review.published_at.isnot(None),
-                Review.published_at <= now,
+                Review.published_at < tokyo_cutoff_utc,
             )
             .subquery()
         )
@@ -256,7 +257,7 @@ async def list_journalists(
             )
             if was_corrected:
                 latest_review_corrections += 1
-            review_date = row.published_at.date() if row.published_at and hasattr(row.published_at, 'date') else row.published_at
+            review_date = to_tokyo_date(row.published_at)
             latest_review_lookup[row.journalist_id] = JournalistLatestReview(
                 review_id=row.review_id,
                 game_id=row.game_id,
@@ -304,7 +305,7 @@ async def list_journalists(
     await set_cached(
         f"journalists:list:{key_hash}",
         json.dumps(response.model_dump(mode="json")),
-        CACHE_TTL_MEDIUM,
+        CACHE_TTL_HOT,
     )
     return response
 

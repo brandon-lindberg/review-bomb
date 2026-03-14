@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { DisparityBadge } from "@/components/DisparityBadge";
@@ -116,7 +117,14 @@ export function JournalistAlignmentSection({ journalists }: JournalistAlignmentS
         <div className="flex items-center gap-3 min-w-0">
           <span className="text-sm w-5 text-right flex-shrink-0" style={{ color: colors.muted }}>{i + 1}</span>
           {j.imageUrl ? (
-            <img src={j.imageUrl} alt={j.name} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+            <Image
+              src={j.imageUrl}
+              alt={j.name}
+              width={28}
+              height={28}
+              sizes="28px"
+              className="w-7 h-7 rounded-full object-cover flex-shrink-0"
+            />
           ) : (
             <div
               className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"

@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound, permanentRedirect } from "next/navigation";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
-import { getJournalist, getJournalistHistory } from "@/lib/api";
 import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, formatDisparity } from "@/lib/disparity-colors";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { LazyChartSection } from "@/components/LazyChartSection";
@@ -30,6 +30,7 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
+import { getCachedJournalist, getCachedJournalistHistory } from "@/lib/server-entity-loaders";
 
 export const revalidate = 60;
 const JOURNALIST_CARD_VERSION = "j2";
@@ -79,7 +80,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
 
   try {
     const requestedSegment = parseEntityRouteSegment(id);
-    const journalist = await getJournalist(requestedSegment.identifier);
+    const journalist = await getCachedJournalist(requestedSegment.identifier);
     const canonicalId = journalist.public_id;
     const canonicalPath = buildEntityPath("journalists", journalist.name, canonicalId);
     const requestedCardVersion = query.card?.trim() || JOURNALIST_CARD_VERSION;
@@ -128,7 +129,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
     let snapshotTrend = snapshotTrendParam;
     if (shareMode === "chart" && snapshotTrend === undefined) {
       try {
-        const history = await getJournalistHistory(canonicalId, 180);
+        const history = await getCachedJournalistHistory(canonicalId, 180);
         snapshotTrend = toTrendSnapshot(history);
       } catch {
         snapshotTrend = [];
@@ -260,7 +261,7 @@ export default async function JournalistDetailPage({
   let chartTrendEncoded = "";
 
   try {
-    journalist = await getJournalist(requestedSegment.identifier);
+    journalist = await getCachedJournalist(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching journalist:", error);
     notFound();
@@ -276,11 +277,9 @@ export default async function JournalistDetailPage({
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  try {
-    const history = await getJournalistHistory(journalist.public_id, 180);
+  const history = await getCachedJournalistHistory(journalist.public_id, 180).catch(() => null);
+  if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
-  } catch {
-    // Chart share still works without trend payload, OG route will try live fetch
   }
 
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
@@ -391,9 +390,12 @@ export default async function JournalistDetailPage({
         <div className="flex flex-col md:flex-row md:items-start gap-6">
           <div className="flex-shrink-0">
             {journalist.image_url ? (
-              <img
+              <Image
                 src={journalist.image_url}
                 alt={journalist.name}
+                width={96}
+                height={96}
+                sizes="96px"
                 className="w-24 h-24 rounded-full object-cover"
               />
             ) : (
