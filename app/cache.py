@@ -5,9 +5,9 @@ Redis caching utilities for expensive queries.
 import json
 import hashlib
 import time
+from collections import OrderedDict
 from fnmatch import fnmatch
-from typing import Optional, Any, Dict, Tuple
-from functools import wraps
+from typing import Optional, Tuple
 
 import redis.asyncio as redis
 
@@ -17,30 +17,80 @@ settings = get_settings()
 
 # Global Redis client
 _redis_client: Optional[redis.Redis] = None
-_memory_cache: Dict[str, Tuple[str, float]] = {}
+MEMORY_CACHE_MAX_ENTRIES = 256
+MEMORY_CACHE_MAX_BYTES = 4 * 1024 * 1024
+MEMORY_CACHE_MAX_VALUE_BYTES = 256 * 1024
+
+_memory_cache: "OrderedDict[str, Tuple[str, float, int]]" = OrderedDict()
+_memory_cache_bytes = 0
+
+
+def _memory_pop(key: str) -> Optional[Tuple[str, float, int]]:
+    global _memory_cache_bytes
+
+    entry = _memory_cache.pop(key, None)
+    if entry:
+        _memory_cache_bytes = max(0, _memory_cache_bytes - entry[2])
+    return entry
+
+
+def _memory_prune(now: Optional[float] = None) -> None:
+    global _memory_cache_bytes
+
+    current_time = time.monotonic() if now is None else now
+    expired_keys = [
+        key
+        for key, (_, expires_at, _) in list(_memory_cache.items())
+        if expires_at <= current_time
+    ]
+    for key in expired_keys:
+        _memory_pop(key)
+
+    while _memory_cache and (
+        len(_memory_cache) > MEMORY_CACHE_MAX_ENTRIES
+        or _memory_cache_bytes > MEMORY_CACHE_MAX_BYTES
+    ):
+        _, (_, _, size_bytes) = _memory_cache.popitem(last=False)
+        _memory_cache_bytes = max(0, _memory_cache_bytes - size_bytes)
 
 
 def _memory_get(key: str) -> Optional[str]:
+    _memory_prune()
     entry = _memory_cache.get(key)
     if not entry:
         return None
 
-    value, expires_at = entry
+    value, expires_at, _ = entry
     if expires_at < time.monotonic():
-        _memory_cache.pop(key, None)
+        _memory_pop(key)
         return None
+    _memory_cache.move_to_end(key)
     return value
 
 
 def _memory_set(key: str, value: str, expire_seconds: int) -> bool:
-    _memory_cache[key] = (value, time.monotonic() + max(expire_seconds, 1))
+    global _memory_cache_bytes
+
+    size_bytes = len(value.encode("utf-8"))
+    if size_bytes > MEMORY_CACHE_MAX_VALUE_BYTES:
+        _memory_pop(key)
+        return False
+
+    existing = _memory_cache.get(key)
+    if existing:
+        _memory_cache_bytes = max(0, _memory_cache_bytes - existing[2])
+
+    _memory_cache[key] = (value, time.monotonic() + max(expire_seconds, 1), size_bytes)
+    _memory_cache.move_to_end(key)
+    _memory_cache_bytes += size_bytes
+    _memory_prune()
     return True
 
 
 def _memory_delete(pattern: str) -> int:
     to_delete = [key for key in list(_memory_cache.keys()) if fnmatch(key, pattern)]
     for key in to_delete:
-        _memory_cache.pop(key, None)
+        _memory_pop(key)
     return len(to_delete)
 
 
@@ -99,11 +149,12 @@ def cache_key(*args, **kwargs) -> str:
 
 async def close_redis():
     """Close the Redis client connection."""
-    global _redis_client
+    global _redis_client, _memory_cache_bytes
     if _redis_client is not None:
         await _redis_client.aclose()
         _redis_client = None
     _memory_cache.clear()
+    _memory_cache_bytes = 0
 
 
 # Cache TTL constants (in seconds)
