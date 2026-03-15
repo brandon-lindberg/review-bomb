@@ -6,6 +6,23 @@ interface NewsCardProps {
   compact?: boolean;
 }
 
+function shouldBypassImageOptimizer(article: NewsArticle): boolean {
+  if (article.source_name === "Kotaku") {
+    return true;
+  }
+
+  if (!article.image_url) {
+    return false;
+  }
+
+  try {
+    const hostname = new URL(article.image_url).hostname.toLowerCase();
+    return hostname === "kotaku.com" || hostname.endsWith(".kotaku.com") || hostname.endsWith(".kinja-img.com");
+  } catch {
+    return false;
+  }
+}
+
 export function NewsCard({ article, compact = false }: NewsCardProps) {
   const formattedDate = article.published_at
     ? new Date(article.published_at).toLocaleDateString("en-US", {
@@ -14,6 +31,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
         year: "numeric",
       })
     : null;
+  const unoptimized = shouldBypassImageOptimizer(article);
 
   if (compact) {
     return (
@@ -32,6 +50,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
                 width={80}
                 height={64}
                 sizes="(max-width: 640px) 64px, 80px"
+                unoptimized={unoptimized}
                 className="h-full w-full object-cover"
               />
             </div>
@@ -83,6 +102,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
             alt=""
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
+            unoptimized={unoptimized}
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         </div>
