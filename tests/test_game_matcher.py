@@ -81,3 +81,11 @@ async def test_manual_override_steam_match_wins_for_known_lords_entries(
     )
 
     assert steam_app_id == expected_app_id
+
+
+def test_manual_override_metacritic_slug_wins_for_edge_2011():
+    matcher = GameMatcher(steam_service=DummySteamService(results={}))
+
+    slug = matcher.find_metacritic_slug("Edge", opencritic_id=1130)
+
+    assert slug == "edge-2011"

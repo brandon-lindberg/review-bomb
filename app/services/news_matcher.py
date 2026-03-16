@@ -203,6 +203,18 @@ class NewsMatcher:
         "with",
         "without",
     }
+    _AMBIGUOUS_ALLOWED_PREDECESSORS = (
+        _FALLBACK_STOPWORDS
+        | _AMBIGUOUS_PREPOSITIONS
+        | _GENERIC_HEADLINE_FOLLOWUPS
+        | {
+            "hands",
+            "latest",
+            "new",
+            "official",
+            "our",
+        }
+    )
     # Nearby terms that strongly imply game-title usage for ambiguous words.
     _GAME_CONTEXT_TOKENS = {
         "access",
@@ -265,6 +277,30 @@ class NewsMatcher:
         "playstation",
         "ps5",
         "pc",
+    }
+    _REFERENCE_PREFIX_PATTERNS = (
+        ("fan", "of"),
+        ("fans", "of"),
+        ("homage", "to"),
+        ("inspired", "by"),
+        ("similar", "to"),
+        ("spiritual", "successor", "to"),
+        ("successor", "to"),
+        ("tribute", "to"),
+    )
+    _REFERENCE_PREFIX_TOKENS = {
+        "channeling",
+        "channels",
+        "echoes",
+        "echoing",
+        "evokes",
+        "evoking",
+        "like",
+        "meets",
+    }
+    _REFERENCE_SUFFIX_TOKENS = {
+        "inspired",
+        "like",
     }
 
     def __init__(self, games: list[tuple[int, str]]):
@@ -668,6 +704,76 @@ class NewsMatcher:
 
         return False
 
+    @classmethod
+    def _has_blocking_ambiguous_predecessor(
+        cls,
+        normalized_title: str,
+        ambiguous_token: str,
+    ) -> bool:
+        """
+        High-risk one-word titles should not match when they only appear as the
+        trailing token of a larger phrase/title such as "Mirror's Edge".
+        """
+        tokens = normalized_title.split()
+        if not tokens:
+            return False
+
+        for index, token in enumerate(tokens):
+            if token != ambiguous_token or index == 0:
+                continue
+
+            previous = tokens[index - 1]
+            if previous in cls._AMBIGUOUS_ALLOWED_PREDECESSORS:
+                continue
+            if previous in cls._GAME_CONTEXT_TOKENS:
+                continue
+            if previous.isdigit() or cls._ROMAN_TOKEN_RE.match(previous):
+                continue
+            return True
+
+        return False
+
+    @classmethod
+    def _has_reference_only_phrase_usage(
+        cls,
+        normalized_text: str,
+        normalized_game_title: str,
+    ) -> bool:
+        """
+        Detect exact title mentions used as comparison/reference phrases rather
+        than the article's primary subject, e.g. "channels Mirror's Edge".
+        """
+        article_tokens = normalized_text.split()
+        game_tokens = normalized_game_title.split()
+        if len(article_tokens) < len(game_tokens) or len(game_tokens) < 2:
+            return False
+
+        match_indexes = [
+            index
+            for index in range(0, len(article_tokens) - len(game_tokens) + 1)
+            if article_tokens[index:index + len(game_tokens)] == game_tokens
+        ]
+        if not match_indexes:
+            return False
+
+        for index in match_indexes:
+            prefix = article_tokens[max(0, index - 4):index]
+            suffix = article_tokens[index + len(game_tokens):index + len(game_tokens) + 3]
+
+            if suffix and suffix[0] in cls._REFERENCE_SUFFIX_TOKENS:
+                continue
+            if prefix and prefix[-1] in cls._REFERENCE_PREFIX_TOKENS:
+                continue
+            if any(
+                len(prefix) >= len(pattern)
+                and tuple(prefix[-len(pattern):]) == pattern
+                for pattern in cls._REFERENCE_PREFIX_PATTERNS
+            ):
+                continue
+            return False
+
+        return True
+
     def _score_exact_match_candidate(
         self,
         *,
@@ -688,6 +794,25 @@ class NewsMatcher:
             score += 90
         if description_matched:
             score += 65
+
+        title_reference_only = (
+            title_matched
+            and self._has_reference_only_phrase_usage(
+                normalized_article_title,
+                normalized_game_title,
+            )
+        )
+        description_reference_only = (
+            description_matched
+            and self._has_reference_only_phrase_usage(
+                normalized_article_description,
+                normalized_game_title,
+            )
+        )
+        if title_reference_only:
+            score -= 130
+        if description_reference_only:
+            score -= 100
 
         title_uses_numeric_sequel_suffix = (
             title_matched
@@ -744,6 +869,27 @@ class NewsMatcher:
             normalized_game_title,
             primary_token,
         )
+        title_has_blocking_predecessor = (
+            high_risk_single_word
+            and title_matched
+            and self._has_blocking_ambiguous_predecessor(
+                normalized_article_title,
+                primary_token,
+            )
+        )
+        description_has_blocking_predecessor = (
+            high_risk_single_word
+            and description_matched
+            and self._has_blocking_ambiguous_predecessor(
+                normalized_article_description,
+                primary_token,
+            )
+        )
+
+        if title_has_blocking_predecessor:
+            score -= 140
+        if description_has_blocking_predecessor:
+            score -= 110
 
         if title_has_context or description_has_context:
             score += 30

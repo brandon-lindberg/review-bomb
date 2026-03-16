@@ -33,6 +33,9 @@ class GameMatcher:
         175: {"steam_app_id": 265300},
         2594: {"steam_app_id": 265300},
         15632: {"steam_app_id": 1501750},
+        # Edge — the tracked OpenCritic record is the legacy 2011 game, not the
+        # newer Metacritic "edge" page.
+        1130: {"metacritic_slug": "edge-2011"},
     }
 
     # Common title transformations to improve matching
