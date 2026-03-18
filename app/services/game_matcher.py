@@ -189,6 +189,11 @@ class GameMatcher:
         return SequenceMatcher(None, norm1, norm2).ratio()
 
     @classmethod
+    def titles_look_related(cls, expected_title: str, candidate_title: Optional[str]) -> bool:
+        """Reuse the stricter title-identity guard for Steam candidate filtering."""
+        return MetacriticService._titles_look_related(expected_title, candidate_title)
+
+    @classmethod
     def dates_match(
         cls,
         date1: Optional[date],
@@ -253,6 +258,11 @@ class GameMatcher:
         scored: List[Tuple[float, Dict[str, Any]]] = []
         for result in search_results:
             steam_title = result.get("name", "")
+            if not any(
+                self.titles_look_related(candidate, steam_title)
+                for candidate in comparison_titles
+            ):
+                continue
             similarity = max(
                 self.calculate_similarity(candidate, steam_title)
                 for candidate in comparison_titles

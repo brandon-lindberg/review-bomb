@@ -26,6 +26,20 @@ def test_rejects_sequel_number_mismatch():
     )
 
 
+def test_rejects_yearly_sports_number_mismatch_with_shared_suffix():
+    assert not MetacriticService._titles_look_related(
+        "Fifa 21 Next Gen",
+        "FIFA 26 Next Gen",
+    )
+
+
+def test_accepts_compact_yearly_sports_format_variant():
+    assert MetacriticService._titles_look_related(
+        "NBA2K 21 Next-Gen",
+        "NBA 2K21 Next-Gen",
+    )
+
+
 @pytest.mark.asyncio
 async def test_get_scores_passes_title_through_slug_candidate_recursion():
     class SpyMetacriticService(MetacriticService):

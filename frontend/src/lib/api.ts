@@ -14,6 +14,7 @@ import type {
   DisparitySnapshot,
   NewsArticle,
   TrendingGamesResponse,
+  SteamActivityResponse,
 } from "@/types";
 import { getApiUrl } from "@/lib/api-base-url";
 
@@ -242,6 +243,13 @@ export async function getGameHistory(
   limit = 10000
 ): Promise<DisparitySnapshot[]> {
   return fetchAPI<DisparitySnapshot[]>(`/games/${id}/history?limit=${limit}`);
+}
+
+export async function getGameSteamActivity(
+  id: string | number,
+  limit = 10000
+): Promise<SteamActivityResponse> {
+  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}`);
 }
 
 // All reviews for charts - fetches ALL reviews by paginating through all pages

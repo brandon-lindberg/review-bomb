@@ -15,9 +15,11 @@ from app.models.models import (
     JournalistOutletDisparitySnapshot,
     Outlet,
     Review,
+    SteamPlayerRangeSnapshot,
+    SteamPlayerSnapshot,
 )
 from app.routers.games import get_game, get_game_reviews
-from app.routers.games import get_game_history
+from app.routers.games import get_game_history, get_game_steam_activity
 from app.routers.journalists import get_journalist, get_journalist_history, get_journalist_reviews
 from app.routers.outlets import get_outlet, get_outlet_history, get_outlet_reviews
 from app.schemas.schemas import DisparitySnapshot as ChartDisparitySnapshot
@@ -646,6 +648,15 @@ async def test_get_game_detail_returns_stored_denormalized_disparities():
         release_date=date(2026, 2, 20),
         steam_user_score=Decimal("88.00"),
         steam_sample_size=200,
+        steam_current_players=56164,
+        steam_current_players_sampled_at=now,
+        steam_player_24h_peak=62830,
+        steam_player_24h_low_observed=25110,
+        steam_player_all_time_peak=88337,
+        steam_player_all_time_peak_at=_utc(2026, 2, 13),
+        steam_player_stats_synced_at=now,
+        steam_achievement_count=58,
+        steam_achievement_count_synced_at=now,
         metacritic_user_score=Decimal("90.00"),
         metacritic_sample_size=50,
         disparity_steam=Decimal("-3.25"),
@@ -666,6 +677,59 @@ async def test_get_game_detail_returns_stored_denormalized_disparities():
 
     assert resp.disparity_steam == Decimal("-3.25")
     assert resp.disparity_metacritic == Decimal("1.75")
+    assert not hasattr(resp, "steam_current_players")
+    assert not hasattr(resp, "steam_current_players_sampled_at")
+    assert resp.steam_player_24h_peak == 62830
+    assert resp.steam_player_24h_low_observed == 25110
+    assert resp.steam_player_all_time_peak == 88337
+    assert resp.steam_achievement_count == 58
+
+
+@pytest.mark.asyncio
+async def test_get_game_steam_activity_returns_points_and_curated_markers():
+    now = _utc(2026, 3, 16)
+    game = Game(
+        id=11,
+        title="Marathon",
+        steam_app_id=123,
+        steam_player_24h_peak=62830,
+        steam_player_24h_low_observed=25110,
+        steam_player_all_time_peak=88337,
+        steam_player_all_time_peak_at=_utc(2026, 3, 6),
+        steam_player_stats_synced_at=now,
+        steam_achievement_count=42,
+        steam_achievement_count_synced_at=now,
+    )
+    snapshots = [
+        SteamPlayerRangeSnapshot(
+            game_id=11,
+            sampled_at=datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
+            players_24h_high=57000,
+            players_24h_low=21000,
+        ),
+        SteamPlayerRangeSnapshot(
+            game_id=11,
+            sampled_at=datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc),
+            players_24h_high=55000,
+            players_24h_low=20000,
+        ),
+    ]
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=game),
+            FakeResult(scalars_all=snapshots),
+        ]
+    )
+
+    resp = await get_game_steam_activity(game_id=11, limit=10000, db=db)
+
+    assert not hasattr(resp.summary, "steam_current_players")
+    assert not hasattr(resp.summary, "steam_current_players_sampled_at")
+    assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
+    assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
+    assert any(marker.marker_type == "first_tracked" for marker in resp.markers)
+    assert any(marker.marker_type == "all_time_peak" for marker in resp.markers)
 
 
 @pytest.mark.asyncio

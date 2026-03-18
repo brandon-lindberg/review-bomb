@@ -213,6 +213,13 @@ class GameWithScores(GameSummary):
     opencritic_score: Optional[Decimal] = None
     steam_user_score: Optional[Decimal] = None
     steam_sample_size: Optional[int] = None
+    steam_player_24h_peak: Optional[int] = None
+    steam_player_24h_low_observed: Optional[int] = None
+    steam_player_all_time_peak: Optional[int] = None
+    steam_player_all_time_peak_at: Optional[datetime] = None
+    steam_player_stats_synced_at: Optional[datetime] = None
+    steam_achievement_count: Optional[int] = None
+    steam_achievement_count_synced_at: Optional[datetime] = None
     metacritic_user_score: Optional[Decimal] = None
     metacritic_sample_size: Optional[int] = None
     avg_critic_score: Optional[Decimal] = None
@@ -231,6 +238,29 @@ class GameDetail(GameWithScores):
     created_at: datetime
     updated_at: datetime
     recent_news: list["NewsArticleSummary"] = []
+
+
+class SteamPlayerPoint(BaseModel):
+    """Single observed 24-hour high/low chart point."""
+    sampled_at: datetime
+    observed_24h_high: int
+    observed_24h_low: int
+
+
+class SteamPlayerMarker(BaseModel):
+    """Curated player milestone marker."""
+    marker_type: str
+    sampled_at: datetime
+    concurrent_players: int
+    label: str
+    detail: Optional[str] = None
+
+
+class SteamActivityResponse(BaseModel):
+    """Steam activity payload for charts and timelines."""
+    summary: GameWithScores
+    points: list[SteamPlayerPoint] = []
+    markers: list[SteamPlayerMarker] = []
 
 
 # =============================================================================

@@ -187,6 +187,17 @@ class Game(Base):
     disparity_steam: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
     disparity_metacritic: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
 
+    # Steam activity snapshots and denormalized stats
+    steam_current_players: Mapped[Optional[int]] = mapped_column(Integer)
+    steam_current_players_sampled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    steam_player_24h_peak: Mapped[Optional[int]] = mapped_column(Integer)
+    steam_player_24h_low_observed: Mapped[Optional[int]] = mapped_column(Integer)
+    steam_player_all_time_peak: Mapped[Optional[int]] = mapped_column(Integer)
+    steam_player_all_time_peak_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    steam_player_stats_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    steam_achievement_count: Mapped[Optional[int]] = mapped_column(Integer)
+    steam_achievement_count_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     metacritic_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -204,6 +215,12 @@ class Game(Base):
         back_populates="game"
     )
     news_articles: Mapped[List["NewsArticle"]] = relationship(back_populates="game")
+    steam_player_snapshots: Mapped[List["SteamPlayerSnapshot"]] = relationship(
+        back_populates="game"
+    )
+    steam_player_range_snapshots: Mapped[List["SteamPlayerRangeSnapshot"]] = relationship(
+        back_populates="game"
+    )
 
     __table_args__ = (
         Index("idx_games_release_date", "release_date"),
@@ -307,6 +324,56 @@ class UserScore(Base):
 
     __table_args__ = (
         Index("idx_user_scores_scraped_at", "scraped_at"),
+    )
+
+
+class SteamPlayerSnapshot(Base):
+    """
+    Time-series snapshots of Steam concurrent players.
+    """
+    __tablename__ = "steam_player_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    concurrent_players: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    game: Mapped["Game"] = relationship(back_populates="steam_player_snapshots")
+
+    __table_args__ = (
+        Index("idx_steam_player_snapshots_game_sampled", "game_id", "sampled_at"),
+        Index("idx_steam_player_snapshots_sampled_at", "sampled_at"),
+    )
+
+
+class SteamPlayerRangeSnapshot(Base):
+    """
+    Time-series 24-hour high/low range points derived from Flopathon history.
+    """
+    __tablename__ = "steam_player_range_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    players_24h_high: Mapped[int] = mapped_column(Integer, nullable=False)
+    players_24h_low: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    game: Mapped["Game"] = relationship(back_populates="steam_player_range_snapshots")
+
+    __table_args__ = (
+        UniqueConstraint("game_id", "sampled_at", name="uq_steam_player_range_snapshots_game_sampled"),
+        Index("idx_steam_player_range_snapshots_game_sampled", "game_id", "sampled_at"),
+        Index("idx_steam_player_range_snapshots_sampled_at", "sampled_at"),
     )
 
 

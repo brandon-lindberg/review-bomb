@@ -68,6 +68,10 @@ interface CompareData {
   avg_disparity: number | null;
   avg_score: number | null;
   steam_user_score: number | null;
+  steam_player_24h_peak: number | null;
+  steam_player_24h_low_observed: number | null;
+  steam_player_all_time_peak: number | null;
+  steam_achievement_count: number | null;
   metacritic_user_score: number | null;
   history: DisparitySnapshot[];
   linkHref: string;
@@ -235,6 +239,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
               avg_disparity: combinedDisparity,
               avg_score: criticScore,
               steam_user_score: steamScore,
+              steam_player_24h_peak: null,
+              steam_player_24h_low_observed: null,
+              steam_player_all_time_peak: null,
+              steam_achievement_count: null,
               metacritic_user_score: metacriticScore,
               history: result.history,
               linkHref: buildEntityPath("journalists", result.journalist.name, result.journalist.public_id),
@@ -270,6 +278,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
               avg_disparity: combinedDisparity,
               avg_score: criticScore,
               steam_user_score: steamScore,
+              steam_player_24h_peak: null,
+              steam_player_24h_low_observed: null,
+              steam_player_all_time_peak: null,
+              steam_achievement_count: null,
               metacritic_user_score: metacriticScore,
               history: result.history,
               linkHref: buildEntityPath("outlets", result.outlet.name, result.outlet.public_id),
@@ -304,6 +316,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
               ),
               avg_score: result.game.avg_critic_score ?? null,
               steam_user_score: result.game.steam_user_score ?? null,
+              steam_player_24h_peak: result.game.steam_player_24h_peak ?? null,
+              steam_player_24h_low_observed: result.game.steam_player_24h_low_observed ?? null,
+              steam_player_all_time_peak: result.game.steam_player_all_time_peak ?? null,
+              steam_achievement_count: result.game.steam_achievement_count ?? null,
               metacritic_user_score: result.game.metacritic_user_score ?? null,
               history: result.history,
               linkHref: buildEntityPath("games", result.game.title, result.game.public_id),
@@ -503,6 +519,78 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 </tr>
 
                 {/* Steam Score Row (games only) */}
+                {type === "games" && (
+                  <tr className="bg-gray-50">
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      All-Time High
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.steam_player_all_time_peak != null
+                          ? item.steam_player_all_time_peak.toLocaleString()
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {type === "games" && (
+                  <tr>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      24-Hour High
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.steam_player_24h_peak != null
+                          ? item.steam_player_24h_peak.toLocaleString()
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {type === "games" && (
+                  <tr className="bg-gray-50">
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      24-Hour Low
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.steam_player_24h_low_observed != null
+                          ? item.steam_player_24h_low_observed.toLocaleString()
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {type === "games" && (
+                  <tr>
+                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
+                      Achievement Count
+                    </td>
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.steam_achievement_count != null
+                          ? item.steam_achievement_count.toLocaleString()
+                          : "N/A"}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
                 {type === "games" && (
                   <tr className="bg-gray-50">
                     <td className="px-4 py-4 text-sm font-medium text-gray-700">

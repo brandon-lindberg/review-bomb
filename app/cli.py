@@ -9,8 +9,12 @@ Usage:
     python -m app sync --full-scan  Force full OpenCritic catalog sweep
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app match --days 180  Match only games released in last 180 days
-    python -m app steam             Sync Steam user scores
-    python -m app steam --days 30   Sync Steam scores for games released in last 30 days
+    python -m app steam             Sync Steam user scores and public Steam activity
+    python -m app steam --days 30   Sync Steam-owned data for games released in last 30 days
+    python -m app steamdb           Sync SteamDB peak data only
+    python -m app steamdb --days 30 Sync SteamDB peaks for games released in last 30 days
+    python -m app flopathon         Sync Flopathon 24h range and all-time high data
+    python -m app flopathon --days 30 Sync Flopathon range/high data for games released in last 30 days
     python -m app game-images       Backfill missing game images from Steam
     python -m app metacritic        Sync Metacritic scores (skips recently synced games)
     python -m app metacritic --recent  Sync only games released in last 90 days
@@ -138,12 +142,78 @@ async def cmd_sync(args):
             return 1
 
 
+async def _load_cli_steam_games(db, args, Game):
+    """Load Steam-linked games for CLI sync commands."""
+    from sqlalchemy import select, and_, or_, func
+
+    min_recent_add_window_days = 14
+    recent_opencritic_id_window = 300
+
+    query = select(Game).where(Game.steam_app_id.isnot(None))
+    mode = "with Steam IDs"
+    if getattr(args, "app_id", None) is not None:
+        query = query.where(Game.steam_app_id == args.app_id)
+        mode = f"with Steam app ID {args.app_id}"
+    if args.days is not None:
+        now = datetime.now(timezone.utc)
+        cutoff_date = (now - timedelta(days=args.days)).date()
+        today = now.date()
+        created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
+        created_cutoff_dt = datetime.combine(
+            created_cutoff_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
+        recent_opencritic_condition = and_(
+            Game.opencritic_id.isnot(None),
+            Game.opencritic_id >= (max_opencritic_id_subq - recent_opencritic_id_window),
+        )
+        query = query.where(
+            or_(
+                and_(
+                    Game.release_date.isnot(None),
+                    Game.release_date >= cutoff_date,
+                    Game.release_date <= today,
+                ),
+                and_(
+                    Game.created_at >= created_cutoff_dt,
+                    or_(Game.release_date.is_(None), Game.release_date <= today),
+                ),
+                and_(
+                    recent_opencritic_condition,
+                    or_(Game.release_date.is_(None), Game.release_date <= today),
+                ),
+            )
+        )
+        mode = (
+            f"released in last {args.days} days, or added in last "
+            f"{min_recent_add_window_days} days, or in recent OpenCritic ID window "
+            "(excluding future release dates) with Steam IDs"
+        )
+
+    if args.days is not None:
+        query = query.order_by(
+            Game.created_at.desc().nulls_last(),
+            Game.release_date.desc().nulls_last(),
+            Game.id.desc(),
+        )
+    else:
+        query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+
+    if args.limit:
+        query = query.limit(args.limit)
+
+    result = await db.execute(query)
+    return result.scalars().all(), mode
+
+
 async def cmd_steam(args):
     """Handle Steam sync command."""
     from app.services.steam import SteamService
+    from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
     from app.models.models import Game, UserScore, UserScoreSource
-    from sqlalchemy import select, and_, or_, func, delete
-    from datetime import timedelta
+    from sqlalchemy import delete
     from difflib import SequenceMatcher
     import re
 
@@ -163,60 +233,7 @@ async def cmd_steam(args):
         ).ratio()
 
     async with async_session_maker() as db:
-        min_recent_add_window_days = 14
-        recent_opencritic_id_window = 300
-        # Get all games with Steam app IDs
-        query = select(Game).where(Game.steam_app_id.isnot(None))
-        mode = "with Steam IDs"
-        if args.days is not None:
-            now = datetime.now(timezone.utc)
-            cutoff_date = (now - timedelta(days=args.days)).date()
-            today = now.date()
-            created_cutoff_date = (now - timedelta(days=min_recent_add_window_days)).date()
-            created_cutoff_dt = datetime.combine(
-                created_cutoff_date,
-                datetime.min.time(),
-                tzinfo=timezone.utc,
-            )
-            max_opencritic_id_subq = select(func.max(Game.opencritic_id)).scalar_subquery()
-            recent_opencritic_condition = and_(
-                Game.opencritic_id.isnot(None),
-                Game.opencritic_id >= (max_opencritic_id_subq - recent_opencritic_id_window),
-            )
-            query = query.where(
-                or_(
-                    and_(
-                        Game.release_date.isnot(None),
-                        Game.release_date >= cutoff_date,
-                        Game.release_date <= today,
-                    ),
-                    and_(
-                        Game.created_at >= created_cutoff_dt,
-                        or_(Game.release_date.is_(None), Game.release_date <= today),
-                    ),
-                    and_(
-                        recent_opencritic_condition,
-                        or_(Game.release_date.is_(None), Game.release_date <= today),
-                    ),
-                )
-            )
-            mode = (
-                f"released in last {args.days} days, or added in last "
-                f"{min_recent_add_window_days} days, or in recent OpenCritic ID window "
-                "(excluding future release dates) with Steam IDs"
-            )
-        if args.days is not None:
-            query = query.order_by(
-                Game.created_at.desc().nulls_last(),
-                Game.release_date.desc().nulls_last(),
-                Game.id.desc(),
-            )
-        else:
-            query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
-        if args.limit:
-            query = query.limit(args.limit)
-        result = await db.execute(query)
-        games = result.scalars().all()
+        games, mode = await _load_cli_steam_games(db, args, Game)
 
         print(f"Found {len(games)} games {mode}")
 
@@ -224,6 +241,8 @@ async def cmd_steam(args):
             print(f"Processing up to {args.limit} games")
 
         synced = 0
+        activity_updated = 0
+        activity_snapshots = 0
         processed = 0
         failed = 0
         no_score = 0
@@ -233,7 +252,7 @@ async def cmd_steam(args):
         cleared_mismatch = 0
         cleared_steam_score_rows = 0
 
-        async with SteamService() as service:
+        async with SteamService() as service, SteamActivityService() as activity_service:
             for game in games:
                 processed += 1
                 try:
@@ -324,6 +343,23 @@ async def cmd_steam(args):
                             f"(steam_title='{steam_title}', release='{release_raw}')"
                         )
 
+                    activity_result = await sync_game_steam_public_activity(
+                        db,
+                        game,
+                        activity_service,
+                    )
+                    if activity_result["snapshot_created"]:
+                        activity_snapshots += 1
+                    if (
+                        activity_result["snapshot_created"]
+                        or activity_result["achievement_updated"]
+                    ):
+                        activity_updated += 1
+                        if activity_result["current_players"] is not None:
+                            print(f"  Players Right Now: {activity_result['current_players']:,}")
+                        if game.steam_achievement_count is not None:
+                            print(f"  Achievements: {game.steam_achievement_count:,}")
+
                 except Exception as e:
                     print(f"  Error: {e}")
                     failed += 1
@@ -339,7 +375,119 @@ async def cmd_steam(args):
             f"{synced} synced, {no_score} no score, {skipped_upcoming} upcoming skipped, "
             f"{skipped_invalid_app} invalid app IDs, {skipped_mismatch} mapping mismatches "
             f"({cleared_mismatch} cleared, {cleared_steam_score_rows} score rows deleted), "
+            f"{activity_updated} activity updates ({activity_snapshots} snapshots), "
             f"{failed} failed, {processed} processed"
+        )
+
+
+async def cmd_steamdb(args):
+    """Handle SteamDB peak sync command."""
+    from app.services.steam_activity import SteamActivityService, sync_game_steamdb_peaks
+    from app.models.models import Game
+
+    async with async_session_maker() as db:
+        games, mode = await _load_cli_steam_games(db, args, Game)
+
+        print(f"Found {len(games)} games {mode}")
+
+        if args.limit:
+            print(f"Processing up to {args.limit} games")
+
+        processed = 0
+        updated = 0
+        failed = 0
+
+        async with SteamActivityService() as activity_service:
+            for game in games:
+                processed += 1
+                try:
+                    print(f"Fetching SteamDB peaks for: {game.title} (app_id={game.steam_app_id})...")
+                    peak_result = await sync_game_steamdb_peaks(
+                        game,
+                        activity_service,
+                    )
+
+                    if peak_result["peaks_updated"]:
+                        updated += 1
+                        if game.steam_player_24h_peak is not None:
+                            print(f"  24h Peak: {game.steam_player_24h_peak:,}")
+                        if game.steam_player_all_time_peak is not None:
+                            print(f"  All-Time Peak: {game.steam_player_all_time_peak:,}")
+                        if game.steam_player_all_time_peak_at is not None:
+                            print(f"  All-Time Peak At: {game.steam_player_all_time_peak_at.isoformat()}")
+                    else:
+                        print("  No SteamDB peak data returned")
+                except Exception as e:
+                    print(f"  Error: {e}")
+                    failed += 1
+
+                if processed % 25 == 0:
+                    await db.commit()
+                    print(f"  Processed {processed}/{len(games)} games...")
+
+        await db.commit()
+        print(
+            "\nSteamDB sync complete: "
+            f"{updated} peak rows updated, {failed} failed, {processed} processed"
+        )
+
+
+async def cmd_flopathon(args):
+    """Handle Flopathon range/high sync command."""
+    from app.models.models import Game
+    from app.services.flopathon import FlopathonService, sync_game_flopathon_peaks
+
+    async with async_session_maker() as db:
+        games, mode = await _load_cli_steam_games(db, args, Game)
+
+        print(f"Found {len(games)} games {mode}")
+
+        if args.limit:
+            print(f"Processing up to {args.limit} games")
+
+        processed = 0
+        updated = 0
+        failed = 0
+
+        async with FlopathonService() as flopathon_service:
+            for game in games:
+                processed += 1
+                try:
+                    print(f"Fetching Flopathon range/highs for: {game.title} (app_id={game.steam_app_id})...")
+                    peak_result = await sync_game_flopathon_peaks(
+                        db,
+                        game,
+                        flopathon_service,
+                    )
+
+                    if peak_result["peaks_updated"]:
+                        updated += 1
+                        if peak_result["range_snapshots_upserted"]:
+                            print(f"  Stored {peak_result['range_snapshots_upserted']:,} dated chart points")
+                        elif peak_result.get("summary_updated"):
+                            print("  Updated summary only; no dated chart points stored")
+                        if game.steam_player_24h_peak is not None:
+                            print(f"  24h Peak: {game.steam_player_24h_peak:,}")
+                        if game.steam_player_24h_low_observed is not None:
+                            print(f"  24h Low: {game.steam_player_24h_low_observed:,}")
+                        if game.steam_player_all_time_peak is not None:
+                            print(f"  All-Time Peak: {game.steam_player_all_time_peak:,}")
+                        if game.steam_player_all_time_peak_at is not None:
+                            print(f"  All-Time Peak At: {game.steam_player_all_time_peak_at.isoformat()}")
+                    else:
+                        print("  No Flopathon range/high data returned")
+                except Exception as e:
+                    print(f"  Error: {e}")
+                    failed += 1
+
+                if processed % 25 == 0:
+                    await db.commit()
+                    print(f"  Processed {processed}/{len(games)} games...")
+
+        await db.commit()
+        print(
+            "\nFlopathon sync complete: "
+            f"{updated} range/high rows updated, {failed} failed, {processed} processed"
         )
 
 
@@ -1532,9 +1680,31 @@ def main():
     match_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
     # Steam command
-    steam_parser = subparsers.add_parser("steam", help="Sync Steam user scores")
+    steam_parser = subparsers.add_parser(
+        "steam",
+        help="Sync Steam user scores and public Steam activity",
+    )
+    steam_parser.add_argument("--app-id", type=int, help="Only process a specific Steam app ID")
     steam_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     steam_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
+
+    # SteamDB command
+    steamdb_parser = subparsers.add_parser(
+        "steamdb",
+        help="Sync SteamDB peak data only",
+    )
+    steamdb_parser.add_argument("--app-id", type=int, help="Only process a specific Steam app ID")
+    steamdb_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    steamdb_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
+
+    # Flopathon command
+    flopathon_parser = subparsers.add_parser(
+        "flopathon",
+        help="Sync Flopathon 24h range and all-time high data",
+    )
+    flopathon_parser.add_argument("--app-id", type=int, help="Only process a specific Steam app ID")
+    flopathon_parser.add_argument("--limit", type=int, help="Limit number of games to process")
+    flopathon_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
     # Game image backfill command
     game_images_parser = subparsers.add_parser("game-images", help="Backfill game images from Steam")
@@ -1641,6 +1811,10 @@ def main():
         return asyncio.run(cmd_match(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
+    elif args.command == "steamdb":
+        return asyncio.run(cmd_steamdb(args))
+    elif args.command == "flopathon":
+        return asyncio.run(cmd_flopathon(args))
     elif args.command == "game-images":
         return asyncio.run(cmd_game_images(args))
     elif args.command == "metacritic":

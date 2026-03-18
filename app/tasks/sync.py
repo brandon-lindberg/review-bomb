@@ -21,7 +21,9 @@ from app.models.models import (
 )
 from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
+from app.services.flopathon import FlopathonService, sync_game_flopathon_peaks
 from app.services.steam import SteamService
+from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
 from app.services.metacritic import MetacriticService
 from app.services.game_matcher import GameMatcher
 from app.services.score_normalizer import ScoreNormalizer
@@ -353,16 +355,16 @@ async def _sync_opencritic_incremental():
 @dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour time limit
 def sync_steam_scores():
     """
-    Sync user scores from Steam for all games.
+    Sync Steam user scores and Steam-owned activity for all games.
 
-    This fetches the latest user review scores from Steam
-    for all games that have a Steam app ID.
+    This fetches the latest user review scores, current players, snapshots, and
+    achievement totals from Steam for all games that have a Steam app ID.
     """
     run_async(_sync_steam_scores())
 
 
 async def _sync_steam_scores():
-    """Async implementation of Steam score sync."""
+    """Async implementation of Steam score and Steam-owned activity sync."""
     async with async_session_maker() as db:
         # Create sync log
         sync_log = SyncLog(
@@ -377,6 +379,7 @@ async def _sync_steam_scores():
         try:
             records_processed = 0
             records_created = 0
+            records_updated = 0
             records_failed = 0
             today = datetime.now(timezone.utc).date()
 
@@ -388,9 +391,9 @@ async def _sync_steam_scores():
             result = await db.execute(query)
             games = result.scalars().all()
 
-            print(f"Syncing Steam scores for {len(games)} games...")
+            print(f"Syncing Steam scores and Steam-owned activity for {len(games)} games...")
 
-            async with SteamService() as service:
+            async with SteamService() as service, SteamActivityService() as activity_service:
                 for game in games:
                     try:
                         score_data = await service.get_user_score(game.steam_app_id)
@@ -413,6 +416,17 @@ async def _sync_steam_scores():
                             game.steam_user_score = score_data["score"]
                             game.steam_sample_size = score_data["sample_size"]
 
+                        activity_result = await sync_game_steam_public_activity(
+                            db,
+                            game,
+                            activity_service,
+                        )
+                        if (
+                            activity_result["snapshot_created"]
+                            or activity_result["achievement_updated"]
+                        ):
+                            records_updated += 1
+
                         records_processed += 1
 
                         # Commit every 50 games
@@ -430,11 +444,95 @@ async def _sync_steam_scores():
             sync_log.status = SyncStatus.COMPLETED
             sync_log.records_processed = records_processed
             sync_log.records_created = records_created
+            sync_log.records_updated = records_updated
             sync_log.records_failed = records_failed
             sync_log.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
-            print(f"Steam sync completed: {records_created} scores created")
+            print(
+                "Steam sync completed: "
+                f"{records_created} scores created, {records_updated} activity rows updated"
+            )
+
+        except Exception as e:
+            sync_log.status = SyncStatus.FAILED
+            sync_log.error_message = str(e)
+            sync_log.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+            raise
+
+
+@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour time limit
+def sync_flopathon_ranges():
+    """
+    Sync Flopathon-backed 24-hour range history and all-time highs for Steam games.
+
+    This stores chart-ready 24-hour high/low points plus denormalized summary peaks.
+    """
+    run_async(_sync_flopathon_ranges())
+
+
+async def _sync_flopathon_ranges():
+    """Async implementation of Flopathon range and all-time high sync."""
+    async with async_session_maker() as db:
+        sync_log = SyncLog(
+            source=SyncSource.STEAM,
+            sync_type=SyncType.FULL,
+            status=SyncStatus.RUNNING,
+        )
+        db.add(sync_log)
+        await db.commit()
+        await db.refresh(sync_log)
+
+        try:
+            records_processed = 0
+            records_updated = 0
+            records_failed = 0
+            today = datetime.now(timezone.utc).date()
+
+            query = select(Game).where(
+                Game.steam_app_id.isnot(None),
+                or_(Game.release_date.is_(None), Game.release_date <= today),
+            )
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+            print(f"Syncing Flopathon range history for {len(games)} games...")
+
+            async with FlopathonService() as flopathon_service:
+                for game in games:
+                    try:
+                        range_result = await sync_game_flopathon_peaks(
+                            db,
+                            game,
+                            flopathon_service,
+                        )
+                        if range_result["peaks_updated"]:
+                            records_updated += 1
+
+                        records_processed += 1
+
+                        if records_processed % 50 == 0:
+                            await db.commit()
+                            print(f"Processed {records_processed} games...")
+
+                    except Exception as e:
+                        print(f"Error fetching Flopathon range data for {game.title}: {e}")
+                        records_failed += 1
+
+            await db.commit()
+
+            sync_log.status = SyncStatus.COMPLETED
+            sync_log.records_processed = records_processed
+            sync_log.records_updated = records_updated
+            sync_log.records_failed = records_failed
+            sync_log.completed_at = datetime.now(timezone.utc)
+            await db.commit()
+
+            print(
+                "Flopathon sync completed: "
+                f"{records_updated} range/high rows updated"
+            )
 
         except Exception as e:
             sync_log.status = SyncStatus.FAILED

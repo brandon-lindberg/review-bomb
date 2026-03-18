@@ -130,6 +130,13 @@ export interface GameWithScores extends Game {
   opencritic_score: number | null;
   steam_user_score: number | null;
   steam_sample_size: number | null;
+  steam_player_24h_peak: number | null;
+  steam_player_24h_low_observed: number | null;
+  steam_player_all_time_peak: number | null;
+  steam_player_all_time_peak_at: string | null;
+  steam_player_stats_synced_at: string | null;
+  steam_achievement_count: number | null;
+  steam_achievement_count_synced_at: string | null;
   metacritic_user_score: number | null;
   metacritic_sample_size: number | null;
   avg_critic_score: number | null;
@@ -257,6 +264,33 @@ export interface DisparitySnapshot {
   avg_disparity_metacritic: number | null;
   avg_disparity_combined: number | null;
   review_count: number;
+}
+
+export type SteamPlayerMarkerType =
+  | "first_tracked"
+  | "all_time_peak"
+  | "major_surge"
+  | "major_drop"
+  | "rebound";
+
+export interface SteamPlayerPoint {
+  sampled_at: string;
+  observed_24h_high: number;
+  observed_24h_low: number;
+}
+
+export interface SteamPlayerMarker {
+  marker_type: SteamPlayerMarkerType;
+  sampled_at: string;
+  concurrent_players: number;
+  label: string;
+  detail: string | null;
+}
+
+export interface SteamActivityResponse {
+  summary: GameWithScores;
+  points: SteamPlayerPoint[];
+  markers: SteamPlayerMarker[];
 }
 
 // Compare Types

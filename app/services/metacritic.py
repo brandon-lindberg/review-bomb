@@ -269,6 +269,43 @@ class MetacriticService:
         return core_tokens
 
     @classmethod
+    def _is_platform_number_prefix(cls, value: str) -> bool:
+        """
+        Detect compact platform tokens like ``ps5`` or ``switch2``.
+
+        These should not be treated as sequel/year markers during title identity checks.
+        """
+        normalized = re.sub(r"[^a-z]+", "", value.lower())
+        if not normalized:
+            return False
+        return any(
+            normalized == context or normalized.endswith(context)
+            for context in cls.PLATFORM_NUMBER_CONTEXT
+        )
+
+    @staticmethod
+    def _normalize_numeric_marker(raw: Optional[str]) -> Optional[str]:
+        """Normalize sequel/year-style markers and discard noisy numeric fragments."""
+        if not raw:
+            return None
+
+        try:
+            numeric_value = int(raw)
+        except ValueError:
+            return None
+
+        if numeric_value <= 0:
+            return None
+
+        if len(raw) <= 2:
+            return str(numeric_value)
+
+        if len(raw) == 4 and 1900 <= numeric_value <= 2099:
+            return str(numeric_value)
+
+        return None
+
+    @classmethod
     def _extract_series_markers(cls, value: str) -> set[str]:
         """
         Extract sequel/chapter markers from a title for stricter identity checks.
@@ -276,6 +313,7 @@ class MetacriticService:
         Examples:
             "Resident Evil 4" -> {"4"}
             "Final Fantasy X" -> {"10"}
+            "NBA 2K21 Next-Gen" -> {"21"}
             "Switch 2 Edition" -> {} (platform marker ignored)
         """
         tokens = cls._normalize_title_for_compare(value).split()
@@ -285,23 +323,23 @@ class MetacriticService:
                 markers.add(cls.ROMAN_NUMERAL_MAP[token])
                 continue
 
-            if not token.isdigit():
-                continue
-
-            # Keep only small sequel/chapter-style numbers.
-            if len(token) > 2:
-                continue
             previous = tokens[idx - 1] if idx > 0 else ""
-            if previous in cls.PLATFORM_NUMBER_CONTEXT:
-                continue
+            numeric_marker: Optional[str] = None
 
-            try:
-                numeric_value = int(token)
-                if numeric_value <= 0 or numeric_value > 20:
+            if token.isdigit():
+                if previous in cls.PLATFORM_NUMBER_CONTEXT:
                     continue
-                markers.add(str(numeric_value))
-            except ValueError:
-                continue
+                numeric_marker = cls._normalize_numeric_marker(token)
+            else:
+                compact_match = re.match(r"^(.*?)(\d+)$", token)
+                if compact_match:
+                    prefix, digits = compact_match.groups()
+                    if cls._is_platform_number_prefix(prefix):
+                        continue
+                    numeric_marker = cls._normalize_numeric_marker(digits)
+
+            if numeric_marker:
+                markers.add(numeric_marker)
 
         return markers
 
