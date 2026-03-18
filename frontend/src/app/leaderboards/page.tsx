@@ -195,9 +195,10 @@ export default async function LeaderboardsPage({ searchParams }: PageProps) {
                       <GameAvatar
                         title={name}
                         imageUrl={imageUrl}
-                        size={32}
-                        sizes="32px"
-                        className="w-8 h-8 flex-shrink-0 rounded-lg object-cover"
+                        width={48}
+                        height={28}
+                        sizes="48px"
+                        className="h-7 w-12 flex-shrink-0 rounded-lg object-contain"
                       />
                     ) : imageUrl ? (
                       <Image

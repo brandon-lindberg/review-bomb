@@ -170,9 +170,10 @@ export function CompareSelector({
                       <GameAvatar
                         title={item.name}
                         imageUrl={item.image_url}
-                        size={32}
-                        sizes="32px"
-                        className="w-8 h-8 rounded-lg object-cover"
+                        width={48}
+                        height={28}
+                        sizes="48px"
+                        className="h-7 w-12 rounded-lg object-contain"
                       />
                     ) : item.image_url ? (
                       <Image
@@ -225,9 +226,10 @@ export function CompareSelector({
                 <GameAvatar
                   title={item.name}
                   imageUrl={item.image_url}
-                  size={20}
-                  sizes="20px"
-                  className="h-5 w-5 rounded-md object-cover"
+                  width={28}
+                  height={16}
+                  sizes="28px"
+                  className="h-4 w-7 rounded-md object-contain"
                 />
               ) : item.image_url ? (
                 <Image

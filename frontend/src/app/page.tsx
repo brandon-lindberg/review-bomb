@@ -366,13 +366,14 @@ export default async function Home() {
                   className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 flex-1 items-start gap-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
                       <GameAvatar
                         title={game.title}
                         imageUrl={game.image_url}
-                        size={56}
-                        sizes="56px"
-                        className="h-14 w-14 shrink-0 rounded-xl object-cover"
+                        width={84}
+                        height={48}
+                        sizes="84px"
+                        className="h-12 w-[84px] shrink-0 rounded-xl object-contain"
                       />
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate" style={{ color: "var(--foreground)" }}>

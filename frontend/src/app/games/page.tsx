@@ -152,13 +152,14 @@ export default async function GamesPage({ searchParams }: PageProps) {
                     className="site-list-item block"
                   >
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                      <div className="flex min-w-0 flex-1 items-start gap-4">
+                      <div className="flex min-w-0 flex-1 items-center gap-4">
                         <GameAvatar
                           title={game.title}
                           imageUrl={game.image_url}
-                          size={64}
-                          sizes="64px"
-                          className="h-16 w-16 shrink-0 rounded-xl object-cover"
+                          width={96}
+                          height={54}
+                          sizes="96px"
+                          className="h-[54px] w-24 shrink-0 rounded-xl object-contain"
                         />
                         <div className="min-w-0 flex-1">
                           <h2 className="text-lg font-semibold text-gray-900">

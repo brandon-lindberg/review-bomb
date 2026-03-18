@@ -189,9 +189,10 @@ export default async function SearchPage({ searchParams }: PageProps) {
                         <GameAvatar
                           title={game.title}
                           imageUrl={game.image_url}
-                          size={40}
-                          sizes="40px"
-                          className="w-10 h-10 shrink-0 rounded-lg object-cover"
+                          width={60}
+                          height={34}
+                          sizes="60px"
+                          className="h-[34px] w-[60px] shrink-0 rounded-lg object-contain"
                         />
                         <div>
                           <p className="font-medium text-gray-900">{game.title}</p>

@@ -398,13 +398,14 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-          <div className="flex flex-1 items-start gap-4">
+          <div className="flex flex-1 items-center gap-4">
             <GameAvatar
               title={game.title}
               imageUrl={game.image_url}
-              size={96}
-              sizes="96px"
-              className="h-24 w-24 shrink-0 rounded-2xl object-cover"
+              width={144}
+              height={81}
+              sizes="144px"
+              className="h-[81px] w-36 shrink-0 rounded-2xl object-contain"
             />
             <div className="min-w-0 flex-1">
               <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>

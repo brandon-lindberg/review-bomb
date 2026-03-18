@@ -3,15 +3,17 @@ import Image from "next/image";
 interface GameAvatarProps {
   title: string;
   imageUrl?: string | null;
-  size: number;
-  sizes: string;
+  width: number;
+  height: number;
+  sizes?: string;
   className?: string;
 }
 
 export function GameAvatar({
   title,
   imageUrl,
-  size,
+  width,
+  height,
   sizes,
   className = "",
 }: GameAvatarProps) {
@@ -20,10 +22,11 @@ export function GameAvatar({
       <Image
         src={imageUrl}
         alt={title}
-        width={size}
-        height={size}
-        sizes={sizes}
-        className={className}
+        width={width}
+        height={height}
+        sizes={sizes ?? `${width}px`}
+        quality={90}
+        className={`block ${className}`.trim()}
       />
     );
   }

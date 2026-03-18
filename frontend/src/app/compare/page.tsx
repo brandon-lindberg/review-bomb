@@ -420,9 +420,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
                             <GameAvatar
                               title={item.name}
                               imageUrl={item.image_url}
-                              size={48}
-                              sizes="48px"
-                              className="w-12 h-12 rounded-xl object-cover"
+                              width={72}
+                              height={40}
+                              sizes="72px"
+                              className="h-10 w-[4.5rem] rounded-xl object-contain"
                             />
                           ) : (
                             <Image
