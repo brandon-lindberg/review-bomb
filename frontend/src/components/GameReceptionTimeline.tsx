@@ -431,11 +431,17 @@ export function GameReceptionTimeline({
 
     // 5. News article events
     if (newsArticles) {
+      const seenNewsEventIds = new Set<string>();
+
       for (const article of newsArticles) {
         if (!article.published_at) continue;
         const d = new Date(article.published_at);
+        const eventId = `news-${article.id}`;
+        if (seenNewsEventIds.has(eventId)) continue;
+        seenNewsEventIds.add(eventId);
+
         events.push({
-          id: `news-${article.id}`,
+          id: eventId,
           type: "news",
           date: d,
           dateLabel: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),

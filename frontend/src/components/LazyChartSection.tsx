@@ -144,6 +144,16 @@ interface LazyChartSectionProps {
   metacriticUserScore?: number | null;
 }
 
+function dedupeNewsArticles(articles: NewsArticle[]): NewsArticle[] {
+  const seen = new Set<number>();
+
+  return articles.filter((article) => {
+    if (seen.has(article.id)) return false;
+    seen.add(article.id);
+    return true;
+  });
+}
+
 export function LazyChartSection({
   entityType,
   entityId,
@@ -171,7 +181,7 @@ export function LazyChartSection({
   const steamActivityFetchedRef = useRef(false);
 
   // News pagination state
-  const [allNews, setAllNews] = useState<NewsArticle[]>(newsArticles || []);
+  const [allNews, setAllNews] = useState<NewsArticle[]>(() => dedupeNewsArticles(newsArticles || []));
   const [newsPage, setNewsPage] = useState(1);
   const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -236,7 +246,7 @@ export function LazyChartSection({
     if (chartTab !== "timeline" || entityType !== "game" || timelineNewsFetchedRef.current) return;
     if (!newsArticles || newsTotalPages <= 1) {
       // Already have all news from the initial page (or no news at all)
-      setTimelineNews(newsArticles || []);
+      setTimelineNews(dedupeNewsArticles(newsArticles || []));
       timelineNewsFetchedRef.current = true;
       return;
     }
@@ -251,12 +261,12 @@ export function LazyChartSection({
         const successfulItems = results
           .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getGameNews>>> => r.status === "fulfilled")
           .flatMap((r) => r.value.items);
-        const allItems = [...newsArticles, ...successfulItems];
+        const allItems = dedupeNewsArticles([...newsArticles, ...successfulItems]);
         setTimelineNews(allItems);
         timelineNewsFetchedRef.current = true;
       } catch {
         // Fall back to whatever we have — don't set ref so retry is possible
-        setTimelineNews(newsArticles || []);
+        setTimelineNews(dedupeNewsArticles(newsArticles || []));
       }
     };
     fetchAllNews();
@@ -286,7 +296,7 @@ export function LazyChartSection({
     try {
       const nextPage = newsPage + 1;
       const response = await getGameNews(entityId, nextPage, 5);
-      setAllNews((prev) => [...prev, ...response.items]);
+      setAllNews((prev) => dedupeNewsArticles([...prev, ...response.items]));
       setNewsPage(nextPage);
       setNewsHasMore(nextPage < response.total_pages);
     } catch {
