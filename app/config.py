@@ -5,6 +5,7 @@ Application configuration using pydantic-settings.
 from functools import lru_cache
 from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     # External APIs
     rapidapi_key: Optional[str] = None
     opencritic_api_host: str = "opencritic-api.p.rapidapi.com"
+    player_scraper_base_url: Optional[str] = None
+    player_scraper_api_token: Optional[str] = None
+    player_scraper_timeout_seconds: float = 15.0
 
     # Rate limiting
     rate_limit_per_minute: int = 100
@@ -52,6 +56,19 @@ class Settings(BaseSettings):
     # Optional frontend on-demand revalidation webhook (Next.js app route)
     frontend_revalidate_url: Optional[str] = None
     frontend_revalidate_secret: Optional[str] = None
+
+    @field_validator("debug", mode="before")
+    @classmethod
+    def coerce_debug_value(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on", "debug", "development", "dev"}:
+            return True
+        if normalized in {"false", "0", "no", "off", "release", "production", "prod"}:
+            return False
+        return value
 
 
 @lru_cache

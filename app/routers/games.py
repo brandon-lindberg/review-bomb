@@ -42,6 +42,7 @@ from app.services.flopathon import (
     extract_flopathon_history_points,
     parse_flopathon_peak_summary,
 )
+from app.services.player_scraper import PlayerScraperClient
 from app.services.steam_activity import (
     build_observed_24h_player_points,
     build_steam_activity_markers,
@@ -110,7 +111,7 @@ def _build_game_with_scores(
 
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
-    page: int = Query(1, ge=1, le=100),
+    page: int = Query(1, ge=1, le=10000),
     per_page: int = Query(20, ge=1, le=100),
     year: Optional[int] = Query(None, ge=2015),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
@@ -487,7 +488,7 @@ async def get_game_steam_activity(
     db: AsyncSession = Depends(get_db),
 ):
     """Get Steam activity range history and derived milestone markers for a game."""
-    cache_hash = cache_key("games:steam-activity:v4", game_id=game_id, limit=limit)
+    cache_hash = cache_key("games:steam-activity:v5", game_id=game_id, limit=limit)
     cached = await get_cached(f"games:steam-activity:{cache_hash}")
     if cached:
         return SteamActivityResponse(**json.loads(cached))
@@ -500,81 +501,93 @@ async def get_game_steam_activity(
     marker_source_points: list[dict[str, object]] = []
     live_summary_updates: dict[str, object] = {}
 
-    range_result = await db.execute(
-        select(SteamPlayerRangeSnapshot)
-        .where(SteamPlayerRangeSnapshot.game_id == game.id)
-        .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
-        .limit(limit)
-    )
-    range_snapshots = list(reversed(range_result.scalars().all()))
+    scraper_activity = None
+    if game.steam_app_id is not None:
+        player_scraper = PlayerScraperClient()
+        if player_scraper.is_configured:
+            async with player_scraper:
+                scraper_activity = await player_scraper.get_steam_activity(game.steam_app_id, limit=limit)
 
-    if range_snapshots:
-        points = [
-            SteamPlayerPoint(
-                sampled_at=snapshot.sampled_at,
-                observed_24h_high=snapshot.players_24h_high,
-                observed_24h_low=snapshot.players_24h_low,
-            )
-            for snapshot in range_snapshots
-        ]
-        marker_source_points = [
-            {
-                "sampled_at": snapshot.sampled_at,
-                "concurrent_players": snapshot.players_24h_high,
-            }
-            for snapshot in range_snapshots
-        ]
-    elif game.steam_app_id is not None:
-        raw_points: list[dict[str, object]] = []
-        try:
-            async with FlopathonService() as flopathon_service:
-                payload = await flopathon_service.get_players_payload(game.steam_app_id)
-            if payload:
-                raw_points = extract_flopathon_history_points(payload)
-                if len(raw_points) > limit:
-                    raw_points = raw_points[-limit:]
-                live_summary_updates = parse_flopathon_peak_summary(payload)
-        except Exception:
-            raw_points = []
-            live_summary_updates = {}
+    if scraper_activity and scraper_activity.points:
+        points = scraper_activity.points
+        marker_source_points = scraper_activity.marker_source_points
+        live_summary_updates = scraper_activity.summary_updates
+    else:
+        range_result = await db.execute(
+            select(SteamPlayerRangeSnapshot)
+            .where(SteamPlayerRangeSnapshot.game_id == game.id)
+            .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
+            .limit(limit)
+        )
+        range_snapshots = list(reversed(range_result.scalars().all()))
 
-        if not raw_points:
-            points = []
-            marker_source_points = []
+        if range_snapshots:
+            points = [
+                SteamPlayerPoint(
+                    sampled_at=snapshot.sampled_at,
+                    observed_24h_high=snapshot.players_24h_high,
+                    observed_24h_low=snapshot.players_24h_low,
+                )
+                for snapshot in range_snapshots
+            ]
+            marker_source_points = [
+                {
+                    "sampled_at": snapshot.sampled_at,
+                    "concurrent_players": snapshot.players_24h_high,
+                }
+                for snapshot in range_snapshots
+            ]
+        elif game.steam_app_id is not None:
+            raw_points: list[dict[str, object]] = []
+            try:
+                async with FlopathonService() as flopathon_service:
+                    payload = await flopathon_service.get_players_payload(game.steam_app_id)
+                if payload:
+                    raw_points = extract_flopathon_history_points(payload)
+                    if len(raw_points) > limit:
+                        raw_points = raw_points[-limit:]
+                    live_summary_updates = parse_flopathon_peak_summary(payload)
+            except Exception:
+                raw_points = []
+                live_summary_updates = {}
+
+            if not raw_points:
+                points = []
+                marker_source_points = []
+            else:
+                observed_points = build_observed_24h_player_points(raw_points)
+                points = [SteamPlayerPoint(**point) for point in observed_points]
+                marker_source_points = [
+                    {
+                        "sampled_at": point["sampled_at"],
+                        "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
+                    }
+                    for point in observed_points
+                ]
         else:
+            snapshots_result = await db.execute(
+                select(SteamPlayerSnapshot)
+                .where(SteamPlayerSnapshot.game_id == game.id)
+                .order_by(desc(SteamPlayerSnapshot.sampled_at))
+                .limit(limit)
+            )
+            snapshots = list(reversed(snapshots_result.scalars().all()))
+            raw_points = [
+                {
+                    "sampled_at": snapshot.sampled_at,
+                    "concurrent_players": snapshot.concurrent_players,
+                }
+                for snapshot in snapshots
+            ]
             observed_points = build_observed_24h_player_points(raw_points)
             points = [SteamPlayerPoint(**point) for point in observed_points]
             marker_source_points = [
                 {
                     "sampled_at": point["sampled_at"],
-                    "concurrent_players": point["observed_24h_high"],
+                    "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
                 }
                 for point in observed_points
             ]
-    else:
-        snapshots_result = await db.execute(
-            select(SteamPlayerSnapshot)
-            .where(SteamPlayerSnapshot.game_id == game.id)
-            .order_by(desc(SteamPlayerSnapshot.sampled_at))
-            .limit(limit)
-        )
-        snapshots = list(reversed(snapshots_result.scalars().all()))
-        raw_points = [
-            {
-                "sampled_at": snapshot.sampled_at,
-                "concurrent_players": snapshot.concurrent_players,
-            }
-            for snapshot in snapshots
-        ]
-        observed_points = build_observed_24h_player_points(raw_points)
-        points = [SteamPlayerPoint(**point) for point in observed_points]
-        marker_source_points = [
-            {
-                "sampled_at": point["sampled_at"],
-                "concurrent_players": point["observed_24h_high"],
-            }
-            for point in observed_points
-        ]
 
     marker_payload = build_steam_activity_markers(
         marker_source_points,

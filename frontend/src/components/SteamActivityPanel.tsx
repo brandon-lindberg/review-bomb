@@ -2,10 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Area,
+  AreaChart,
   CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceDot,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -34,7 +33,8 @@ function useIsDarkMode() {
 }
 
 const getThemeColors = (isDark: boolean) => ({
-  lineRange: isDark ? "#BEFF0A" : "#95C11F",
+  lineCurrent: isDark ? "#7DD3FC" : "#0284C7",
+  areaCurrent: isDark ? "rgba(125, 211, 252, 0.16)" : "rgba(2, 132, 199, 0.16)",
   grid: isDark ? "#3D3A35" : "#e5e7eb",
   axis: isDark ? "#6A655C" : "#9ca3af",
   text: isDark ? "#B8B4AC" : "#6b7280",
@@ -50,16 +50,16 @@ const getThemeColors = (isDark: boolean) => ({
   } satisfies Record<SteamPlayerMarkerType, string>,
 });
 
-type SteamActivityWindow = "1y" | "6m" | "3m" | "1m" | "1w" | "48h" | "24h";
+type SteamActivityWindow = "24h" | "48h" | "1w" | "1m" | "3m" | "6m" | "1y";
 
 const STEAM_ACTIVITY_WINDOW_OPTIONS: Array<{ value: SteamActivityWindow; label: string; description: string }> = [
-  { value: "1y", label: "1Y", description: "last year" },
-  { value: "6m", label: "6M", description: "last 6 months" },
-  { value: "3m", label: "3M", description: "last 3 months" },
-  { value: "1m", label: "1M", description: "last month" },
-  { value: "1w", label: "1W", description: "last week" },
-  { value: "48h", label: "48H", description: "last 48 hours" },
   { value: "24h", label: "24H", description: "last 24 hours" },
+  { value: "48h", label: "48H", description: "last 48 hours" },
+  { value: "1w", label: "1W", description: "last week" },
+  { value: "1m", label: "1M", description: "last month" },
+  { value: "3m", label: "3M", description: "last 3 months" },
+  { value: "6m", label: "6M", description: "last 6 months" },
+  { value: "1y", label: "1Y", description: "last year" },
 ];
 
 interface SteamActivityPanelProps {
@@ -68,14 +68,10 @@ interface SteamActivityPanelProps {
 
 interface SteamActivityTimelinePoint {
   sampledAt: number;
-  sampledAtRaw: string;
   sampledAtLabel: string;
+  latestPlayers: number;
   observed24hHigh: number;
   observed24hLow: number;
-}
-
-interface RangeChartPoint extends SteamActivityTimelinePoint {
-  rangePlayers: number;
 }
 
 function formatPlayers(value: number | null | undefined): string {
@@ -106,34 +102,62 @@ function formatRelativeDate(value: string | null | undefined): string | null {
   return `${diffDays} days ago`;
 }
 
+function formatRangeDate(value: number): string {
+  return new Date(value).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatLatestWindowLabel(value: number): string {
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function getSteamActivityWindowStart(latestTimestamp: number, window: SteamActivityWindow): number {
   const start = new Date(latestTimestamp);
 
   switch (window) {
-    case "1y":
-      start.setFullYear(start.getFullYear() - 1);
-      break;
-    case "6m":
-      start.setMonth(start.getMonth() - 6);
-      break;
-    case "3m":
-      start.setMonth(start.getMonth() - 3);
-      break;
-    case "1m":
-      start.setMonth(start.getMonth() - 1);
-      break;
-    case "1w":
-      start.setDate(start.getDate() - 7);
+    case "24h":
+      start.setHours(start.getHours() - 24);
       break;
     case "48h":
       start.setHours(start.getHours() - 48);
       break;
-    case "24h":
-      start.setHours(start.getHours() - 24);
+    case "1w":
+      start.setDate(start.getDate() - 7);
+      break;
+    case "1m":
+      start.setMonth(start.getMonth() - 1);
+      break;
+    case "3m":
+      start.setMonth(start.getMonth() - 3);
+      break;
+    case "6m":
+      start.setMonth(start.getMonth() - 6);
+      break;
+    case "1y":
+      start.setFullYear(start.getFullYear() - 1);
       break;
   }
 
   return start.getTime();
+}
+
+function isSteamActivityWindowAvailable(
+  earliestTimestamp: number | null,
+  latestTimestamp: number | null,
+  window: SteamActivityWindow
+): boolean {
+  if (earliestTimestamp == null || latestTimestamp == null) return false;
+  if (window === "24h") return true;
+  return earliestTimestamp <= getSteamActivityWindowStart(latestTimestamp, window);
 }
 
 function buildSteamActivityTicks(points: SteamActivityTimelinePoint[], targetTickCount: number): number[] {
@@ -187,7 +211,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
   const summary = activity.summary;
-  const [selectedWindow, setSelectedWindow] = useState<SteamActivityWindow>("1m");
+  const [selectedWindow, setSelectedWindow] = useState<SteamActivityWindow>("24h");
 
   const timelinePoints = useMemo(() => {
     const parsedPoints: SteamActivityTimelinePoint[] = [];
@@ -198,29 +222,62 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
 
       parsedPoints.push({
         sampledAt,
-        sampledAtRaw: point.sampled_at,
         sampledAtLabel: parsed.toLocaleString("en-US", {
           month: "short",
           day: "numeric",
           hour: "numeric",
           minute: "2-digit",
         }),
+        latestPlayers: point.latest_players ?? point.observed_24h_high,
         observed24hHigh: point.observed_24h_high,
         observed24hLow: point.observed_24h_low,
       });
     }
 
-    return parsedPoints;
+    return parsedPoints.sort((left, right) => left.sampledAt - right.sampledAt);
   }, [activity.points]);
+
+  const earliestTimestamp = useMemo(
+    () => (timelinePoints.length > 0 ? timelinePoints[0].sampledAt : null),
+    [timelinePoints]
+  );
 
   const latestTimestamp = useMemo(
     () => (timelinePoints.length > 0 ? timelinePoints[timelinePoints.length - 1].sampledAt : null),
     [timelinePoints]
   );
 
+  const latestTimelinePoint = useMemo(
+    () => (timelinePoints.length > 0 ? timelinePoints[timelinePoints.length - 1] : null),
+    [timelinePoints]
+  );
+
+  const availableWindows = useMemo(
+    () => Object.fromEntries(
+      STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => [
+        option.value,
+        isSteamActivityWindowAvailable(earliestTimestamp, latestTimestamp, option.value),
+      ])
+    ) as Record<SteamActivityWindow, boolean>,
+    [earliestTimestamp, latestTimestamp]
+  );
+
+  const enabledWindows = useMemo(
+    () => STEAM_ACTIVITY_WINDOW_OPTIONS.filter((option) => availableWindows[option.value]).map((option) => option.value),
+    [availableWindows]
+  );
+
+  const effectiveSelectedWindow = useMemo(
+    () => {
+      if (availableWindows[selectedWindow]) return selectedWindow;
+      return enabledWindows[enabledWindows.length - 1] ?? "24h";
+    },
+    [availableWindows, enabledWindows, selectedWindow]
+  );
+
   const selectedWindowStart = useMemo(
-    () => (latestTimestamp != null ? getSteamActivityWindowStart(latestTimestamp, selectedWindow) : null),
-    [latestTimestamp, selectedWindow]
+    () => (latestTimestamp != null ? getSteamActivityWindowStart(latestTimestamp, effectiveSelectedWindow) : null),
+    [effectiveSelectedWindow, latestTimestamp]
   );
 
   const visibleTimelinePoints = useMemo(() => {
@@ -232,77 +289,27 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
     return timelinePoints.slice(-1);
   }, [selectedWindowStart, timelinePoints]);
 
-  const chartData = useMemo(() => {
-    const rangePoints: RangeChartPoint[] = [];
-
-    for (const point of visibleTimelinePoints) {
-      rangePoints.push({
-        ...point,
-        rangePlayers: point.observed24hHigh,
-      });
-
-      if (point.observed24hLow !== point.observed24hHigh) {
-        rangePoints.push({
-          ...point,
-          rangePlayers: point.observed24hLow,
-        });
-      }
-    }
-
-    return rangePoints;
-  }, [visibleTimelinePoints]);
-
-  const markerAnchors = useMemo(
-    () =>
-      new Map(
-        timelinePoints.map((point) => [
-          point.sampledAtRaw,
-          {
-            sampledAt: point.sampledAt,
-            y: point.observed24hHigh,
-          },
-        ])
-      ),
-    [timelinePoints]
-  );
-
-  const visibleRange = useMemo(
-    () => (
-      visibleTimelinePoints.length > 0
-        ? {
-            start: visibleTimelinePoints[0].sampledAt,
-            end: visibleTimelinePoints[visibleTimelinePoints.length - 1].sampledAt,
-          }
-        : null
-    ),
-    [visibleTimelinePoints]
-  );
-
-  const visibleMarkers = useMemo(() => {
-    if (!visibleRange) return [];
-
-    return activity.markers.filter((marker) => {
-      const anchor = markerAnchors.get(marker.sampled_at);
-      return anchor != null && anchor.sampledAt >= visibleRange.start && anchor.sampledAt <= visibleRange.end;
-    });
-  }, [activity.markers, markerAnchors, visibleRange]);
-
   const xAxisTicks = useMemo(
-    () => buildSteamActivityTicks(visibleTimelinePoints, selectedWindow === "24h" || selectedWindow === "48h" ? 4 : 5),
-    [selectedWindow, visibleTimelinePoints]
+    () => buildSteamActivityTicks(visibleTimelinePoints, effectiveSelectedWindow === "24h" || effectiveSelectedWindow === "48h" ? 4 : 5),
+    [effectiveSelectedWindow, visibleTimelinePoints]
   );
 
   const selectedWindowDescription = useMemo(
-    () => STEAM_ACTIVITY_WINDOW_OPTIONS.find((option) => option.value === selectedWindow)?.description ?? "selected window",
-    [selectedWindow]
+    () => STEAM_ACTIVITY_WINDOW_OPTIONS.find((option) => option.value === effectiveSelectedWindow)?.description ?? "selected window",
+    [effectiveSelectedWindow]
   );
+
+  const visibleStartTimestamp = visibleTimelinePoints.length > 0 ? visibleTimelinePoints[0].sampledAt : earliestTimestamp;
+  const visibleEndTimestamp = visibleTimelinePoints.length > 0
+    ? visibleTimelinePoints[visibleTimelinePoints.length - 1].sampledAt
+    : latestTimestamp;
 
   const renderTooltip = ({
     active,
     payload,
   }: {
     active?: boolean;
-    payload?: ReadonlyArray<{ payload: RangeChartPoint }>;
+    payload?: ReadonlyArray<{ payload: SteamActivityTimelinePoint }>;
   }) => {
     if (!active || !payload?.length) return null;
     const point = payload[0].payload;
@@ -319,7 +326,10 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
         <div className="text-sm" style={{ color: colors.text }}>
           {point.sampledAtLabel}
         </div>
-        <div className="mt-3 text-sm font-medium" style={{ color: colors.lineRange }}>
+        <div className="mt-3 text-sm font-medium" style={{ color: colors.lineCurrent }}>
+          Current Players: {point.latestPlayers.toLocaleString()} players
+        </div>
+        <div className="mt-1 text-sm" style={{ color: "var(--foreground-muted)" }}>
           24-Hour High: {point.observed24hHigh.toLocaleString()} players
         </div>
         <div className="mt-1 text-sm" style={{ color: "var(--foreground-muted)" }}>
@@ -332,25 +342,29 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   const latestMarkers = [...activity.markers].slice(-5).reverse();
   const allTimePeakWhen = formatRelativeDate(summary.steam_player_all_time_peak_at)
     ?? formatAbsoluteDate(summary.steam_player_all_time_peak_at);
+  const currentPlayers = latestTimelinePoint?.latestPlayers ?? null;
 
   if (timelinePoints.length === 0) {
     return (
       <div className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
-            label="All-Time High"
+            label="Current Players"
+            value={formatPlayers(currentPlayers)}
+          />
+          <MetricCard
+            label="All-Time Peak"
             value={formatPlayers(summary.steam_player_all_time_peak)}
             detail={allTimePeakWhen ?? undefined}
           />
           <MetricCard label="24-Hour High" value={formatPlayers(summary.steam_player_24h_peak)} />
           <MetricCard label="24-Hour Low" value={formatPlayers(summary.steam_player_24h_low_observed)} />
-          <MetricCard label="Achievements" value={formatPlayers(summary.steam_achievement_count)} />
         </div>
         <div className="flex items-center justify-center h-[220px] rounded-lg" style={{ color: colors.text, backgroundColor: colors.panel }}>
-          No 24-hour Steam range is available yet
+          No Steam player history is available yet
         </div>
         <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-          24-hour high, 24-hour low, and all-time high come from Flopathon history. Achievement count comes from Steam public store data.
+          Steam player history will appear here once tracked samples are available.
         </p>
       </div>
     );
@@ -359,112 +373,131 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Current Players" value={formatPlayers(currentPlayers)} />
         <MetricCard
-          label="All-Time High"
+          label="All-Time Peak"
           value={formatPlayers(summary.steam_player_all_time_peak)}
           detail={allTimePeakWhen ?? undefined}
         />
         <MetricCard label="24-Hour High" value={formatPlayers(summary.steam_player_24h_peak)} />
         <MetricCard label="24-Hour Low" value={formatPlayers(summary.steam_player_24h_low_observed)} />
-        <MetricCard label="Achievements" value={formatPlayers(summary.steam_achievement_count)} />
       </div>
 
       <div className="rounded-[1.25rem] p-4 sm:p-5" style={{ backgroundColor: colors.panel, border: `1px solid ${colors.border}` }}>
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
-              Steam Activity
+              Hourly Player Count
             </h3>
             <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              Tracked 24-hour high and low player counts over the selected time window.
+              Current players over time. Summary cards above show the rolling 24-hour high and low.
             </p>
-          </div>
-          <div className="text-xs text-right" style={{ color: colors.text }}>
-            <div>Summary + chart 24h range: Flopathon history</div>
-            <div>Achievements: Steam public store data</div>
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs">
-            {STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => (
+        <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-[11px] sm:text-xs">
+          {STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => {
+            const isEnabled = availableWindows[option.value];
+            const isActive = effectiveSelectedWindow === option.value;
+
+            return (
               <button
                 key={option.value}
                 type="button"
+                disabled={!isEnabled}
                 onClick={() => setSelectedWindow(option.value)}
-                className={`rounded px-2 py-1 transition-colors ${
-                  selectedWindow === option.value
-                    ? "bg-gray-700 text-white dark:bg-gray-200 dark:text-gray-900"
-                    : "bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600"
-                }`}
-                style={selectedWindow !== option.value ? { color: colors.text } : undefined}
+                className="rounded-xl border px-3 py-2 font-semibold tracking-[0.04em] transition-colors"
+                style={{
+                  borderColor: isActive ? "#6B8F14" : colors.border,
+                  backgroundColor: isActive ? "rgba(190, 242, 100, 0.12)" : colors.background,
+                  color: isActive ? "#BEF264" : isEnabled ? colors.text : "rgba(184, 180, 172, 0.42)",
+                  cursor: isEnabled ? "pointer" : "not-allowed",
+                  opacity: isEnabled ? 1 : 0.6,
+                }}
               >
                 {option.label}
               </button>
-            ))}
-          </div>
-          {latestTimestamp != null && (
-            <p className="text-xs sm:text-sm" style={{ color: colors.text }}>
-              Viewing the {selectedWindowDescription} ending{" "}
-              {new Date(latestTimestamp).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}
-              .
-            </p>
-          )}
+            );
+          })}
         </div>
 
-        <ResponsiveContainer width="100%" height={320}>
-          <LineChart data={chartData} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke={colors.grid} />
-            <XAxis
-              dataKey="sampledAt"
-              type="number"
-              scale="time"
-              domain={["dataMin", "dataMax"]}
-              tick={{ fill: colors.text, fontSize: 12 }}
-              tickLine={{ stroke: colors.axis }}
-              axisLine={{ stroke: colors.axis }}
-              ticks={xAxisTicks}
-              tickFormatter={(value) => formatSteamActivityTick(Number(value), selectedWindow)}
-            />
-            <YAxis
-              tick={{ fill: colors.text, fontSize: 12 }}
-              tickLine={{ stroke: colors.axis }}
-              axisLine={{ stroke: colors.axis }}
-              tickFormatter={(value) => `${Math.round(Number(value) / 1000)}k`}
-            />
-            <Tooltip
-              content={renderTooltip}
-            />
-            <Line
-              type="linear"
-              dataKey="rangePlayers"
-              name="24-Hour Range"
-              stroke={colors.lineRange}
-              strokeWidth={3}
-              dot={false}
-              activeDot={{ r: 5 }}
-            />
-            {visibleMarkers.map((marker) => {
-              const anchor = markerAnchors.get(marker.sampled_at);
-              if (!anchor) return null;
-              return (
-                <ReferenceDot
-                  key={`${marker.marker_type}-${marker.sampled_at}`}
-                  x={anchor.sampledAt}
-                  y={anchor.y}
-                  r={5}
-                  fill={colors.markers[marker.marker_type]}
-                  stroke={colors.background}
-                  ifOverflow="extendDomain"
+        <div
+          className="rounded-[1.15rem] px-4 py-4 sm:px-5"
+          style={{ backgroundColor: "color-mix(in srgb, var(--background-card) 92%, var(--background) 8%)" }}
+        >
+          <div className="mb-3">
+            <h4 className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
+              Current Players
+            </h4>
+            {visibleStartTimestamp != null && visibleEndTimestamp != null && (
+              <p className="text-sm" style={{ color: colors.text }}>
+                Viewing the {selectedWindowDescription} of hourly history • {formatRangeDate(visibleStartTimestamp)} to{" "}
+                {formatRangeDate(visibleEndTimestamp)}
+              </p>
+            )}
+          </div>
+
+          <ResponsiveContainer width="100%" height={320}>
+            <AreaChart data={visibleTimelinePoints} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="4 8" stroke={colors.grid} />
+              <XAxis
+                dataKey="sampledAt"
+                type="number"
+                scale="time"
+                domain={["dataMin", "dataMax"]}
+                tick={{ fill: colors.text, fontSize: 12 }}
+                tickLine={{ stroke: colors.axis }}
+                axisLine={{ stroke: colors.axis }}
+                ticks={xAxisTicks}
+                tickFormatter={(value) => formatSteamActivityTick(Number(value), effectiveSelectedWindow)}
+              />
+              <YAxis
+                tick={{ fill: colors.text, fontSize: 12 }}
+                tickLine={{ stroke: colors.axis }}
+                axisLine={{ stroke: colors.axis }}
+                tickFormatter={(value) => {
+                  const numeric = Number(value);
+                  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+                  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+                  return String(Math.round(numeric));
+                }}
+              />
+              <Tooltip
+                content={renderTooltip}
+              />
+              <Area
+                type="linear"
+                dataKey="latestPlayers"
+                name="Current Players"
+                stroke={colors.lineCurrent}
+                fill={colors.areaCurrent}
+                strokeWidth={3}
+                dot={false}
+                activeDot={{ r: 5, fill: colors.lineCurrent, stroke: colors.background }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs">
+              <div
+                className="inline-flex items-center gap-3 rounded-full border px-4 py-3 text-sm font-semibold"
+                style={{ borderColor: colors.border, color: "var(--foreground)" }}
+              >
+                <span
+                  className="h-[4px] w-8 rounded-full"
+                  style={{ backgroundColor: colors.lineCurrent }}
                 />
-              );
-            })}
-          </LineChart>
-        </ResponsiveContainer>
+                <span>current players</span>
+              </div>
+            </div>
+            {visibleEndTimestamp != null && (
+              <p className="text-xs sm:text-sm" style={{ color: colors.text }}>
+                Latest window end: {formatLatestWindowLabel(visibleEndTimestamp)}
+              </p>
+            )}
+          </div>
+        </div>
       </div>
 
       {latestMarkers.length > 0 && (

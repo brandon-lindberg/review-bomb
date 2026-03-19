@@ -277,6 +277,7 @@ export interface SteamPlayerPoint {
   sampled_at: string;
   observed_24h_high: number;
   observed_24h_low: number;
+  latest_players?: number | null;
 }
 
 export interface SteamPlayerMarker {

@@ -352,6 +352,7 @@ def build_observed_24h_player_points(
                 "sampled_at": point_time,
                 "observed_24h_high": values[high_window[0]],
                 "observed_24h_low": values[low_window[0]],
+                "latest_players": player_count,
             }
         )
 

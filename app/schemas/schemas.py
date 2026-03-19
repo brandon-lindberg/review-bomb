@@ -245,6 +245,7 @@ class SteamPlayerPoint(BaseModel):
     sampled_at: datetime
     observed_24h_high: int
     observed_24h_low: int
+    latest_players: Optional[int] = None
 
 
 class SteamPlayerMarker(BaseModel):
