@@ -13,8 +13,6 @@ Usage:
     python -m app steam --days 30   Sync Steam-owned data for games released in last 30 days
     python -m app steamdb           Sync SteamDB peak data only
     python -m app steamdb --days 30 Sync SteamDB peaks for games released in last 30 days
-    python -m app flopathon         Sync Flopathon 24h range and all-time high data
-    python -m app flopathon --days 30 Sync Flopathon range/high data for games released in last 30 days
     python -m app game-images       Backfill missing game images from Steam
     python -m app metacritic        Sync Metacritic scores (skips recently synced games)
     python -m app metacritic --recent  Sync only games released in last 90 days
@@ -429,65 +427,6 @@ async def cmd_steamdb(args):
         print(
             "\nSteamDB sync complete: "
             f"{updated} peak rows updated, {failed} failed, {processed} processed"
-        )
-
-
-async def cmd_flopathon(args):
-    """Handle Flopathon range/high sync command."""
-    from app.models.models import Game
-    from app.services.flopathon import FlopathonService, sync_game_flopathon_peaks
-
-    async with async_session_maker() as db:
-        games, mode = await _load_cli_steam_games(db, args, Game)
-
-        print(f"Found {len(games)} games {mode}")
-
-        if args.limit:
-            print(f"Processing up to {args.limit} games")
-
-        processed = 0
-        updated = 0
-        failed = 0
-
-        async with FlopathonService() as flopathon_service:
-            for game in games:
-                processed += 1
-                try:
-                    print(f"Fetching Flopathon range/highs for: {game.title} (app_id={game.steam_app_id})...")
-                    peak_result = await sync_game_flopathon_peaks(
-                        db,
-                        game,
-                        flopathon_service,
-                    )
-
-                    if peak_result["peaks_updated"]:
-                        updated += 1
-                        if peak_result["range_snapshots_upserted"]:
-                            print(f"  Stored {peak_result['range_snapshots_upserted']:,} dated chart points")
-                        elif peak_result.get("summary_updated"):
-                            print("  Updated summary only; no dated chart points stored")
-                        if game.steam_player_24h_peak is not None:
-                            print(f"  24h Peak: {game.steam_player_24h_peak:,}")
-                        if game.steam_player_24h_low_observed is not None:
-                            print(f"  24h Low: {game.steam_player_24h_low_observed:,}")
-                        if game.steam_player_all_time_peak is not None:
-                            print(f"  All-Time Peak: {game.steam_player_all_time_peak:,}")
-                        if game.steam_player_all_time_peak_at is not None:
-                            print(f"  All-Time Peak At: {game.steam_player_all_time_peak_at.isoformat()}")
-                    else:
-                        print("  No Flopathon range/high data returned")
-                except Exception as e:
-                    print(f"  Error: {e}")
-                    failed += 1
-
-                if processed % 25 == 0:
-                    await db.commit()
-                    print(f"  Processed {processed}/{len(games)} games...")
-
-        await db.commit()
-        print(
-            "\nFlopathon sync complete: "
-            f"{updated} range/high rows updated, {failed} failed, {processed} processed"
         )
 
 
@@ -1697,15 +1636,6 @@ def main():
     steamdb_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     steamdb_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
-    # Flopathon command
-    flopathon_parser = subparsers.add_parser(
-        "flopathon",
-        help="Sync Flopathon 24h range and all-time high data",
-    )
-    flopathon_parser.add_argument("--app-id", type=int, help="Only process a specific Steam app ID")
-    flopathon_parser.add_argument("--limit", type=int, help="Limit number of games to process")
-    flopathon_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
-
     # Game image backfill command
     game_images_parser = subparsers.add_parser("game-images", help="Backfill game images from Steam")
     game_images_parser.add_argument("--limit", type=int, help="Limit number of games to process")
@@ -1813,8 +1743,6 @@ def main():
         return asyncio.run(cmd_steam(args))
     elif args.command == "steamdb":
         return asyncio.run(cmd_steamdb(args))
-    elif args.command == "flopathon":
-        return asyncio.run(cmd_flopathon(args))
     elif args.command == "game-images":
         return asyncio.run(cmd_game_images(args))
     elif args.command == "metacritic":

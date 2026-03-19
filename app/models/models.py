@@ -353,7 +353,7 @@ class SteamPlayerSnapshot(Base):
 
 class SteamPlayerRangeSnapshot(Base):
     """
-    Time-series 24-hour high/low range points derived from Flopathon history.
+    Time-series 24-hour high/low range points derived from tracked Steam history.
     """
     __tablename__ = "steam_player_range_snapshots"
 

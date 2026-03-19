@@ -506,7 +506,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
                 </h2>
               </div>
               <p className="text-xs max-w-md text-right" style={{ color: "var(--foreground-muted)" }}>
-                24-hour high, 24-hour low, and all-time high come from Flopathon history. Achievement count comes from Steam public store data.
+                24-hour high, 24-hour low, and all-time high come from tracked Steam player history. Achievement count comes from Steam public store data.
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
