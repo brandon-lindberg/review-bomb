@@ -692,6 +692,7 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
         id=11,
         title="Marathon",
         steam_app_id=123,
+        release_date=date(2026, 3, 10),
         steam_player_24h_peak=62830,
         steam_player_24h_low_observed=25110,
         steam_player_all_time_peak=88337,
@@ -719,6 +720,12 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
         results=[
             FakeResult(scalar_one_or_none=game),
             FakeResult(scalars_all=snapshots),
+            FakeResult(
+                all_rows=[
+                    (datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc), 53000),
+                    (datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc), 54000),
+                ]
+            ),
         ]
     )
 
@@ -728,8 +735,53 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
     assert not hasattr(resp.summary, "steam_current_players_sampled_at")
     assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
     assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
+    assert [point.latest_players for point in resp.points] == [53000, 54000]
     assert any(marker.marker_type == "first_tracked" for marker in resp.markers)
     assert any(marker.marker_type == "all_time_peak" for marker in resp.markers)
+
+
+@pytest.mark.asyncio
+async def test_get_game_steam_activity_ignores_legacy_pre_release_range_points_without_trusted_snapshots():
+    now = _utc(2026, 3, 19)
+    game = Game(
+        id=12,
+        title="Dragonkin: The Banished",
+        steam_app_id=456,
+        release_date=date(2026, 3, 16),
+        steam_player_24h_peak=641,
+        steam_player_24h_low_observed=282,
+        steam_player_all_time_peak=641,
+        steam_player_all_time_peak_at=_utc(2026, 3, 19),
+        steam_player_stats_synced_at=now,
+    )
+    legacy_range_snapshots = [
+        SteamPlayerRangeSnapshot(
+            game_id=12,
+            sampled_at=datetime(2026, 2, 4, 0, 0, tzinfo=timezone.utc),
+            players_24h_high=40,
+            players_24h_low=20,
+        ),
+        SteamPlayerRangeSnapshot(
+            game_id=12,
+            sampled_at=datetime(2026, 3, 3, 0, 0, tzinfo=timezone.utc),
+            players_24h_high=400,
+            players_24h_low=100,
+        ),
+    ]
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=game),
+            FakeResult(scalars_all=legacy_range_snapshots),
+            FakeResult(all_rows=[]),
+            FakeResult(scalars_all=[]),
+        ]
+    )
+
+    resp = await get_game_steam_activity(game_id=12, limit=10000, db=db)
+
+    assert resp.points == []
+    assert not any(marker.marker_type == "first_tracked" for marker in resp.markers)
 
 
 @pytest.mark.asyncio
