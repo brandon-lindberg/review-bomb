@@ -42,7 +42,7 @@ from app.services.flopathon import (
     extract_flopathon_history_points,
     parse_flopathon_peak_summary,
 )
-from app.services.player_scraper import PlayerScraperClient
+from app.services.player_scraper import PlayerScraperClient, sync_scraper_activity_to_db
 from app.services.steam_activity import (
     build_observed_24h_player_points,
     build_steam_activity_markers,
@@ -509,6 +509,7 @@ async def get_game_steam_activity(
                 scraper_activity = await player_scraper.get_steam_activity(game.steam_app_id, limit=limit)
 
     if scraper_activity and scraper_activity.points:
+        await sync_scraper_activity_to_db(db, game, scraper_activity)
         points = scraper_activity.points
         marker_source_points = scraper_activity.marker_source_points
         live_summary_updates = scraper_activity.summary_updates
@@ -522,18 +523,34 @@ async def get_game_steam_activity(
         range_snapshots = list(reversed(range_result.scalars().all()))
 
         if range_snapshots:
+            snapshot_result = await db.execute(
+                select(
+                    SteamPlayerSnapshot.sampled_at,
+                    SteamPlayerSnapshot.concurrent_players,
+                )
+                .where(
+                    SteamPlayerSnapshot.game_id == game.id,
+                    SteamPlayerSnapshot.sampled_at.in_([snapshot.sampled_at for snapshot in range_snapshots]),
+                )
+                .order_by(SteamPlayerSnapshot.sampled_at, SteamPlayerSnapshot.id)
+            )
+            latest_players_by_sampled_at: dict[object, int] = {}
+            for sampled_at, concurrent_players in snapshot_result.all():
+                latest_players_by_sampled_at[sampled_at] = concurrent_players
+
             points = [
                 SteamPlayerPoint(
                     sampled_at=snapshot.sampled_at,
                     observed_24h_high=snapshot.players_24h_high,
                     observed_24h_low=snapshot.players_24h_low,
+                    latest_players=latest_players_by_sampled_at.get(snapshot.sampled_at),
                 )
                 for snapshot in range_snapshots
             ]
             marker_source_points = [
                 {
                     "sampled_at": snapshot.sampled_at,
-                    "concurrent_players": snapshot.players_24h_high,
+                    "concurrent_players": latest_players_by_sampled_at.get(snapshot.sampled_at, snapshot.players_24h_high),
                 }
                 for snapshot in range_snapshots
             ]

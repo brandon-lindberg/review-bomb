@@ -6,8 +6,12 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 import httpx
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
+from app.models.models import Game, SteamPlayerRangeSnapshot, SteamPlayerSnapshot
 from app.schemas.schemas import SteamPlayerPoint
 
 logger = logging.getLogger(__name__)
@@ -18,6 +22,7 @@ DEFAULT_HISTORY_WINDOW = "1y"
 @dataclass(slots=True)
 class ScraperSteamActivity:
     points: list[SteamPlayerPoint]
+    storage_points: list[SteamPlayerPoint]
     marker_source_points: list[dict[str, object]]
     summary_updates: dict[str, object]
 
@@ -124,9 +129,87 @@ def build_scraper_activity(payload: dict[str, Any], *, limit: int) -> ScraperSte
 
     return ScraperSteamActivity(
         points=visible_points,
+        storage_points=parsed_points,
         marker_source_points=marker_source_points,
         summary_updates=summary_updates,
     )
+
+
+async def sync_scraper_activity_to_db(
+    db: AsyncSession,
+    game: Game,
+    activity: ScraperSteamActivity,
+) -> dict[str, int | bool]:
+    if not activity.storage_points:
+        return {
+            "range_snapshots_upserted": 0,
+            "player_snapshots_inserted": 0,
+            "summary_updated": False,
+        }
+
+    range_rows = [
+        {
+            "game_id": game.id,
+            "sampled_at": point.sampled_at,
+            "players_24h_high": point.observed_24h_high,
+            "players_24h_low": point.observed_24h_low,
+        }
+        for point in activity.storage_points
+    ]
+
+    stmt = insert(SteamPlayerRangeSnapshot).values(range_rows)
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_steam_player_range_snapshots_game_sampled",
+        set_={
+            "players_24h_high": stmt.excluded.players_24h_high,
+            "players_24h_low": stmt.excluded.players_24h_low,
+        },
+    )
+    await db.execute(stmt)
+
+    player_points = [point for point in activity.storage_points if point.latest_players is not None]
+    player_snapshots_inserted = 0
+    if player_points:
+        sampled_ats = [point.sampled_at for point in player_points]
+        existing_result = await db.execute(
+            select(SteamPlayerSnapshot.sampled_at).where(
+                SteamPlayerSnapshot.game_id == game.id,
+                SteamPlayerSnapshot.sampled_at.in_(sampled_ats),
+            )
+        )
+        existing_sampled_ats = set(existing_result.scalars().all())
+
+        new_snapshots = [
+            SteamPlayerSnapshot(
+                game_id=game.id,
+                sampled_at=point.sampled_at,
+                concurrent_players=point.latest_players,
+            )
+            for point in player_points
+            if point.sampled_at not in existing_sampled_ats and point.latest_players is not None
+        ]
+
+        if new_snapshots:
+            db.add_all(new_snapshots)
+            player_snapshots_inserted = len(new_snapshots)
+
+        latest_point = player_points[-1]
+        if latest_point.latest_players is not None:
+            game.steam_current_players = latest_point.latest_players
+            game.steam_current_players_sampled_at = latest_point.sampled_at
+
+    summary_updated = False
+    for field_name, value in activity.summary_updates.items():
+        if value is None or not hasattr(game, field_name):
+            continue
+        setattr(game, field_name, value)
+        summary_updated = True
+
+    return {
+        "range_snapshots_upserted": len(range_rows),
+        "player_snapshots_inserted": player_snapshots_inserted,
+        "summary_updated": summary_updated,
+    }
 
 
 class PlayerScraperClient:
