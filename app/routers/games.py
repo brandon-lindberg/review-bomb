@@ -483,7 +483,7 @@ async def get_game_steam_activity(
     db: AsyncSession = Depends(get_db),
 ):
     """Get Steam activity range history and derived milestone markers for a game."""
-    cache_hash = cache_key("games:steam-activity:v6", game_id=game_id, limit=limit)
+    cache_hash = cache_key("games:steam-activity:v7", game_id=game_id, limit=limit)
     cached = await get_cached(f"games:steam-activity:{cache_hash}")
     if cached:
         return SteamActivityResponse(**json.loads(cached))
@@ -636,16 +636,42 @@ async def get_game_steam_activity(
                 for point in observed_points
             ]
 
-    marker_payload = build_steam_activity_markers(
-        marker_source_points,
-        all_time_peak=game.steam_player_all_time_peak,
-        all_time_peak_at=game.steam_player_all_time_peak_at,
-    )
-    markers = [SteamPlayerMarker(**marker) for marker in marker_payload]
-
     summary = _build_game_with_scores(game)
+    if points:
+        trusted_summary_updates: dict[str, object] = {
+            "steam_player_24h_peak": points[-1].observed_24h_high,
+            "steam_player_24h_low_observed": points[-1].observed_24h_low,
+            "steam_player_stats_synced_at": points[-1].sampled_at,
+        }
+        player_points = [point for point in points if point.latest_players is not None]
+        if player_points:
+            peak_point = max(player_points, key=lambda point: point.latest_players or 0)
+            trusted_summary_updates["steam_player_all_time_peak"] = peak_point.latest_players
+            trusted_summary_updates["steam_player_all_time_peak_at"] = peak_point.sampled_at
+        else:
+            trusted_summary_updates["steam_player_all_time_peak"] = None
+            trusted_summary_updates["steam_player_all_time_peak_at"] = None
+        summary = summary.model_copy(update=trusted_summary_updates)
+    else:
+        summary = summary.model_copy(
+            update={
+                "steam_player_24h_peak": None,
+                "steam_player_24h_low_observed": None,
+                "steam_player_all_time_peak": None,
+                "steam_player_all_time_peak_at": None,
+                "steam_player_stats_synced_at": None,
+            }
+        )
+
     if live_summary_updates:
         summary = summary.model_copy(update=live_summary_updates)
+
+    marker_payload = build_steam_activity_markers(
+        marker_source_points,
+        all_time_peak=summary.steam_player_all_time_peak,
+        all_time_peak_at=summary.steam_player_all_time_peak_at,
+    )
+    markers = [SteamPlayerMarker(**marker) for marker in marker_payload]
 
     response = SteamActivityResponse(
         summary=summary,
