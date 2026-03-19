@@ -2,10 +2,21 @@
 
 import dynamic from "next/dynamic";
 import { useState, useEffect, useMemo, useRef } from "react";
-import { getJournalistAllReviews, getOutletAllReviews, getGameAllReviews, getGameNews } from "@/lib/api";
+import {
+  getJournalistAllReviews,
+  getOutletAllReviews,
+  getGameAllReviews,
+  getGameNews,
+  getGameSteamActivity,
+} from "@/lib/api";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
 import { ShareButtons } from "./ShareButtons";
-import type { ReviewWithDisparity, ReviewWithJournalist, NewsArticle } from "@/types";
+import type {
+  ReviewWithDisparity,
+  ReviewWithJournalist,
+  NewsArticle,
+  SteamActivityResponse,
+} from "@/types";
 import { withTrendSnapshot } from "@/lib/share-url";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
@@ -58,6 +69,14 @@ const GameReceptionTimeline = dynamic(
   {
     ssr: false,
     loading: () => <PanelModuleFallback label="reception story" />,
+  }
+);
+
+const SteamActivityPanel = dynamic(
+  () => import("./SteamActivityPanel").then((mod) => mod.SteamActivityPanel),
+  {
+    ssr: false,
+    loading: () => <PanelModuleFallback label="steam activity" />,
   }
 );
 
@@ -125,6 +144,16 @@ interface LazyChartSectionProps {
   metacriticUserScore?: number | null;
 }
 
+function dedupeNewsArticles(articles: NewsArticle[]): NewsArticle[] {
+  const seen = new Set<number>();
+
+  return articles.filter((article) => {
+    if (seen.has(article.id)) return false;
+    seen.add(article.id);
+    return true;
+  });
+}
+
 export function LazyChartSection({
   entityType,
   entityId,
@@ -145,10 +174,14 @@ export function LazyChartSection({
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
-  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline">("disparity");
+  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">("disparity");
+  const [steamActivity, setSteamActivity] = useState<SteamActivityResponse | null>(null);
+  const [steamActivityLoading, setSteamActivityLoading] = useState(false);
+  const [steamActivityError, setSteamActivityError] = useState(false);
+  const steamActivityFetchedRef = useRef(false);
 
   // News pagination state
-  const [allNews, setAllNews] = useState<NewsArticle[]>(newsArticles || []);
+  const [allNews, setAllNews] = useState<NewsArticle[]>(() => dedupeNewsArticles(newsArticles || []));
   const [newsPage, setNewsPage] = useState(1);
   const [newsHasMore, setNewsHasMore] = useState(newsTotalPages > 1);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -213,7 +246,7 @@ export function LazyChartSection({
     if (chartTab !== "timeline" || entityType !== "game" || timelineNewsFetchedRef.current) return;
     if (!newsArticles || newsTotalPages <= 1) {
       // Already have all news from the initial page (or no news at all)
-      setTimelineNews(newsArticles || []);
+      setTimelineNews(dedupeNewsArticles(newsArticles || []));
       timelineNewsFetchedRef.current = true;
       return;
     }
@@ -228,16 +261,34 @@ export function LazyChartSection({
         const successfulItems = results
           .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof getGameNews>>> => r.status === "fulfilled")
           .flatMap((r) => r.value.items);
-        const allItems = [...newsArticles, ...successfulItems];
+        const allItems = dedupeNewsArticles([...newsArticles, ...successfulItems]);
         setTimelineNews(allItems);
         timelineNewsFetchedRef.current = true;
       } catch {
         // Fall back to whatever we have — don't set ref so retry is possible
-        setTimelineNews(newsArticles || []);
+        setTimelineNews(dedupeNewsArticles(newsArticles || []));
       }
     };
     fetchAllNews();
   }, [chartTab, entityType, entityId, newsArticles, newsTotalPages]);
+
+  useEffect(() => {
+    if (entityType !== "game") return;
+    if (chartTab !== "timeline" && chartTab !== "activity") return;
+    if (steamActivityFetchedRef.current || steamActivityLoading) return;
+
+    steamActivityFetchedRef.current = true;
+    setSteamActivityLoading(true);
+    setSteamActivityError(false);
+
+    getGameSteamActivity(entityId, 1000)
+      .then((data) => setSteamActivity(data))
+      .catch(() => {
+        steamActivityFetchedRef.current = false;
+        setSteamActivityError(true);
+      })
+      .finally(() => setSteamActivityLoading(false));
+  }, [chartTab, entityId, entityType, steamActivityLoading]);
 
   const loadMoreNews = async () => {
     if (newsLoading || !newsHasMore) return;
@@ -245,7 +296,7 @@ export function LazyChartSection({
     try {
       const nextPage = newsPage + 1;
       const response = await getGameNews(entityId, nextPage, 5);
-      setAllNews((prev) => [...prev, ...response.items]);
+      setAllNews((prev) => dedupeNewsArticles([...prev, ...response.items]));
       setNewsPage(nextPage);
       setNewsHasMore(nextPage < response.total_pages);
     } catch {
@@ -292,12 +343,17 @@ export function LazyChartSection({
     return `${disparityChartShareText} — ${details.join(" — ")}`;
   }, [disparityChartShareText, trendShareState]);
   const isTimingTabActive = chartTab === "timing" && hasTimingShare;
-  const activeShareUrl = isTimingTabActive
-    ? timingChartShareUrl
-    : effectiveDisparityChartShareUrl ?? timingChartShareUrl;
-  const activeShareText = isTimingTabActive
-    ? timingChartShareText
-    : effectiveDisparityChartShareText ?? timingChartShareText;
+  const showChartShareButtons = chartTab === "disparity" || isTimingTabActive;
+  const activeShareUrl = chartTab === "disparity"
+    ? effectiveDisparityChartShareUrl ?? timingChartShareUrl
+    : isTimingTabActive
+      ? timingChartShareUrl
+      : null;
+  const activeShareText = chartTab === "disparity"
+    ? effectiveDisparityChartShareText ?? timingChartShareText
+    : isTimingTabActive
+      ? timingChartShareText
+      : null;
   const gameReviews = (reviews ?? []) as ReviewWithJournalist[];
   const latestNewsContent = allNews.length > 0 ? (
     <div>
@@ -351,7 +407,7 @@ export function LazyChartSection({
       )}
 
       {/* Chart */}
-      {reviews && reviews.length > 0 && (
+      {reviews !== null && (reviews.length > 0 || entityType === "game") && (
         <>
           <section className="bg-white rounded-lg shadow">
             {/* Tab bar for disparity and review timing */}
@@ -388,12 +444,24 @@ export function LazyChartSection({
                   >
                     {entityType === "game" ? "Reception Story" : entityType === "journalist" ? "Scoring Pattern" : "Activity Stream"}
                   </button>
+                  {entityType === "game" && (
+                    <button
+                      onClick={() => setChartTab("activity")}
+                      className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                      style={chartTab === "activity"
+                        ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                        : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                      }
+                    >
+                      Steam Activity
+                    </button>
+                  )}
                 </nav>
               </div>
             )}
 
             <div className="p-4 sm:p-6">
-              {activeShareUrl && activeShareText && (
+              {showChartShareButtons && activeShareUrl && activeShareText && (
                 <div className="mb-4 flex justify-start sm:justify-end">
                   <div className="max-w-full overflow-x-auto">
                     <ShareButtons url={activeShareUrl} text={activeShareText} compactOnMobile />
@@ -431,7 +499,26 @@ export function LazyChartSection({
                   steamUserScore={steamUserScore ?? null}
                   metacriticUserScore={metacriticUserScore ?? null}
                   newsArticles={timelineNews ?? allNews}
+                  steamActivityMarkers={steamActivity?.markers ?? []}
                 />
+              )}
+
+              {chartTab === "activity" && entityType === "game" && (
+                steamActivityLoading && !steamActivity ? (
+                  <div className="flex items-center justify-center h-[240px]" style={{ color: "var(--foreground-muted)" }}>
+                    Loading Steam activity...
+                  </div>
+                ) : steamActivityError ? (
+                  <div className="flex items-center justify-center h-[240px]" style={{ color: "var(--foreground-muted)" }}>
+                    Steam activity is unavailable right now.
+                  </div>
+                ) : steamActivity ? (
+                  <SteamActivityPanel activity={steamActivity} />
+                ) : (
+                  <div className="flex items-center justify-center h-[240px]" style={{ color: "var(--foreground-muted)" }}>
+                    No Steam activity data available yet.
+                  </div>
+                )
               )}
 
               {chartTab === "timeline" && entityType === "journalist" && (

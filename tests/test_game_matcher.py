@@ -60,6 +60,38 @@ async def test_exact_title_match_still_works():
 
 
 @pytest.mark.asyncio
+async def test_yearly_sports_title_accepts_compact_variant():
+    steam = DummySteamService(
+        results={
+            "NBA2K 21 Next-Gen": [
+                {"steam_app_id": 123456, "name": "NBA 2K21 Next-Gen"},
+            ],
+        }
+    )
+    matcher = GameMatcher(steam_service=steam)
+
+    steam_app_id = await matcher.find_steam_match("NBA2K 21 Next-Gen")
+
+    assert steam_app_id == 123456
+
+
+@pytest.mark.asyncio
+async def test_yearly_sports_title_does_not_match_newer_cycle():
+    steam = DummySteamService(
+        results={
+            "NBA2K 21 Next-Gen": [
+                {"steam_app_id": 2600000, "name": "NBA 2K26 Next-Gen"},
+            ],
+        }
+    )
+    matcher = GameMatcher(steam_service=steam)
+
+    steam_app_id = await matcher.find_steam_match("NBA2K 21 Next-Gen")
+
+    assert steam_app_id is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("opencritic_id", "expected_app_id"),
     [

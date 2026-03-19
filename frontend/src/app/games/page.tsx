@@ -74,6 +74,23 @@ function formatSnippet(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
+function formatSteamSummary(game: Awaited<ReturnType<typeof getGames>>["items"][number]): string | null {
+  const parts: string[] = [];
+  if (game.steam_player_all_time_peak != null) {
+    parts.push(`all-time high ${game.steam_player_all_time_peak.toLocaleString()}`);
+  }
+  if (game.steam_player_24h_peak != null) {
+    parts.push(`24h high ${game.steam_player_24h_peak.toLocaleString()}`);
+  }
+  if (game.steam_player_24h_low_observed != null) {
+    parts.push(`24h low ${game.steam_player_24h_low_observed.toLocaleString()}`);
+  }
+  if (game.steam_achievement_count != null) {
+    parts.push(`${game.steam_achievement_count.toLocaleString()} achievements`);
+  }
+  return parts.length > 0 ? parts.join(" • ") : null;
+}
+
 export default async function GamesPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
@@ -144,6 +161,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
                 const isPreReleaseReview = (latestReview?.review_timing === "early") || unreleasedNow;
                 const latestSnippet = formatSnippet(latestReview?.snippet ?? null);
                 const combinedDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
+                const steamSummary = formatSteamSummary(game);
 
                 return (
                   <Link
@@ -177,6 +195,14 @@ export default async function GamesPage({ searchParams }: PageProps) {
                               </span>
                             )}
                           </div>
+                          {steamSummary && (
+                            <p
+                              className="mt-2 text-sm"
+                              style={{ color: "var(--foreground-muted)" }}
+                            >
+                              Steam Activity: {steamSummary}
+                            </p>
+                          )}
                           {latestReview && (
                             <>
                               <p

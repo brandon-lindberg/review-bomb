@@ -12,19 +12,41 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from app.database import get_db
-from app.models.models import Game, Review, Journalist, Outlet, NewsArticle, DisparitySnapshot
+from app.models.models import (
+    Game,
+    Review,
+    Journalist,
+    Outlet,
+    NewsArticle,
+    DisparitySnapshot,
+    SteamPlayerSnapshot,
+    SteamPlayerRangeSnapshot,
+)
 from app.public_ids import resolve_entity_by_identifier
 from app.schemas.schemas import (
     GameDetail,
     GameWithScores,
     DisparitySnapshot as DisparitySnapshotSchema,
+    SteamActivityResponse,
+    SteamPlayerPoint,
+    SteamPlayerMarker,
     ReviewWithJournalist,
     NewsArticleSummary,
     PaginatedResponse,
 )
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_SHORT
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
+from app.services.flopathon import (
+    FlopathonService,
+    extract_flopathon_history_points,
+    parse_flopathon_peak_summary,
+)
+from app.services.player_scraper import PlayerScraperClient
+from app.services.steam_activity import (
+    build_observed_24h_player_points,
+    build_steam_activity_markers,
+)
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
@@ -36,9 +58,60 @@ MIN_METACRITIC_USER_REVIEWS = 20
 MIN_CRITIC_REVIEWS_FOR_GAMES_LIST = 5
 
 
+def _steam_score_is_valid(game: Game) -> bool:
+    return game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
+
+
+def _metacritic_score_is_valid(game: Game) -> bool:
+    return (
+        game.metacritic_user_score is not None
+        and (
+            game.metacritic_sample_size is None
+            or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS
+        )
+    )
+
+
+def _build_game_with_scores(
+    game: Game,
+    *,
+    latest_review: Optional[ReviewWithJournalist] = None,
+) -> GameWithScores:
+    steam_valid = _steam_score_is_valid(game)
+    metacritic_valid = _metacritic_score_is_valid(game)
+
+    return GameWithScores(
+        id=game.id,
+        public_id=game.public_id or str(game.id),
+        title=game.title,
+        release_date=game.release_date,
+        description=game.description,
+        image_url=game.image_url,
+        opencritic_id=game.opencritic_id,
+        steam_app_id=game.steam_app_id,
+        critic_review_count=game.critic_review_count or 0,
+        opencritic_score=game.top_critic_score,
+        steam_user_score=game.steam_user_score if steam_valid else None,
+        steam_sample_size=game.steam_sample_size if steam_valid else None,
+        steam_player_24h_peak=game.steam_player_24h_peak,
+        steam_player_24h_low_observed=game.steam_player_24h_low_observed,
+        steam_player_all_time_peak=game.steam_player_all_time_peak,
+        steam_player_all_time_peak_at=game.steam_player_all_time_peak_at,
+        steam_player_stats_synced_at=game.steam_player_stats_synced_at,
+        steam_achievement_count=game.steam_achievement_count,
+        steam_achievement_count_synced_at=game.steam_achievement_count_synced_at,
+        metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
+        metacritic_sample_size=game.metacritic_sample_size if metacritic_valid else None,
+        avg_critic_score=game.avg_critic_score,
+        disparity_steam=game.disparity_steam if steam_valid else None,
+        disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
+        latest_review=latest_review,
+    )
+
+
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
-    page: int = Query(1, ge=1, le=100),
+    page: int = Query(1, ge=1, le=10000),
     per_page: int = Query(20, ge=1, le=100),
     year: Optional[int] = Query(None, ge=2015),
     search: Optional[str] = Query(None, min_length=2, max_length=100),
@@ -48,7 +121,7 @@ async def list_games(
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
     key_hash = cache_key(
-        "games:list:v2",
+        "games:list:v3",
         page=page,
         per_page=per_page,
         year=year,
@@ -288,35 +361,7 @@ async def list_games(
 
     items = []
     for game in games:
-        # Check which scores are valid based on sample size
-        steam_valid = game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
-        metacritic_valid = (
-            game.metacritic_user_score is not None
-            and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
-        )
-
-        items.append(
-            GameWithScores(
-                id=game.id,
-                public_id=game.public_id or str(game.id),
-                title=game.title,
-                release_date=game.release_date,
-                description=game.description,
-                image_url=game.image_url,
-                opencritic_id=game.opencritic_id,
-                steam_app_id=game.steam_app_id,
-                critic_review_count=game.critic_review_count or 0,
-                opencritic_score=game.top_critic_score,
-                steam_user_score=game.steam_user_score if steam_valid else None,
-                steam_sample_size=game.steam_sample_size if steam_valid else None,
-                metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
-                metacritic_sample_size=game.metacritic_sample_size if metacritic_valid else None,
-                avg_critic_score=game.avg_critic_score,
-                disparity_steam=game.disparity_steam if steam_valid else None,
-                disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
-                latest_review=latest_review_lookup.get(game.id),
-            )
-        )
+        items.append(_build_game_with_scores(game, latest_review=latest_review_lookup.get(game.id)))
 
     response = PaginatedResponse(
         items=items,
@@ -345,12 +390,6 @@ async def get_game(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     game_id = game.id
-
-    steam_valid = game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
-    metacritic_valid = (
-        game.metacritic_user_score is not None
-        and (game.metacritic_sample_size is None or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS)
-    )
 
     # Fetch the 5 most recent news articles for this game
     news_result = await db.execute(
@@ -427,24 +466,10 @@ async def get_game(
             launch_window_review_count = int(timing_counts_row.launch_window_review_count or 0)
             late_review_count = int(timing_counts_row.late_review_count or 0)
 
+    base_game = _build_game_with_scores(game)
+
     return GameDetail(
-        id=game.id,
-        public_id=game.public_id or str(game.id),
-        title=game.title,
-        release_date=game.release_date,
-        description=game.description,
-        image_url=game.image_url,
-        opencritic_id=game.opencritic_id,
-        steam_app_id=game.steam_app_id,
-        critic_review_count=game.critic_review_count or 0,
-        opencritic_score=game.top_critic_score,
-        steam_user_score=game.steam_user_score if steam_valid else None,
-        steam_sample_size=game.steam_sample_size if steam_valid else None,
-        metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
-        metacritic_sample_size=game.metacritic_sample_size if metacritic_valid else None,
-        avg_critic_score=game.avg_critic_score,
-        disparity_steam=game.disparity_steam if steam_valid else None,
-        disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
+        **base_game.model_dump(),
         tier=game.tier,
         percent_recommended=game.percent_recommended,
         early_review_count=early_review_count,
@@ -454,6 +479,138 @@ async def get_game(
         updated_at=game.updated_at,
         recent_news=[NewsArticleSummary.model_validate(a) for a in recent_news],
     )
+
+
+@router.get("/{game_id}/steam-activity", response_model=SteamActivityResponse)
+async def get_game_steam_activity(
+    game_id: str,
+    limit: int = Query(10000, ge=1, le=10000),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get Steam activity range history and derived milestone markers for a game."""
+    cache_hash = cache_key("games:steam-activity:v5", game_id=game_id, limit=limit)
+    cached = await get_cached(f"games:steam-activity:{cache_hash}")
+    if cached:
+        return SteamActivityResponse(**json.loads(cached))
+
+    game = await resolve_entity_by_identifier(db, Game, str(game_id))
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    points: list[SteamPlayerPoint] = []
+    marker_source_points: list[dict[str, object]] = []
+    live_summary_updates: dict[str, object] = {}
+
+    scraper_activity = None
+    if game.steam_app_id is not None:
+        player_scraper = PlayerScraperClient()
+        if player_scraper.is_configured:
+            async with player_scraper:
+                scraper_activity = await player_scraper.get_steam_activity(game.steam_app_id, limit=limit)
+
+    if scraper_activity and scraper_activity.points:
+        points = scraper_activity.points
+        marker_source_points = scraper_activity.marker_source_points
+        live_summary_updates = scraper_activity.summary_updates
+    else:
+        range_result = await db.execute(
+            select(SteamPlayerRangeSnapshot)
+            .where(SteamPlayerRangeSnapshot.game_id == game.id)
+            .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
+            .limit(limit)
+        )
+        range_snapshots = list(reversed(range_result.scalars().all()))
+
+        if range_snapshots:
+            points = [
+                SteamPlayerPoint(
+                    sampled_at=snapshot.sampled_at,
+                    observed_24h_high=snapshot.players_24h_high,
+                    observed_24h_low=snapshot.players_24h_low,
+                )
+                for snapshot in range_snapshots
+            ]
+            marker_source_points = [
+                {
+                    "sampled_at": snapshot.sampled_at,
+                    "concurrent_players": snapshot.players_24h_high,
+                }
+                for snapshot in range_snapshots
+            ]
+        elif game.steam_app_id is not None:
+            raw_points: list[dict[str, object]] = []
+            try:
+                async with FlopathonService() as flopathon_service:
+                    payload = await flopathon_service.get_players_payload(game.steam_app_id)
+                if payload:
+                    raw_points = extract_flopathon_history_points(payload)
+                    if len(raw_points) > limit:
+                        raw_points = raw_points[-limit:]
+                    live_summary_updates = parse_flopathon_peak_summary(payload)
+            except Exception:
+                raw_points = []
+                live_summary_updates = {}
+
+            if not raw_points:
+                points = []
+                marker_source_points = []
+            else:
+                observed_points = build_observed_24h_player_points(raw_points)
+                points = [SteamPlayerPoint(**point) for point in observed_points]
+                marker_source_points = [
+                    {
+                        "sampled_at": point["sampled_at"],
+                        "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
+                    }
+                    for point in observed_points
+                ]
+        else:
+            snapshots_result = await db.execute(
+                select(SteamPlayerSnapshot)
+                .where(SteamPlayerSnapshot.game_id == game.id)
+                .order_by(desc(SteamPlayerSnapshot.sampled_at))
+                .limit(limit)
+            )
+            snapshots = list(reversed(snapshots_result.scalars().all()))
+            raw_points = [
+                {
+                    "sampled_at": snapshot.sampled_at,
+                    "concurrent_players": snapshot.concurrent_players,
+                }
+                for snapshot in snapshots
+            ]
+            observed_points = build_observed_24h_player_points(raw_points)
+            points = [SteamPlayerPoint(**point) for point in observed_points]
+            marker_source_points = [
+                {
+                    "sampled_at": point["sampled_at"],
+                    "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
+                }
+                for point in observed_points
+            ]
+
+    marker_payload = build_steam_activity_markers(
+        marker_source_points,
+        all_time_peak=game.steam_player_all_time_peak,
+        all_time_peak_at=game.steam_player_all_time_peak_at,
+    )
+    markers = [SteamPlayerMarker(**marker) for marker in marker_payload]
+
+    summary = _build_game_with_scores(game)
+    if live_summary_updates:
+        summary = summary.model_copy(update=live_summary_updates)
+
+    response = SteamActivityResponse(
+        summary=summary,
+        points=points,
+        markers=markers,
+    )
+    await set_cached(
+        f"games:steam-activity:{cache_hash}",
+        response.model_dump_json(),
+        CACHE_TTL_SHORT,
+    )
+    return response
 
 
 @router.get("/{game_id}/news", response_model=PaginatedResponse[NewsArticleSummary])

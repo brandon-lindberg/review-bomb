@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import type { ReviewWithJournalist, NewsArticle } from "@/types";
+import type { ReviewWithJournalist, NewsArticle, SteamPlayerMarker } from "@/types";
 import { buildEntityPath } from "@/lib/entity-paths";
 
 function useIsDarkMode() {
@@ -241,6 +241,7 @@ interface GameReceptionTimelineProps {
   steamUserScore: number | null;
   metacriticUserScore: number | null;
   newsArticles?: NewsArticle[];
+  steamActivityMarkers?: SteamPlayerMarker[];
 }
 
 export function GameReceptionTimeline({
@@ -249,6 +250,7 @@ export function GameReceptionTimeline({
   steamUserScore,
   metacriticUserScore,
   newsArticles,
+  steamActivityMarkers,
 }: GameReceptionTimelineProps) {
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
@@ -410,13 +412,36 @@ export function GameReceptionTimeline({
       }
     }
 
-    // 4. News article events
+    // 4. Player activity milestones
+    if (steamActivityMarkers) {
+      for (const marker of steamActivityMarkers) {
+        if (!marker.sampled_at) continue;
+        const sampledAt = new Date(marker.sampled_at);
+        if (Number.isNaN(sampledAt.getTime())) continue;
+        events.push({
+          id: `player-marker-${marker.marker_type}-${marker.sampled_at}`,
+          type: "milestone",
+          date: sampledAt,
+          dateLabel: sampledAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          milestoneLabel: marker.label,
+          milestoneDetail: marker.detail ?? `${marker.concurrent_players.toLocaleString()} players`,
+        });
+      }
+    }
+
+    // 5. News article events
     if (newsArticles) {
+      const seenNewsEventIds = new Set<string>();
+
       for (const article of newsArticles) {
         if (!article.published_at) continue;
         const d = new Date(article.published_at);
+        const eventId = `news-${article.id}`;
+        if (seenNewsEventIds.has(eventId)) continue;
+        seenNewsEventIds.add(eventId);
+
         events.push({
-          id: `news-${article.id}`,
+          id: eventId,
           type: "news",
           date: d,
           dateLabel: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
@@ -430,7 +455,7 @@ export function GameReceptionTimeline({
     // Sort all events chronologically
     events.sort((a, b) => a.date.getTime() - b.date.getTime());
     return events;
-  }, [reviews, releaseDate, newsArticles]);
+  }, [reviews, releaseDate, steamActivityMarkers, newsArticles]);
 
   // Filter events
   const filteredEvents = useMemo(() => {

@@ -15,6 +15,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from app.tasks.sync import (
     sync_opencritic_incremental,
     sync_steam_scores,
+    sync_flopathon_ranges,
     sync_metacritic_scores,
     match_games_to_platforms,
     sync_news_feeds,
@@ -41,12 +42,21 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
-    # Steam scores sync - daily at 2 AM UTC
+    # Steam scores + Steam-owned activity sync - twice daily
     scheduler.add_job(
         lambda: sync_steam_scores.send(),
-        trigger=CronTrigger(hour=2, minute=0),
+        trigger=CronTrigger(hour="2,14", minute=0),
         id="sync_steam_scores",
-        name="Sync Steam user scores",
+        name="Sync Steam user scores and Steam-owned activity",
+        replace_existing=True,
+    )
+
+    # Flopathon-backed Steam range/high sync - twice daily, staggered behind Steam
+    scheduler.add_job(
+        lambda: sync_flopathon_ranges.send(),
+        trigger=CronTrigger(hour="4,16", minute=0),
+        id="sync_flopathon_ranges",
+        name="Sync Flopathon Steam range history",
         replace_existing=True,
     )
 
@@ -103,7 +113,8 @@ def main():
     print("Starting task scheduler...")
     print("Scheduled jobs:")
     print("  - OpenCritic incremental sync: every 6 hours")
-    print("  - Steam scores sync: daily at 2 AM UTC")
+    print("  - Steam scores + Steam-owned activity sync: daily at 2 AM and 2 PM UTC")
+    print("  - Flopathon Steam range history sync: daily at 4 AM and 4 PM UTC")
     print("  - Metacritic scores sync: daily at 3 AM UTC")
     print("  - Game matching: daily at 1 AM UTC")
     print("  - Disparity snapshots: daily at 5 AM UTC")
