@@ -421,17 +421,17 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
       {/* Header */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
-          <div className="flex flex-1 items-center gap-4">
+          <div className="flex flex-1 flex-col gap-4 sm:flex-row sm:items-start">
             <GameAvatar
               title={game.title}
               imageUrl={game.image_url}
-              width={144}
-              height={81}
-              sizes="144px"
-              className="h-[81px] w-36 shrink-0 rounded-2xl object-contain"
+              width={640}
+              height={360}
+              sizes="(max-width: 639px) 100vw, 144px"
+              className="w-full rounded-2xl object-cover aspect-[16/9] sm:h-[81px] sm:w-36 sm:shrink-0 sm:aspect-auto sm:object-contain"
             />
             <div className="min-w-0 flex-1">
-              <h1 className="text-3xl font-bold" style={{ color: "var(--foreground)" }}>{game.title}</h1>
+              <h1 className="text-3xl sm:text-4xl font-bold leading-tight" style={{ color: "var(--foreground)" }}>{game.title}</h1>
               {game.release_date && (
                 <p className="mt-2 text-sm text-gray-500">
                   Released: {releaseDateLabel}
