@@ -131,6 +131,7 @@ interface LazyChartSectionProps {
   entityType: "journalist" | "outlet" | "game";
   entityId: string | number;
   gameTitle?: string;
+  hasSteamApp?: boolean;
   newsArticles?: NewsArticle[];
   newsTotalPages?: number;
   timingCounts?: { early: number; launchWindow: number; late: number };
@@ -158,6 +159,7 @@ export function LazyChartSection({
   entityType,
   entityId,
   gameTitle,
+  hasSteamApp = false,
   newsArticles,
   newsTotalPages = 0,
   timingCounts,
@@ -174,7 +176,9 @@ export function LazyChartSection({
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
-  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">("disparity");
+  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">(
+    entityType === "game" ? "timeline" : "disparity"
+  );
   const [steamActivity, setSteamActivity] = useState<SteamActivityResponse | null>(null);
   const [steamActivityLoading, setSteamActivityLoading] = useState(false);
   const [steamActivityError, setSteamActivityError] = useState(false);
@@ -274,6 +278,7 @@ export function LazyChartSection({
 
   useEffect(() => {
     if (entityType !== "game") return;
+    if (!hasSteamApp) return;
     if (chartTab !== "timeline" && chartTab !== "activity") return;
     if (steamActivityFetchedRef.current || steamActivityLoading) return;
 
@@ -288,7 +293,7 @@ export function LazyChartSection({
         setSteamActivityError(true);
       })
       .finally(() => setSteamActivityLoading(false));
-  }, [chartTab, entityId, entityType, steamActivityLoading]);
+  }, [chartTab, entityId, entityType, hasSteamApp, steamActivityLoading]);
 
   const loadMoreNews = async () => {
     if (newsLoading || !newsHasMore) return;
@@ -411,50 +416,87 @@ export function LazyChartSection({
         <>
           <section className="bg-white rounded-lg shadow">
             {/* Tab bar for disparity and review timing */}
-            {effectiveTimingCounts && (
+            {(entityType === "game" || effectiveTimingCounts) && (
               <div className="border-b" style={{ borderColor: "var(--border)" }}>
                 <nav className="flex gap-2 sm:gap-4 px-4 sm:px-6 overflow-x-auto">
-                  <button
-                    onClick={() => setChartTab("disparity")}
-                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
-                    style={chartTab === "disparity"
-                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
-                    }
-                  >
-                    Disparity Trend
-                  </button>
-                  <button
-                    onClick={() => setChartTab("timing")}
-                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
-                    style={chartTab === "timing"
-                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
-                    }
-                  >
-                    Review Timing
-                  </button>
-                  <button
-                    onClick={() => setChartTab("timeline")}
-                    className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
-                    style={chartTab === "timeline"
-                      ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                      : { borderColor: "transparent", color: "var(--foreground-muted)" }
-                    }
-                  >
-                    {entityType === "game" ? "Reception Story" : entityType === "journalist" ? "Scoring Pattern" : "Activity Stream"}
-                  </button>
-                  {entityType === "game" && (
-                    <button
-                      onClick={() => setChartTab("activity")}
-                      className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
-                      style={chartTab === "activity"
-                        ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
-                        : { borderColor: "transparent", color: "var(--foreground-muted)" }
-                      }
-                    >
-                      Steam Activity
-                    </button>
+                  {entityType === "game" ? (
+                    <>
+                      <button
+                        onClick={() => setChartTab("timeline")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "timeline"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        Reception Story
+                      </button>
+                      {hasSteamApp && (
+                        <button
+                          onClick={() => setChartTab("activity")}
+                          className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                          style={chartTab === "activity"
+                            ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                            : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                          }
+                        >
+                          Steam Activity
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setChartTab("timing")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "timing"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        Review Timing
+                      </button>
+                      <button
+                        onClick={() => setChartTab("disparity")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "disparity"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        Disparity Trend
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => setChartTab("disparity")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "disparity"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        Disparity Trend
+                      </button>
+                      <button
+                        onClick={() => setChartTab("timing")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "timing"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        Review Timing
+                      </button>
+                      <button
+                        onClick={() => setChartTab("timeline")}
+                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        style={chartTab === "timeline"
+                          ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                          : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                        }
+                      >
+                        {entityType === "journalist" ? "Scoring Pattern" : "Activity Stream"}
+                      </button>
+                    </>
                   )}
                 </nav>
               </div>
@@ -503,7 +545,7 @@ export function LazyChartSection({
                 />
               )}
 
-              {chartTab === "activity" && entityType === "game" && (
+              {chartTab === "activity" && entityType === "game" && hasSteamApp && (
                 steamActivityLoading && !steamActivity ? (
                   <div className="flex items-center justify-center h-[240px]" style={{ color: "var(--foreground-muted)" }}>
                     Loading Steam activity...

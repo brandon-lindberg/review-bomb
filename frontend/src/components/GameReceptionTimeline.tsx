@@ -244,6 +244,8 @@ interface GameReceptionTimelineProps {
   steamActivityMarkers?: SteamPlayerMarker[];
 }
 
+const TIMELINE_PAGE_SIZE = 20;
+
 export function GameReceptionTimeline({
   reviews,
   releaseDate,
@@ -255,9 +257,9 @@ export function GameReceptionTimeline({
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
 
-  const [filter, setFilter] = useState<FilterType>("all");
+  const [filter, setFilter] = useState<FilterType>("milestones");
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [showCount, setShowCount] = useState(30);
+  const [showCount, setShowCount] = useState(TIMELINE_PAGE_SIZE);
   // Tracks which date+type groups are expanded (e.g. "Feb 25, 2026-review")
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
@@ -467,8 +469,8 @@ export function GameReceptionTimeline({
     return allEvents;
   }, [allEvents, filter]);
 
-  // Group ALL filtered events by date, then paginate by date groups
-  const COLLAPSE_THRESHOLD = 5;
+  // Group filtered events by date, then paginate by rendered timeline items.
+  const COLLAPSE_THRESHOLD = 2;
   const allDateGroups = useMemo(() => {
     const groups: { dateLabel: string; events: TimelineEvent[] }[] = [];
     for (const event of filteredEvents) {
@@ -482,8 +484,105 @@ export function GameReceptionTimeline({
     return groups;
   }, [filteredEvents]);
 
-  const dateGroups = allDateGroups.slice(0, showCount);
-  const hasMore = allDateGroups.length > showCount;
+  const renderableGroups = useMemo(() => {
+    return allDateGroups.map((group) => {
+      const reviewEvents = group.events.filter((e) => e.type === "review");
+      const newsEvents = group.events.filter((e) => e.type === "news");
+      const otherEvents = group.events.filter((e) => e.type !== "review" && e.type !== "news");
+
+      const reviewGroupKey = `${group.dateLabel}-review`;
+      const newsGroupKey = `${group.dateLabel}-news`;
+      const reviewsExpanded = expandedGroups.has(reviewGroupKey);
+      const newsExpanded = expandedGroups.has(newsGroupKey);
+
+      const collapseReviews = reviewEvents.length >= COLLAPSE_THRESHOLD && !reviewsExpanded;
+      const collapseNews = newsEvents.length >= COLLAPSE_THRESHOLD && !newsExpanded;
+
+      const reviewScores = reviewEvents.filter((e) => e.score != null).map((e) => e.score!);
+      const reviewAvg = reviewScores.length > 0 ? reviewScores.reduce((a, b) => a + b, 0) / reviewScores.length : null;
+      const visibleItemCount =
+        otherEvents.length
+        + (reviewEvents.length > 0 ? (collapseReviews ? 1 : reviewEvents.length) : 0)
+        + (newsEvents.length > 0 ? (collapseNews ? 1 : newsEvents.length) : 0);
+
+      return {
+        ...group,
+        reviewEvents,
+        newsEvents,
+        otherEvents,
+        reviewGroupKey,
+        newsGroupKey,
+        collapseReviews,
+        collapseNews,
+        reviewAvg,
+        visibleItemCount,
+      };
+    });
+  }, [allDateGroups, expandedGroups]);
+
+  const totalVisibleItems = useMemo(
+    () => renderableGroups.reduce((sum, group) => sum + group.visibleItemCount, 0),
+    [renderableGroups]
+  );
+
+  const visibleGroups = useMemo(() => {
+    let remaining = showCount;
+
+    return renderableGroups
+      .map((group) => {
+        if (remaining <= 0) return null;
+
+        const visibleOtherEvents = group.otherEvents.slice(0, remaining);
+        remaining -= visibleOtherEvents.length;
+
+        let showCollapsedReviews = false;
+        let visibleReviewEvents: TimelineEvent[] = [];
+        if (remaining > 0 && group.reviewEvents.length > 0) {
+          if (group.collapseReviews) {
+            showCollapsedReviews = true;
+            remaining -= 1;
+          } else {
+            visibleReviewEvents = group.reviewEvents.slice(0, remaining);
+            remaining -= visibleReviewEvents.length;
+          }
+        }
+
+        let showCollapsedNews = false;
+        let visibleNewsEvents: TimelineEvent[] = [];
+        if (remaining > 0 && group.newsEvents.length > 0) {
+          if (group.collapseNews) {
+            showCollapsedNews = true;
+            remaining -= 1;
+          } else {
+            visibleNewsEvents = group.newsEvents.slice(0, remaining);
+            remaining -= visibleNewsEvents.length;
+          }
+        }
+
+        if (
+          visibleOtherEvents.length === 0
+          && !showCollapsedReviews
+          && visibleReviewEvents.length === 0
+          && !showCollapsedNews
+          && visibleNewsEvents.length === 0
+        ) {
+          return null;
+        }
+
+        return {
+          ...group,
+          visibleOtherEvents,
+          showCollapsedReviews,
+          visibleReviewEvents,
+          showCollapsedNews,
+          visibleNewsEvents,
+        };
+      })
+      .filter((group): group is NonNullable<typeof group> => group !== null);
+  }, [renderableGroups, showCount]);
+
+  const hasMore = totalVisibleItems > showCount;
+  const remainingItems = Math.max(totalVisibleItems - showCount, 0);
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) => {
@@ -609,7 +708,7 @@ export function GameReceptionTimeline({
           .map((f) => (
             <button
               key={f.key}
-              onClick={() => { setFilter(f.key); setShowCount(30); }}
+              onClick={() => { setFilter(f.key); setShowCount(TIMELINE_PAGE_SIZE); }}
               className="px-3 py-1.5 text-sm rounded-lg transition-all"
               style={{
                 backgroundColor: filter === f.key
@@ -636,24 +735,7 @@ export function GameReceptionTimeline({
         />
 
         <div className="space-y-1">
-          {dateGroups.map((group) => {
-            // Split events by type for collapsing
-            const reviewEvents = group.events.filter((e) => e.type === "review");
-            const newsEvents = group.events.filter((e) => e.type === "news");
-            const otherEvents = group.events.filter((e) => e.type !== "review" && e.type !== "news");
-
-            const reviewGroupKey = `${group.dateLabel}-review`;
-            const newsGroupKey = `${group.dateLabel}-news`;
-            const reviewsExpanded = expandedGroups.has(reviewGroupKey);
-            const newsExpanded = expandedGroups.has(newsGroupKey);
-
-            const collapseReviews = reviewEvents.length > COLLAPSE_THRESHOLD && !reviewsExpanded;
-            const collapseNews = newsEvents.length > COLLAPSE_THRESHOLD && !newsExpanded;
-
-            // Compute review summary for collapsed state
-            const reviewScores = reviewEvents.filter((e) => e.score != null).map((e) => e.score!);
-            const reviewAvg = reviewScores.length > 0 ? reviewScores.reduce((a, b) => a + b, 0) / reviewScores.length : null;
-
+          {visibleGroups.map((group) => {
             return (
               <div key={group.dateLabel}>
                 {/* Date separator */}
@@ -668,7 +750,7 @@ export function GameReceptionTimeline({
                 </div>
 
                 {/* Other events (release, milestones) — always shown individually */}
-                {otherEvents.map((event) => (
+                {group.visibleOtherEvents.map((event) => (
                   <EventCard
                     key={event.id}
                     event={event}
@@ -684,15 +766,15 @@ export function GameReceptionTimeline({
                 ))}
 
                 {/* Reviews — collapsed or individual */}
-                {reviewEvents.length > 0 && (
-                  collapseReviews ? (
+                {group.reviewEvents.length > 0 && (
+                  group.showCollapsedReviews ? (
                     <div className="relative ml-0">
                       <div
                         className="absolute -left-6 sm:-left-8 top-3 w-3 h-3 rounded-full border-2 z-10"
                         style={{ backgroundColor: colors.rust, borderColor: colors.background }}
                       />
                       <button
-                        onClick={() => toggleGroup(reviewGroupKey)}
+                        onClick={() => toggleGroup(group.reviewGroupKey)}
                         className="w-full p-3 rounded-lg text-left cursor-pointer hover:opacity-90 transition-opacity"
                         style={{
                           backgroundColor: colors.cardBg,
@@ -702,11 +784,11 @@ export function GameReceptionTimeline({
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-medium" style={{ color: colors.rust }}>
-                            {reviewEvents.length} Reviews
+                            {group.reviewEvents.length} Reviews
                           </span>
                           <div className="flex items-center gap-2 text-xs" style={{ color: colors.axis }}>
-                            {reviewAvg != null && (
-                              <span>Avg: <span className="font-medium" style={{ color: colors.text }}>{reviewAvg.toFixed(1)}</span></span>
+                            {group.reviewAvg != null && (
+                              <span>Avg: <span className="font-medium" style={{ color: colors.text }}>{group.reviewAvg.toFixed(1)}</span></span>
                             )}
                             <span>tap to expand</span>
                           </div>
@@ -715,7 +797,7 @@ export function GameReceptionTimeline({
                     </div>
                   ) : (
                     <>
-                      {reviewEvents.map((event) => (
+                      {group.visibleReviewEvents.map((event) => (
                         <EventCard
                           key={event.id}
                           event={event}
@@ -729,10 +811,10 @@ export function GameReceptionTimeline({
                           getEventColor={getEventColor}
                         />
                       ))}
-                      {reviewEvents.length > COLLAPSE_THRESHOLD && (
+                      {group.reviewEvents.length >= COLLAPSE_THRESHOLD && group.visibleReviewEvents.length === group.reviewEvents.length && (
                         <div className="ml-0">
                           <button
-                            onClick={() => toggleGroup(reviewGroupKey)}
+                            onClick={() => toggleGroup(group.reviewGroupKey)}
                             className="text-xs px-3 py-1 rounded transition-colors hover:opacity-80"
                             style={{ color: colors.rust }}
                           >
@@ -745,15 +827,15 @@ export function GameReceptionTimeline({
                 )}
 
                 {/* News — collapsed or individual */}
-                {newsEvents.length > 0 && (
-                  collapseNews ? (
+                {group.newsEvents.length > 0 && (
+                  group.showCollapsedNews ? (
                     <div className="relative ml-0">
                       <div
                         className="absolute -left-6 sm:-left-8 top-3 w-3 h-3 rounded-full border-2 z-10"
                         style={{ backgroundColor: colors.orange, borderColor: colors.background }}
                       />
                       <button
-                        onClick={() => toggleGroup(newsGroupKey)}
+                        onClick={() => toggleGroup(group.newsGroupKey)}
                         className="w-full p-3 rounded-lg text-left cursor-pointer hover:opacity-90 transition-opacity"
                         style={{
                           backgroundColor: colors.cardBg,
@@ -763,7 +845,7 @@ export function GameReceptionTimeline({
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-sm font-medium" style={{ color: colors.orange }}>
-                            {newsEvents.length} News Articles
+                            {group.newsEvents.length} News Articles
                           </span>
                           <span className="text-xs" style={{ color: colors.axis }}>
                             tap to expand
@@ -773,7 +855,7 @@ export function GameReceptionTimeline({
                     </div>
                   ) : (
                     <>
-                      {newsEvents.map((event) => (
+                      {group.visibleNewsEvents.map((event) => (
                         <EventCard
                           key={event.id}
                           event={event}
@@ -787,10 +869,10 @@ export function GameReceptionTimeline({
                           getEventColor={getEventColor}
                         />
                       ))}
-                      {newsEvents.length > COLLAPSE_THRESHOLD && (
+                      {group.newsEvents.length >= COLLAPSE_THRESHOLD && group.visibleNewsEvents.length === group.newsEvents.length && (
                         <div className="ml-0">
                           <button
-                            onClick={() => toggleGroup(newsGroupKey)}
+                            onClick={() => toggleGroup(group.newsGroupKey)}
                             className="text-xs px-3 py-1 rounded transition-colors hover:opacity-80"
                             style={{ color: colors.orange }}
                           >
@@ -810,7 +892,7 @@ export function GameReceptionTimeline({
         {hasMore && (
           <div className="mt-4 text-center">
             <button
-              onClick={() => setShowCount((prev) => prev + 30)}
+              onClick={() => setShowCount((prev) => prev + TIMELINE_PAGE_SIZE)}
               className="px-4 py-2 text-sm rounded-lg transition-colors"
               style={{
                 backgroundColor: colors.cardBg,
@@ -818,7 +900,7 @@ export function GameReceptionTimeline({
                 border: `1px solid ${colors.border}`,
               }}
             >
-              Show more ({allDateGroups.length - showCount} days remaining)
+              See more ({Math.min(TIMELINE_PAGE_SIZE, remainingItems)} more)
             </button>
           </div>
         )}

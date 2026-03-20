@@ -400,12 +400,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   timingShareTextParts.push(`Late: ${game.late_review_count ?? 0}`);
   if (shareDisparityStr) timingShareTextParts.push(`Disparity: ${shareDisparityStr}`);
   const timingChartShareText = timingShareTextParts.join(" — ");
-  const hasSteamActivity = (
-    game.steam_player_all_time_peak != null
-    || game.steam_player_24h_peak != null
-    || game.steam_player_24h_low_observed != null
-    || game.steam_achievement_count != null
-  );
+  const hasSteamApp = game.steam_app_id != null;
 
   return (
     <div className="space-y-8">
@@ -497,17 +492,24 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           </div>
         </div>
 
-        {hasSteamActivity && (
+        {/* Disparity Breakdown */}
+        <div className="mt-6 pt-6 border-t border-gray-200">
+          <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
+            Disparity Breakdown
+          </h2>
+          <DisparityScoreCards
+            steamDisparity={game.disparity_steam}
+            metacriticDisparity={game.disparity_metacritic}
+            combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
+          />
+        </div>
+
+        {hasSteamApp && (
           <div className="mt-6 pt-6 border-t border-gray-200">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-                  Steam Activity
-                </h2>
-              </div>
-              <p className="text-xs max-w-md text-right" style={{ color: "var(--foreground-muted)" }}>
-                24-hour high, 24-hour low, and all-time high come from tracked Steam player history. Achievement count comes from Steam public store data.
-              </p>
+            <div>
+              <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
+                Steam Activity
+              </h2>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
               <ScoreCard
@@ -531,18 +533,6 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             </div>
           </div>
         )}
-
-        {/* Disparity Breakdown */}
-        <div className="mt-6 pt-6 border-t border-gray-200">
-          <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-            Disparity Breakdown
-          </h2>
-          <DisparityScoreCards
-            steamDisparity={game.disparity_steam}
-            metacriticDisparity={game.disparity_metacritic}
-            combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
-          />
-        </div>
 
         {/* Review Timing Breakdown */}
         {(game.early_review_count != null || game.launch_window_review_count != null || game.late_review_count != null) && (() => {
@@ -584,6 +574,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         entityType="game"
         entityId={game.public_id}
         gameTitle={game.title}
+        hasSteamApp={hasSteamApp}
         disparityChartShareUrl={disparityChartShareUrl}
         disparityChartShareText={disparityChartShareText}
         timingChartShareUrl={timingChartShareUrl}
