@@ -78,6 +78,9 @@ interface SteamActivityTimelinePoint {
   observed24hLow: number;
 }
 
+const STEAM_ACTIVITY_TRACKING_START = "2026-03-19";
+const STEAM_ACTIVITY_TRACKING_START_LABEL = "Mar 19, 2026";
+
 function formatPlayers(value: number | null | undefined): string {
   if (value == null) return "N/A";
   return value.toLocaleString();
@@ -215,6 +218,13 @@ function formatSteamActivityTick(value: number, window: SteamActivityWindow, tim
     day: "numeric",
     timeZone,
   });
+}
+
+function isDateBeforeTrackingStart(value: string | null | undefined): boolean {
+  if (!value) return true;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return true;
+  return parsed.getTime() < new Date(`${STEAM_ACTIVITY_TRACKING_START}T00:00:00Z`).getTime();
 }
 
 export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
@@ -361,6 +371,9 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   const latestMarkers = [...activity.markers].slice(-5).reverse();
   const allTimePeakWhen = formatRelativeDate(summary.steam_player_all_time_peak_at)
     ?? formatAbsoluteDate(summary.steam_player_all_time_peak_at, timeZone);
+  const allTimePeakCaveat = isDateBeforeTrackingStart(summary.release_date)
+    ? `Tracked since ${STEAM_ACTIVITY_TRACKING_START_LABEL}`
+    : undefined;
   const currentPlayers = latestTimelinePoint?.latestPlayers ?? null;
 
   if (timelinePoints.length === 0) {
@@ -375,6 +388,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             label="All-Time Peak"
             value={formatPlayers(summary.steam_player_all_time_peak)}
             detail={allTimePeakWhen ?? undefined}
+            note={allTimePeakCaveat}
           />
           <MetricCard label="24-Hour High" value={formatPlayers(summary.steam_player_24h_peak)} />
           <MetricCard label="24-Hour Low" value={formatPlayers(summary.steam_player_24h_low_observed)} />
@@ -397,6 +411,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
           label="All-Time Peak"
           value={formatPlayers(summary.steam_player_all_time_peak)}
           detail={allTimePeakWhen ?? undefined}
+          note={allTimePeakCaveat}
         />
         <MetricCard label="24-Hour High" value={formatPlayers(summary.steam_player_24h_peak)} />
         <MetricCard label="24-Hour Low" value={formatPlayers(summary.steam_player_24h_low_observed)} />
@@ -579,14 +594,18 @@ function MetricCard({
   label,
   value,
   detail,
+  note,
 }: {
   label: string;
   value: string;
   detail?: string;
+  note?: string;
 }) {
+  const [isNoteVisible, setIsNoteVisible] = useState(false);
+
   return (
     <div
-      className="min-h-[10rem] rounded-[1.5rem] px-6 py-5 sm:min-h-[10.75rem] sm:px-7 sm:py-6"
+      className="relative min-h-[10rem] rounded-[1.5rem] px-6 py-5 sm:min-h-[10.75rem] sm:px-7 sm:py-6"
       style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
     >
       <div className="text-[2.3rem] font-black leading-none tracking-[-0.04em] sm:text-[2.65rem]" style={{ color: "var(--foreground)" }}>
@@ -598,6 +617,53 @@ function MetricCard({
       {detail ? (
         <div className="mt-3 text-sm" style={{ color: "var(--foreground-muted)" }}>
           {detail}
+        </div>
+      ) : null}
+      {note ? (
+        <div className="absolute bottom-4 right-4 sm:bottom-5 sm:right-5">
+          <button
+            type="button"
+            aria-label="About this metric"
+            aria-expanded={isNoteVisible}
+            onClick={() => setIsNoteVisible((visible) => !visible)}
+            onMouseEnter={() => setIsNoteVisible(true)}
+            onMouseLeave={() => setIsNoteVisible(false)}
+            onFocus={() => setIsNoteVisible(true)}
+            onBlur={() => setIsNoteVisible(false)}
+            className="flex h-7 w-7 items-center justify-center"
+            style={{
+              color: "var(--foreground-muted)",
+            }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 10v6" />
+              <path d="M12 7h.01" />
+            </svg>
+          </button>
+          <div
+            className="pointer-events-none absolute bottom-10 right-0 z-20 w-56 rounded-xl border px-3 py-2 text-xs leading-5 shadow-lg transition-all"
+            style={{
+              borderColor: "var(--border)",
+              backgroundColor: "var(--background-card-strong)",
+              color: "var(--foreground-muted)",
+              opacity: isNoteVisible ? 1 : 0,
+              transform: isNoteVisible ? "translateY(0)" : "translateY(4px)",
+            }}
+          >
+            {note}
+          </div>
         </div>
       ) : null}
     </div>
