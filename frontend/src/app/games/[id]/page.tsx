@@ -40,23 +40,6 @@ function formatDateLabel(value: string | null | undefined): string | null {
   return new Date(value).toLocaleDateString();
 }
 
-function formatPlayerCount(value: number | null | undefined): string | undefined {
-  if (value == null) return undefined;
-  return value.toLocaleString();
-}
-
-function formatRelativePeakLabel(value: string | null | undefined): string | undefined {
-  if (!value) return undefined;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return undefined;
-  const diffMs = Date.now() - parsed.getTime();
-  if (diffMs < 0) return formatDateLabel(value) ?? undefined;
-  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "today";
-  if (diffDays === 1) return "1 day ago";
-  return `${diffDays} days ago`;
-}
-
 function buildGameSnapshotVersion(game: {
   critic_review_count?: number | null;
   avg_critic_score?: number | null;
@@ -503,36 +486,6 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             combinedDisparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
           />
         </div>
-
-        {hasSteamApp && (
-          <div className="mt-6 pt-6 border-t border-gray-200">
-            <div>
-              <h2 className="text-lg font-semibold mb-4" style={{ color: "var(--foreground)" }}>
-                Steam Activity
-              </h2>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-              <ScoreCard
-                label="All-Time High"
-                value={formatPlayerCount(game.steam_player_all_time_peak)}
-                subtitle={formatRelativePeakLabel(game.steam_player_all_time_peak_at)}
-              />
-              <ScoreCard
-                label="24-Hour High"
-                value={formatPlayerCount(game.steam_player_24h_peak)}
-              />
-              <ScoreCard
-                label="24-Hour Low"
-                value={formatPlayerCount(game.steam_player_24h_low_observed)}
-              />
-              <ScoreCard
-                label="Achievements"
-                value={formatPlayerCount(game.steam_achievement_count)}
-                subtitle={game.steam_achievement_count != null ? "Steam public store data" : undefined}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Review Timing Breakdown */}
         {(game.early_review_count != null || game.launch_window_review_count != null || game.late_review_count != null) && (() => {

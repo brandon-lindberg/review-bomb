@@ -505,106 +505,65 @@ async def get_game_steam_activity(
 
     if scraper_activity and scraper_activity.points:
         await sync_scraper_activity_to_db(db, game, scraper_activity)
-        if game.release_date is not None:
-            points = [
-                point
-                for point in scraper_activity.points
-                if point.sampled_at.date() >= game.release_date
-            ]
-            marker_source_points = [
-                marker
-                for marker in scraper_activity.marker_source_points
-                if marker["sampled_at"].date() >= game.release_date
-            ]
-        else:
-            points = scraper_activity.points
-            marker_source_points = scraper_activity.marker_source_points
+        # Flush any newly added player snapshots so the canonical DB-backed series
+        # below can include them in the same request.
+        await db.flush()
         live_summary_updates = scraper_activity.summary_updates
-    else:
-        range_result = await db.execute(
-            select(SteamPlayerRangeSnapshot)
-            .where(SteamPlayerRangeSnapshot.game_id == game.id)
-            .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
-            .limit(limit)
-        )
-        range_snapshots = list(reversed(range_result.scalars().all()))
 
-        if range_snapshots:
-            if game.release_date is not None:
-                range_snapshots = [
-                    snapshot
-                    for snapshot in range_snapshots
-                    if snapshot.sampled_at.date() >= game.release_date
-                ]
+    range_result = await db.execute(
+        select(SteamPlayerRangeSnapshot)
+        .where(SteamPlayerRangeSnapshot.game_id == game.id)
+        .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
+        .limit(limit)
+    )
+    range_snapshots = list(reversed(range_result.scalars().all()))
 
-            snapshot_result = await db.execute(
-                select(
-                    SteamPlayerSnapshot.sampled_at,
-                    SteamPlayerSnapshot.concurrent_players,
-                )
-                .where(
-                    SteamPlayerSnapshot.game_id == game.id,
-                    SteamPlayerSnapshot.sampled_at.in_([snapshot.sampled_at for snapshot in range_snapshots]),
-                )
-                .order_by(SteamPlayerSnapshot.sampled_at, SteamPlayerSnapshot.id)
-            )
-            latest_players_by_sampled_at: dict[object, int] = {}
-            for sampled_at, concurrent_players in snapshot_result.all():
-                latest_players_by_sampled_at[sampled_at] = concurrent_players
-
-            trusted_range_snapshots = [
+    if range_snapshots:
+        if game.release_date is not None:
+            range_snapshots = [
                 snapshot
                 for snapshot in range_snapshots
-                if snapshot.sampled_at in latest_players_by_sampled_at
+                if snapshot.sampled_at.date() >= game.release_date
             ]
 
-            if trusted_range_snapshots:
-                points = [
-                    SteamPlayerPoint(
-                        sampled_at=snapshot.sampled_at,
-                        observed_24h_high=snapshot.players_24h_high,
-                        observed_24h_low=snapshot.players_24h_low,
-                        latest_players=latest_players_by_sampled_at.get(snapshot.sampled_at),
-                    )
-                    for snapshot in trusted_range_snapshots
-                ]
-                marker_source_points = [
-                    {
-                        "sampled_at": snapshot.sampled_at,
-                        "concurrent_players": latest_players_by_sampled_at[snapshot.sampled_at],
-                    }
-                    for snapshot in trusted_range_snapshots
-                ]
-            else:
-                snapshots_result = await db.execute(
-                    select(SteamPlayerSnapshot)
-                    .where(SteamPlayerSnapshot.game_id == game.id)
-                    .order_by(desc(SteamPlayerSnapshot.sampled_at))
-                    .limit(limit)
+        snapshot_result = await db.execute(
+            select(
+                SteamPlayerSnapshot.sampled_at,
+                SteamPlayerSnapshot.concurrent_players,
+            )
+            .where(
+                SteamPlayerSnapshot.game_id == game.id,
+                SteamPlayerSnapshot.sampled_at.in_([snapshot.sampled_at for snapshot in range_snapshots]),
+            )
+            .order_by(SteamPlayerSnapshot.sampled_at, SteamPlayerSnapshot.id)
+        )
+        latest_players_by_sampled_at: dict[object, int] = {}
+        for sampled_at, concurrent_players in snapshot_result.all():
+            latest_players_by_sampled_at[sampled_at] = concurrent_players
+
+        trusted_range_snapshots = [
+            snapshot
+            for snapshot in range_snapshots
+            if snapshot.sampled_at in latest_players_by_sampled_at
+        ]
+
+        if trusted_range_snapshots:
+            points = [
+                SteamPlayerPoint(
+                    sampled_at=snapshot.sampled_at,
+                    observed_24h_high=snapshot.players_24h_high,
+                    observed_24h_low=snapshot.players_24h_low,
+                    latest_players=latest_players_by_sampled_at.get(snapshot.sampled_at),
                 )
-                snapshots = list(reversed(snapshots_result.scalars().all()))
-                if game.release_date is not None:
-                    snapshots = [
-                        snapshot
-                        for snapshot in snapshots
-                        if snapshot.sampled_at.date() >= game.release_date
-                    ]
-                raw_points = [
-                    {
-                        "sampled_at": snapshot.sampled_at,
-                        "concurrent_players": snapshot.concurrent_players,
-                    }
-                    for snapshot in snapshots
-                ]
-                observed_points = build_observed_24h_player_points(raw_points)
-                points = [SteamPlayerPoint(**point) for point in observed_points]
-                marker_source_points = [
-                    {
-                        "sampled_at": point["sampled_at"],
-                        "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
-                    }
-                    for point in observed_points
-                ]
+                for snapshot in trusted_range_snapshots
+            ]
+            marker_source_points = [
+                {
+                    "sampled_at": snapshot.sampled_at,
+                    "concurrent_players": latest_players_by_sampled_at[snapshot.sampled_at],
+                }
+                for snapshot in trusted_range_snapshots
+            ]
         else:
             snapshots_result = await db.execute(
                 select(SteamPlayerSnapshot)
@@ -635,6 +594,36 @@ async def get_game_steam_activity(
                 }
                 for point in observed_points
             ]
+    else:
+        snapshots_result = await db.execute(
+            select(SteamPlayerSnapshot)
+            .where(SteamPlayerSnapshot.game_id == game.id)
+            .order_by(desc(SteamPlayerSnapshot.sampled_at))
+            .limit(limit)
+        )
+        snapshots = list(reversed(snapshots_result.scalars().all()))
+        if game.release_date is not None:
+            snapshots = [
+                snapshot
+                for snapshot in snapshots
+                if snapshot.sampled_at.date() >= game.release_date
+            ]
+        raw_points = [
+            {
+                "sampled_at": snapshot.sampled_at,
+                "concurrent_players": snapshot.concurrent_players,
+            }
+            for snapshot in snapshots
+        ]
+        observed_points = build_observed_24h_player_points(raw_points)
+        points = [SteamPlayerPoint(**point) for point in observed_points]
+        marker_source_points = [
+            {
+                "sampled_at": point["sampled_at"],
+                "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
+            }
+            for point in observed_points
+        ]
 
     summary = _build_game_with_scores(game)
     if points:

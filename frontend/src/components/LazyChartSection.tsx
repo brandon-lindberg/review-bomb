@@ -177,7 +177,9 @@ export function LazyChartSection({
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
   const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">(
-    entityType === "game" ? "timeline" : "disparity"
+    entityType === "game"
+      ? (hasSteamApp ? "activity" : "timeline")
+      : "disparity"
   );
   const [steamActivity, setSteamActivity] = useState<SteamActivityResponse | null>(null);
   const [steamActivityLoading, setSteamActivityLoading] = useState(false);

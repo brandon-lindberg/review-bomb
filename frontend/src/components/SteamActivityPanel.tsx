@@ -33,8 +33,12 @@ function useIsDarkMode() {
 }
 
 const getThemeColors = (isDark: boolean) => ({
-  lineCurrent: isDark ? "#7DD3FC" : "#0284C7",
-  areaCurrent: isDark ? "rgba(125, 211, 252, 0.16)" : "rgba(2, 132, 199, 0.16)",
+  rust: isDark ? "#E05A2B" : "#BB3B0E",
+  orange: isDark ? "#E8904D" : "#DD7631",
+  sage: isDark ? "#8FA87A" : "#708160",
+  tan: isDark ? "#E5D9B3" : "#D8C593",
+  lineCurrent: isDark ? "#E8904D" : "#BB3B0E",
+  areaCurrent: isDark ? "rgba(224, 90, 43, 0.16)" : "rgba(187, 59, 14, 0.12)",
   grid: isDark ? "#3D3A35" : "#e5e7eb",
   axis: isDark ? "#6A655C" : "#9ca3af",
   text: isDark ? "#B8B4AC" : "#6b7280",
@@ -346,8 +350,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
 
   if (timelinePoints.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-6">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard
             label="Current Players"
             value={formatPlayers(currentPlayers)}
@@ -371,8 +375,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   }
 
   return (
-    <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-6">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Current Players" value={formatPlayers(currentPlayers)} />
         <MetricCard
           label="All-Time Peak"
@@ -383,19 +387,22 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
         <MetricCard label="24-Hour Low" value={formatPlayers(summary.steam_player_24h_low_observed)} />
       </div>
 
-      <div className="rounded-[1.25rem] p-4 sm:p-5" style={{ backgroundColor: colors.panel, border: `1px solid ${colors.border}` }}>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+      <div
+        className="rounded-[1.6rem] p-5 sm:p-6 lg:p-8"
+        style={{ backgroundColor: colors.panel, border: `1px solid ${colors.border}` }}
+      >
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h3 className="text-lg font-semibold" style={{ color: "var(--foreground)" }}>
+            <h3 className="text-[1.9rem] font-semibold leading-none tracking-[-0.03em]" style={{ color: "var(--foreground)" }}>
               Hourly Player Count
             </h3>
-            <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
+            <p className="mt-2 text-base" style={{ color: "var(--foreground-muted)" }}>
               Current players over time. Summary cards above show the rolling 24-hour high and low.
             </p>
           </div>
         </div>
 
-        <div className="mb-4 flex flex-wrap items-center justify-end gap-2 text-[11px] sm:text-xs">
+        <div className="mb-6 flex flex-wrap items-center justify-end gap-2 text-[11px] sm:text-xs">
           {STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => {
             const isEnabled = availableWindows[option.value];
             const isActive = effectiveSelectedWindow === option.value;
@@ -408,11 +415,20 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
                 onClick={() => setSelectedWindow(option.value)}
                 className="rounded-xl border px-3 py-2 font-semibold tracking-[0.04em] transition-colors"
                 style={{
-                  borderColor: isActive ? "#6B8F14" : colors.border,
-                  backgroundColor: isActive ? "rgba(190, 242, 100, 0.12)" : colors.background,
-                  color: isActive ? "#BEF264" : isEnabled ? colors.text : "rgba(184, 180, 172, 0.42)",
+                  borderColor: isActive ? colors.rust : colors.border,
+                  backgroundColor: isActive
+                    ? isDark
+                      ? "rgba(224, 90, 43, 0.16)"
+                      : "rgba(187, 59, 14, 0.1)"
+                    : colors.background,
+                  color: isActive ? colors.rust : isEnabled ? colors.text : "rgba(184, 180, 172, 0.42)",
                   cursor: isEnabled ? "pointer" : "not-allowed",
                   opacity: isEnabled ? 1 : 0.6,
+                  boxShadow: isActive
+                    ? isDark
+                      ? "inset 0 0 0 1px rgba(229, 217, 179, 0.08)"
+                      : "inset 0 0 0 1px rgba(216, 197, 147, 0.2)"
+                    : "none",
                 }}
               >
                 {option.label}
@@ -422,24 +438,24 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
         </div>
 
         <div
-          className="rounded-[1.15rem] px-4 py-4 sm:px-5"
+          className="rounded-[1.45rem] px-5 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7"
           style={{ backgroundColor: "color-mix(in srgb, var(--background-card) 92%, var(--background) 8%)" }}
         >
-          <div className="mb-3">
-            <h4 className="text-base font-semibold" style={{ color: "var(--foreground)" }}>
+          <div className="mb-4">
+            <h4 className="text-[1.65rem] font-semibold leading-none tracking-[-0.03em]" style={{ color: "var(--foreground)" }}>
               Current Players
             </h4>
             {visibleStartTimestamp != null && visibleEndTimestamp != null && (
-              <p className="text-sm" style={{ color: colors.text }}>
+              <p className="mt-2 text-base" style={{ color: colors.text }}>
                 Viewing the {selectedWindowDescription} of hourly history • {formatRangeDate(visibleStartTimestamp)} to{" "}
                 {formatRangeDate(visibleEndTimestamp)}
               </p>
             )}
           </div>
 
-          <ResponsiveContainer width="100%" height={320}>
-            <AreaChart data={visibleTimelinePoints} margin={{ top: 10, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="4 8" stroke={colors.grid} />
+          <ResponsiveContainer width="100%" height={360}>
+            <AreaChart data={visibleTimelinePoints} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="4 10" stroke={colors.grid} />
               <XAxis
                 dataKey="sampledAt"
                 type="number"
@@ -478,11 +494,17 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             </AreaChart>
           </ResponsiveContainer>
 
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
             <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs">
               <div
-                className="inline-flex items-center gap-3 rounded-full border px-4 py-3 text-sm font-semibold"
-                style={{ borderColor: colors.border, color: "var(--foreground)" }}
+                className="inline-flex items-center gap-3 rounded-full border px-5 py-4 text-sm font-semibold"
+                style={{
+                  borderColor: colors.border,
+                  color: "var(--foreground)",
+                  backgroundColor: isDark
+                    ? "rgba(229, 217, 179, 0.04)"
+                    : "rgba(216, 197, 147, 0.08)",
+                }}
               >
                 <span
                   className="h-[4px] w-8 rounded-full"
@@ -492,7 +514,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
               </div>
             </div>
             {visibleEndTimestamp != null && (
-              <p className="text-xs sm:text-sm" style={{ color: colors.text }}>
+              <p className="text-sm" style={{ color: colors.text }}>
                 Latest window end: {formatLatestWindowLabel(visibleEndTimestamp)}
               </p>
             )}
@@ -545,15 +567,18 @@ function MetricCard({
   detail?: string;
 }) {
   return (
-    <div className="rounded-[1rem] px-4 py-4" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
-      <div className="text-2xl font-bold" style={{ color: "var(--foreground)" }}>
+    <div
+      className="min-h-[10rem] rounded-[1.5rem] px-6 py-5 sm:min-h-[10.75rem] sm:px-7 sm:py-6"
+      style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
+    >
+      <div className="text-[2.3rem] font-black leading-none tracking-[-0.04em] sm:text-[2.65rem]" style={{ color: "var(--foreground)" }}>
         {value}
       </div>
-      <div className="mt-1 text-sm font-medium" style={{ color: "var(--foreground-muted)" }}>
+      <div className="mt-3 text-base font-medium" style={{ color: "var(--foreground-muted)" }}>
         {label}
       </div>
       {detail ? (
-        <div className="mt-1 text-xs" style={{ color: "var(--foreground-muted)" }}>
+        <div className="mt-3 text-sm" style={{ color: "var(--foreground-muted)" }}>
           {detail}
         </div>
       ) : null}

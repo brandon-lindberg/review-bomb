@@ -23,8 +23,10 @@ from app.routers.games import get_game_history, get_game_steam_activity
 from app.routers.journalists import get_journalist, get_journalist_history, get_journalist_reviews
 from app.routers.outlets import get_outlet, get_outlet_history, get_outlet_reviews
 from app.schemas.schemas import DisparitySnapshot as ChartDisparitySnapshot
+from app.schemas.schemas import SteamPlayerPoint
 from app.services.disparity import DisparityCalculator
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
+from app.services.player_scraper import ScraperSteamActivity
 
 
 _UNSET = object()
@@ -742,6 +744,116 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
     assert [point.latest_players for point in resp.points] == [53000, 54000]
     assert any(marker.marker_type == "first_tracked" for marker in resp.markers)
     assert any(marker.marker_type == "all_time_peak" for marker in resp.markers)
+
+
+@pytest.mark.asyncio
+async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    now = _utc(2026, 3, 16)
+    first_sample = datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc)
+    last_sample = datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc)
+    game = Game(
+        id=21,
+        title="Marathon",
+        steam_app_id=123,
+        release_date=date(2026, 3, 10),
+        steam_player_24h_peak=62830,
+        steam_player_24h_low_observed=25110,
+        steam_player_all_time_peak=88337,
+        steam_player_all_time_peak_at=_utc(2026, 3, 6),
+        steam_player_stats_synced_at=now,
+    )
+    snapshots = [
+        SteamPlayerRangeSnapshot(
+            game_id=21,
+            sampled_at=last_sample,
+            players_24h_high=57000,
+            players_24h_low=21000,
+        ),
+        SteamPlayerRangeSnapshot(
+            game_id=21,
+            sampled_at=first_sample,
+            players_24h_high=55000,
+            players_24h_low=20000,
+        ),
+    ]
+    sparse_scraper_activity = ScraperSteamActivity(
+        points=[
+            SteamPlayerPoint(
+                sampled_at=last_sample,
+                observed_24h_high=57000,
+                observed_24h_low=21000,
+                latest_players=54000,
+            )
+        ],
+        storage_points=[
+            SteamPlayerPoint(
+                sampled_at=last_sample,
+                observed_24h_high=57000,
+                observed_24h_low=21000,
+                latest_players=54000,
+            )
+        ],
+        marker_source_points=[
+            {
+                "sampled_at": last_sample,
+                "concurrent_players": 54000,
+            }
+        ],
+        summary_updates={
+            "steam_player_24h_peak": 57000,
+            "steam_player_24h_low_observed": 21000,
+            "steam_player_all_time_peak": 54000,
+            "steam_player_all_time_peak_at": last_sample,
+            "steam_player_stats_synced_at": last_sample,
+        },
+    )
+
+    class FakePlayerScraperClient:
+        is_configured = True
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+        async def get_steam_activity(self, steam_app_id: int, *, limit: int):
+            return sparse_scraper_activity
+
+    sync_mock = AsyncMock(
+        return_value={
+            "range_snapshots_upserted": 1,
+            "player_snapshots_inserted": 1,
+            "summary_updated": True,
+        }
+    )
+    monkeypatch.setattr("app.routers.games.PlayerScraperClient", FakePlayerScraperClient)
+    monkeypatch.setattr("app.routers.games.sync_scraper_activity_to_db", sync_mock)
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=game),
+            FakeResult(scalars_all=snapshots),
+            FakeResult(
+                all_rows=[
+                    (first_sample, 53000),
+                    (last_sample, 54000),
+                ]
+            ),
+        ]
+    )
+
+    resp = await get_game_steam_activity(game_id=21, limit=10000, db=db)
+
+    sync_mock.assert_awaited_once()
+    assert db.flush_calls == 1
+    assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
+    assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
+    assert [point.latest_players for point in resp.points] == [53000, 54000]
 
 
 @pytest.mark.asyncio
