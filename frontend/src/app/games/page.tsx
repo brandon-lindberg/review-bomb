@@ -74,23 +74,6 @@ function formatSnippet(value: string | null): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function formatSteamSummary(game: Awaited<ReturnType<typeof getGames>>["items"][number]): string | null {
-  const parts: string[] = [];
-  if (game.steam_player_all_time_peak != null) {
-    parts.push(`all-time high ${game.steam_player_all_time_peak.toLocaleString()}`);
-  }
-  if (game.steam_player_24h_peak != null) {
-    parts.push(`24h high ${game.steam_player_24h_peak.toLocaleString()}`);
-  }
-  if (game.steam_player_24h_low_observed != null) {
-    parts.push(`24h low ${game.steam_player_24h_low_observed.toLocaleString()}`);
-  }
-  if (game.steam_achievement_count != null) {
-    parts.push(`${game.steam_achievement_count.toLocaleString()} achievements`);
-  }
-  return parts.length > 0 ? parts.join(" • ") : null;
-}
-
 export default async function GamesPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const page = parseInt(params.page || "1");
@@ -153,63 +136,85 @@ export default async function GamesPage({ searchParams }: PageProps) {
 
       {games ? (
         <>
-          <div className="site-list">
-            <div className="divide-y divide-gray-200">
+          <div className="site-list overflow-visible p-3 sm:overflow-hidden sm:p-0">
+            <div className="flex flex-col gap-4 sm:block sm:divide-y sm:divide-gray-200">
               {games.items.map((game) => {
                 const latestReview = game.latest_review ?? null;
                 const unreleasedNow = isUnreleasedNow(latestReview?.game_release_date ?? null);
                 const isPreReleaseReview = (latestReview?.review_timing === "early") || unreleasedNow;
                 const latestSnippet = formatSnippet(latestReview?.snippet ?? null);
                 const combinedDisparity = getDisplayDisparity(game.disparity_steam, game.disparity_metacritic);
-                const steamSummary = formatSteamSummary(game);
-
                 return (
                   <Link
                     key={game.id}
                     href={buildEntityPath("games", game.title, game.public_id)}
-                    className="site-list-item block"
+                    className="site-list-item block rounded-[1.6rem] border border-b-0 bg-[linear-gradient(180deg,var(--background-card-strong),var(--background-card))] shadow-[var(--shadow-soft)] sm:rounded-none sm:border-0 sm:bg-none sm:shadow-none"
+                    style={{ borderColor: "var(--border)" }}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                      <div className="flex min-w-0 flex-1 items-center gap-4">
-                        <GameAvatar
-                          title={game.title}
-                          imageUrl={game.image_url}
-                          width={96}
-                          height={54}
-                          sizes="96px"
-                          className="h-[54px] w-24 shrink-0 rounded-xl object-contain"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <h2 className="text-lg font-semibold text-gray-900">
-                            {game.title}
-                          </h2>
-                          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                            {game.release_date && (
-                              <span className="site-chip">
-                                Release Date: {formatDate(game.release_date)}
-                              </span>
-                            )}
-                            {game.tier && (
-                              <span className="site-chip site-chip--accent">
-                                {game.tier}
-                              </span>
-                            )}
+                    <>
+                      <div className="sm:hidden">
+                        <div
+                          className="-mx-[1.05rem] -mt-4 mb-4 overflow-hidden border-b"
+                          style={{ borderColor: "var(--border)" }}
+                        >
+                          <GameAvatar
+                            title={game.title}
+                            imageUrl={game.image_url}
+                            width={640}
+                            height={240}
+                            sizes="(max-width: 639px) 100vw, 0px"
+                            className="h-32 w-full object-cover"
+                          />
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <h2 className="text-[1.9rem] font-semibold leading-tight text-gray-900">
+                                {game.title}
+                              </h2>
+                              <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                                {game.release_date && (
+                                  <span className="site-chip">
+                                    Release Date: {formatDate(game.release_date)}
+                                  </span>
+                                )}
+                                {game.tier && (
+                                  <span className="site-chip site-chip--accent">
+                                    {game.tier}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="shrink-0 pt-1">
+                              <DisparityBadge
+                                disparity={combinedDisparity}
+                                size="lg"
+                              />
+                            </div>
                           </div>
-                          {steamSummary && (
-                            <p
-                              className="mt-2 text-sm"
-                              style={{ color: "var(--foreground-muted)" }}
-                            >
-                              Steam Activity: {steamSummary}
-                            </p>
-                          )}
+
                           {latestReview && (
-                            <>
+                            <div
+                              className="rounded-2xl border px-4 py-3"
+                              style={{
+                                borderColor: "var(--border)",
+                                background:
+                                  "color-mix(in srgb, var(--background-card-strong) 88%, var(--color-tan) 12%)",
+                              }}
+                            >
                               <p
-                                className="mt-2 text-sm font-medium"
+                                className="text-[0.68rem] font-semibold uppercase tracking-[0.18em]"
+                                style={{ color: "var(--foreground-muted)" }}
+                              >
+                                Latest Review
+                              </p>
+                              <p
+                                className="mt-2 text-sm font-medium leading-6"
                                 style={{ color: "var(--foreground)" }}
                               >
-                                Latest review: {latestReview.journalist_name}
+                                {latestReview.journalist_name}
                                 {latestReview.outlet_name ? ` at ${latestReview.outlet_name}` : ""}
                               </p>
                               <p
@@ -222,7 +227,7 @@ export default async function GamesPage({ searchParams }: PageProps) {
                               </p>
                               {latestSnippet && (
                                 <p
-                                  className="mt-1 text-sm italic"
+                                  className="mt-2 text-sm italic"
                                   style={{
                                     color: "var(--foreground-muted)",
                                     display: "-webkit-box",
@@ -234,29 +239,106 @@ export default async function GamesPage({ searchParams }: PageProps) {
                                   &ldquo;{latestSnippet}&rdquo;
                                 </p>
                               )}
-                            </>
+                            </div>
                           )}
+
+                          <div className="pt-1">
+                            <ScoreDisplay
+                              criticScore={game.avg_critic_score}
+                              steamUserScore={game.steam_user_score}
+                              metacriticUserScore={game.metacritic_user_score}
+                              criticDisparity={combinedDisparity}
+                              steamDisparity={game.disparity_steam}
+                              metacriticDisparity={game.disparity_metacritic}
+                              size="xl"
+                              alwaysShowAll
+                              useDisparityPalette
+                            />
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex flex-col items-start gap-5 shrink-0 sm:items-end sm:gap-6">
-                        <DisparityBadge
-                          disparity={combinedDisparity}
-                          size="lg"
-                        />
-                        <ScoreDisplay
-                          criticScore={game.avg_critic_score}
-                          steamUserScore={game.steam_user_score}
-                          metacriticUserScore={game.metacritic_user_score}
-                          criticDisparity={combinedDisparity}
-                          steamDisparity={game.disparity_steam}
-                          metacriticDisparity={game.disparity_metacritic}
-                          size="xl"
-                          alwaysShowAll
-                          useDisparityPalette
-                        />
+                      <div className="hidden gap-4 sm:flex sm:items-start sm:justify-between">
+                        <div className="flex min-w-0 flex-1 items-center gap-4">
+                          <GameAvatar
+                            title={game.title}
+                            imageUrl={game.image_url}
+                            width={96}
+                            height={54}
+                            sizes="96px"
+                            className="h-[54px] w-24 shrink-0 rounded-xl object-contain"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <h2 className="text-lg font-semibold text-gray-900">
+                              {game.title}
+                            </h2>
+                            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                              {game.release_date && (
+                                <span className="site-chip">
+                                  Release Date: {formatDate(game.release_date)}
+                                </span>
+                              )}
+                              {game.tier && (
+                                <span className="site-chip site-chip--accent">
+                                  {game.tier}
+                                </span>
+                              )}
+                            </div>
+                            {latestReview && (
+                              <>
+                                <p
+                                  className="mt-2 text-sm font-medium"
+                                  style={{ color: "var(--foreground)" }}
+                                >
+                                  Latest review: {latestReview.journalist_name}
+                                  {latestReview.outlet_name ? ` at ${latestReview.outlet_name}` : ""}
+                                </p>
+                                <p
+                                  className="mt-1 text-sm"
+                                  style={{ color: "var(--foreground-muted)" }}
+                                >
+                                  {formatDate(latestReview.published_at)}
+                                  {latestReview.score_normalized != null ? ` | Score ${Number(latestReview.score_normalized).toFixed(0)}` : ""}
+                                  {isPreReleaseReview ? " | Pre-release Review" : ""}
+                                </p>
+                                {latestSnippet && (
+                                  <p
+                                    className="mt-1 text-sm italic"
+                                    style={{
+                                      color: "var(--foreground-muted)",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                      overflow: "hidden",
+                                    }}
+                                  >
+                                    &ldquo;{latestSnippet}&rdquo;
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-start gap-5 sm:items-end sm:gap-6">
+                          <DisparityBadge
+                            disparity={combinedDisparity}
+                            size="lg"
+                          />
+                          <ScoreDisplay
+                            criticScore={game.avg_critic_score}
+                            steamUserScore={game.steam_user_score}
+                            metacriticUserScore={game.metacritic_user_score}
+                            criticDisparity={combinedDisparity}
+                            steamDisparity={game.disparity_steam}
+                            metacriticDisparity={game.disparity_metacritic}
+                            size="xl"
+                            alwaysShowAll
+                            useDisparityPalette
+                          />
+                        </div>
                       </div>
-                    </div>
+                    </>
                   </Link>
                 );
               })}
