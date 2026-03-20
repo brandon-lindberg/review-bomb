@@ -378,8 +378,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
 
   if (timelinePoints.length === 0) {
     return (
-      <div className="space-y-6">
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="space-y-4 sm:space-y-6">
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
           <MetricCard
             label="Current Players"
             value={formatPlayers(currentPlayers)}
@@ -404,8 +404,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="space-y-4 sm:space-y-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard label="Current Players" value={formatPlayers(currentPlayers)} />
         <MetricCard
           label="All-Time Peak"
@@ -418,24 +418,24 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
       </div>
 
       <div
-        className="rounded-[1.6rem] p-5 sm:p-6 lg:p-8"
+        className="rounded-[1.35rem] p-4 sm:rounded-[1.6rem] sm:p-6 lg:p-8"
         style={{ backgroundColor: colors.panel, border: `1px solid ${colors.border}` }}
       >
-        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3 sm:mb-5 sm:gap-4">
           <div>
-            <h3 className="text-[1.9rem] font-semibold leading-none tracking-[-0.03em]" style={{ color: "var(--foreground)" }}>
+            <h3 className="text-[1.45rem] font-semibold leading-none tracking-[-0.03em] sm:text-[1.9rem]" style={{ color: "var(--foreground)" }}>
               Hourly Player Count
             </h3>
-            <p className="mt-2 text-base" style={{ color: "var(--foreground-muted)" }}>
+            <p className="mt-2 text-sm sm:text-base" style={{ color: "var(--foreground-muted)" }}>
               Current players over time. Summary cards above show the rolling 24-hour high and low.
             </p>
-            <p className="mt-1 text-sm" style={{ color: colors.text }}>
+            <p className="mt-1 text-xs sm:text-sm" style={{ color: colors.text }}>
               Times shown in your local timezone.
             </p>
           </div>
         </div>
 
-        <div className="mb-6 flex flex-wrap items-center justify-end gap-2 text-[11px] sm:text-xs">
+        <div className="mb-5 flex items-center justify-start gap-2 overflow-x-auto pb-1 text-[11px] [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mb-6 sm:flex-wrap sm:justify-end sm:overflow-visible sm:pb-0 sm:text-xs">
           {STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => {
             const isEnabled = availableWindows[option.value];
             const isActive = effectiveSelectedWindow === option.value;
@@ -446,7 +446,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
                 type="button"
                 disabled={!isEnabled}
                 onClick={() => setSelectedWindow(option.value)}
-                className="rounded-xl border px-3 py-2 font-semibold tracking-[0.04em] transition-colors"
+                className="shrink-0 rounded-xl border px-3 py-2 font-semibold tracking-[0.04em] transition-colors"
                 style={{
                   borderColor: isActive ? colors.rust : colors.border,
                   backgroundColor: isActive
@@ -471,66 +471,69 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
         </div>
 
         <div
-          className="rounded-[1.45rem] px-5 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-7"
+          className="rounded-[1.2rem] px-4 py-4 sm:rounded-[1.45rem] sm:px-6 sm:py-6 lg:px-8 lg:py-7"
           style={{ backgroundColor: "color-mix(in srgb, var(--background-card) 92%, var(--background) 8%)" }}
         >
-          <div className="mb-4">
-            <h4 className="text-[1.65rem] font-semibold leading-none tracking-[-0.03em]" style={{ color: "var(--foreground)" }}>
+          <div className="mb-3 sm:mb-4">
+            <h4 className="text-[1.2rem] font-semibold leading-none tracking-[-0.03em] sm:text-[1.65rem]" style={{ color: "var(--foreground)" }}>
               Current Players
             </h4>
             {visibleStartTimestamp != null && visibleEndTimestamp != null && (
-              <p className="mt-2 text-base" style={{ color: colors.text }}>
+              <p className="mt-2 text-sm sm:text-base" style={{ color: colors.text }}>
                 Viewing the {selectedWindowDescription} of hourly history • {formatRangeDate(visibleStartTimestamp, timeZone)} to{" "}
                 {formatRangeDate(visibleEndTimestamp, timeZone)}
               </p>
             )}
           </div>
 
-          <ResponsiveContainer width="100%" height={360}>
-            <AreaChart data={visibleTimelinePoints} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="4 10" stroke={colors.grid} />
-              <XAxis
-                dataKey="sampledAt"
-                type="number"
-                scale="time"
-                domain={["dataMin", "dataMax"]}
-                tick={{ fill: colors.text, fontSize: 12 }}
-                tickLine={{ stroke: colors.axis }}
-                axisLine={{ stroke: colors.axis }}
-                ticks={xAxisTicks}
-                tickFormatter={(value) => formatSteamActivityTick(Number(value), effectiveSelectedWindow, timeZone)}
-              />
-              <YAxis
-                tick={{ fill: colors.text, fontSize: 12 }}
-                tickLine={{ stroke: colors.axis }}
-                axisLine={{ stroke: colors.axis }}
-                tickFormatter={(value) => {
-                  const numeric = Number(value);
-                  if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
-                  if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
-                  return String(Math.round(numeric));
-                }}
-              />
-              <Tooltip
-                content={renderTooltip}
-              />
-              <Area
-                type="linear"
-                dataKey="latestPlayers"
-                name="Current Players"
-                stroke={colors.lineCurrent}
-                fill={colors.areaCurrent}
-                strokeWidth={3}
-                dot={false}
-                activeDot={{ r: 5, fill: colors.lineCurrent, stroke: colors.background }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <div className="h-[240px] sm:h-[360px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={visibleTimelinePoints} margin={{ top: 12, right: 0, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="4 10" stroke={colors.grid} />
+                <XAxis
+                  dataKey="sampledAt"
+                  type="number"
+                  scale="time"
+                  domain={["dataMin", "dataMax"]}
+                  tick={{ fill: colors.text, fontSize: 12 }}
+                  tickLine={{ stroke: colors.axis }}
+                  axisLine={{ stroke: colors.axis }}
+                  ticks={xAxisTicks}
+                  tickFormatter={(value) => formatSteamActivityTick(Number(value), effectiveSelectedWindow, timeZone)}
+                />
+                <YAxis
+                  width={40}
+                  tick={{ fill: colors.text, fontSize: 11 }}
+                  tickLine={{ stroke: colors.axis }}
+                  axisLine={{ stroke: colors.axis }}
+                  tickFormatter={(value) => {
+                    const numeric = Number(value);
+                    if (numeric >= 1_000_000) return `${(numeric / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+                    if (numeric >= 1_000) return `${(numeric / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+                    return String(Math.round(numeric));
+                  }}
+                />
+                <Tooltip
+                  content={renderTooltip}
+                />
+                <Area
+                  type="linear"
+                  dataKey="latestPlayers"
+                  name="Current Players"
+                  stroke={colors.lineCurrent}
+                  fill={colors.areaCurrent}
+                  strokeWidth={3}
+                  dot={false}
+                  activeDot={{ r: 5, fill: colors.lineCurrent, stroke: colors.background }}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
 
-          <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="mt-4 flex flex-col items-start gap-3 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-4">
             <div className="flex flex-wrap gap-1 text-[11px] sm:text-xs">
               <div
-                className="inline-flex items-center gap-3 rounded-full border px-5 py-4 text-sm font-semibold"
+                className="inline-flex items-center gap-3 rounded-full border px-4 py-3 text-xs font-semibold sm:px-5 sm:py-4 sm:text-sm"
                 style={{
                   borderColor: colors.border,
                   color: "var(--foreground)",
@@ -547,7 +550,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
               </div>
             </div>
             {visibleEndTimestamp != null && (
-              <p className="text-sm" style={{ color: colors.text }}>
+              <p className="text-xs sm:text-sm" style={{ color: colors.text }}>
                 Latest sample: {formatLatestWindowLabel(visibleEndTimestamp, timeZone)}
               </p>
             )}
@@ -605,22 +608,22 @@ function MetricCard({
 
   return (
     <div
-      className="relative min-h-[10rem] rounded-[1.5rem] px-6 py-5 sm:min-h-[10.75rem] sm:px-7 sm:py-6"
+      className="relative min-h-[7.5rem] rounded-[1.2rem] px-4 py-4 sm:min-h-[10.75rem] sm:rounded-[1.5rem] sm:px-7 sm:py-6"
       style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}
     >
-      <div className="text-[2.3rem] font-black leading-none tracking-[-0.04em] sm:text-[2.65rem]" style={{ color: "var(--foreground)" }}>
+      <div className="text-[1.8rem] font-black leading-none tracking-[-0.04em] sm:text-[2.65rem]" style={{ color: "var(--foreground)" }}>
         {value}
       </div>
-      <div className="mt-3 text-base font-medium" style={{ color: "var(--foreground-muted)" }}>
+      <div className="mt-2 text-sm font-medium sm:mt-3 sm:text-base" style={{ color: "var(--foreground-muted)" }}>
         {label}
       </div>
       {detail ? (
-        <div className="mt-3 text-sm" style={{ color: "var(--foreground-muted)" }}>
+        <div className="mt-2 text-xs sm:mt-3 sm:text-sm" style={{ color: "var(--foreground-muted)" }}>
           {detail}
         </div>
       ) : null}
       {note ? (
-        <div className="absolute bottom-4 right-4 sm:bottom-5 sm:right-5">
+        <div className="absolute bottom-3 right-3 sm:bottom-5 sm:right-5">
           <button
             type="button"
             aria-label="About this metric"
@@ -630,7 +633,7 @@ function MetricCard({
             onMouseLeave={() => setIsNoteVisible(false)}
             onFocus={() => setIsNoteVisible(true)}
             onBlur={() => setIsNoteVisible(false)}
-            className="flex h-7 w-7 items-center justify-center"
+            className="flex h-6 w-6 items-center justify-center sm:h-7 sm:w-7"
             style={{
               color: "var(--foreground-muted)",
             }}
@@ -653,7 +656,7 @@ function MetricCard({
             </svg>
           </button>
           <div
-            className="pointer-events-none absolute bottom-10 right-0 z-20 w-56 rounded-xl border px-3 py-2 text-xs leading-5 shadow-lg transition-all"
+            className="pointer-events-none absolute bottom-8 right-0 z-20 w-48 rounded-xl border px-3 py-2 text-xs leading-5 shadow-lg transition-all sm:bottom-10 sm:w-56"
             style={{
               borderColor: "var(--border)",
               backgroundColor: "var(--background-card-strong)",

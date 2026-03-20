@@ -185,6 +185,7 @@ export function LazyChartSection({
   const [steamActivityLoading, setSteamActivityLoading] = useState(false);
   const [steamActivityError, setSteamActivityError] = useState(false);
   const steamActivityFetchedRef = useRef(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   // News pagination state
   const [allNews, setAllNews] = useState<NewsArticle[]>(() => dedupeNewsArticles(newsArticles || []));
@@ -201,6 +202,13 @@ export function LazyChartSection({
     series: "steam" | "metacritic" | "combined";
     seriesLabel: string;
   } | null>(null);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   // Intersection Observer: trigger fetch when section scrolls into view
   useEffect(() => {
@@ -420,12 +428,12 @@ export function LazyChartSection({
             {/* Tab bar for disparity and review timing */}
             {(entityType === "game" || effectiveTimingCounts) && (
               <div className="border-b" style={{ borderColor: "var(--border)" }}>
-                <nav className="flex gap-2 sm:gap-4 px-4 sm:px-6 overflow-x-auto">
+                <nav className="grid grid-cols-2 gap-x-3 px-3 sm:flex sm:gap-4 sm:px-6 sm:overflow-x-auto">
                   {entityType === "game" ? (
                     <>
                       <button
                         onClick={() => setChartTab("timeline")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "timeline"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -436,7 +444,7 @@ export function LazyChartSection({
                       {hasSteamApp && (
                         <button
                           onClick={() => setChartTab("activity")}
-                          className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                          className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                           style={chartTab === "activity"
                             ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                             : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -447,7 +455,7 @@ export function LazyChartSection({
                       )}
                       <button
                         onClick={() => setChartTab("timing")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "timing"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -457,7 +465,7 @@ export function LazyChartSection({
                       </button>
                       <button
                         onClick={() => setChartTab("disparity")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "disparity"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -470,7 +478,7 @@ export function LazyChartSection({
                     <>
                       <button
                         onClick={() => setChartTab("disparity")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "disparity"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -480,7 +488,7 @@ export function LazyChartSection({
                       </button>
                       <button
                         onClick={() => setChartTab("timing")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "timing"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -490,7 +498,7 @@ export function LazyChartSection({
                       </button>
                       <button
                         onClick={() => setChartTab("timeline")}
-                        className="py-3 px-1 border-b-2 font-medium text-sm transition-colors cursor-pointer whitespace-nowrap"
+                        className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
                         style={chartTab === "timeline"
                           ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
                           : { borderColor: "transparent", color: "var(--foreground-muted)" }
@@ -504,7 +512,7 @@ export function LazyChartSection({
               </div>
             )}
 
-            <div className="p-4 sm:p-6">
+            <div className="p-3 sm:p-6">
               {showChartShareButtons && activeShareUrl && activeShareText && (
                 <div className="mb-4 flex justify-start sm:justify-end">
                   <div className="max-w-full overflow-x-auto">
@@ -521,7 +529,7 @@ export function LazyChartSection({
                   <ReviewDisparityChart
                     reviews={reviews}
                     context={entityType}
-                    height={300}
+                    height={isMobile ? 260 : 300}
                     onTrendShareStateChange={setTrendShareState}
                     {...(entityType === "game" && gameTitle ? { gameTitle } : {})}
                   />

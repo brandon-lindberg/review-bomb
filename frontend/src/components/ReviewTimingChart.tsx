@@ -55,6 +55,18 @@ export function ReviewTimingChart({ early, launchWindow, late }: ReviewTimingCha
   const isDark = useIsDarkMode();
   const colors = isDark ? TIMING_COLORS.dark : TIMING_COLORS.light;
   const total = early + launchWindow + late;
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  const chartHeight = isMobile ? 250 : 300;
+  const innerRadius = isMobile ? 50 : 60;
+  const outerRadius = isMobile ? 78 : 90;
 
   if (total === 0) {
     return (
@@ -78,14 +90,14 @@ export function ReviewTimingChart({ early, launchWindow, late }: ReviewTimingCha
 
   return (
     <div className="relative">
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
         <PieChart>
           <Pie
             data={data}
             cx="50%"
             cy="50%"
-            innerRadius={60}
-            outerRadius={90}
+            innerRadius={innerRadius}
+            outerRadius={outerRadius}
             paddingAngle={2}
             dataKey="value"
           >
@@ -125,9 +137,9 @@ export function ReviewTimingChart({ early, launchWindow, late }: ReviewTimingCha
       </ResponsiveContainer>
       <div
         className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none"
-        style={{ marginTop: "-30px" }}
+        style={{ marginTop: isMobile ? "-22px" : "-30px" }}
       >
-        <span className="text-2xl font-bold" style={{ color: isDark ? "#B8B4AC" : "#374151" }}>
+        <span className="text-xl font-bold sm:text-2xl" style={{ color: isDark ? "#B8B4AC" : "#374151" }}>
           {total}
         </span>
         <span className="text-xs" style={{ color: isDark ? "#B8B4AC" : "#6b7280" }}>
