@@ -548,7 +548,6 @@ async def get_game_steam_activity(
 
     points: list[SteamPlayerPoint] = []
     marker_source_points: list[dict[str, object]] = []
-    live_summary_updates: dict[str, object] = {}
 
     scraper_activity = None
     if game.steam_app_id is not None:
@@ -562,7 +561,6 @@ async def get_game_steam_activity(
         # Flush any newly added player snapshots so the canonical DB-backed series
         # below can include them in the same request.
         await db.flush()
-        live_summary_updates = scraper_activity.summary_updates
 
     range_result = await db.execute(
         select(SteamPlayerRangeSnapshot)
@@ -686,14 +684,9 @@ async def get_game_steam_activity(
             "steam_player_24h_low_observed": points[-1].observed_24h_low,
             "steam_player_stats_synced_at": points[-1].sampled_at,
         }
-        player_points = [point for point in points if point.latest_players is not None]
-        if player_points:
-            peak_point = max(player_points, key=lambda point: point.latest_players or 0)
-            trusted_summary_updates["steam_player_all_time_peak"] = peak_point.latest_players
-            trusted_summary_updates["steam_player_all_time_peak_at"] = peak_point.sampled_at
-        else:
-            trusted_summary_updates["steam_player_all_time_peak"] = None
-            trusted_summary_updates["steam_player_all_time_peak_at"] = None
+        peak_point = max(points, key=lambda point: point.observed_24h_high)
+        trusted_summary_updates["steam_player_all_time_peak"] = peak_point.observed_24h_high
+        trusted_summary_updates["steam_player_all_time_peak_at"] = peak_point.sampled_at
         summary = summary.model_copy(update=trusted_summary_updates)
     else:
         summary = summary.model_copy(
@@ -705,9 +698,6 @@ async def get_game_steam_activity(
                 "steam_player_stats_synced_at": None,
             }
         )
-
-    if live_summary_updates:
-        summary = summary.model_copy(update=live_summary_updates)
 
     marker_payload = build_steam_activity_markers(
         marker_source_points,

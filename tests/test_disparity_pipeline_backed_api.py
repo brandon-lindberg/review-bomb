@@ -733,15 +733,16 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
 
     resp = await get_game_steam_activity(game_id=11, limit=10000, db=db)
 
-    assert not hasattr(resp.summary, "steam_current_players")
-    assert not hasattr(resp.summary, "steam_current_players_sampled_at")
+    assert resp.summary.steam_current_players is None
+    assert resp.summary.steam_current_players_sampled_at is None
     assert resp.summary.steam_player_24h_peak == 57000
     assert resp.summary.steam_player_24h_low_observed == 21000
-    assert resp.summary.steam_player_all_time_peak == 54000
+    assert resp.summary.steam_player_all_time_peak == 57000
     assert resp.summary.steam_player_all_time_peak_at == datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc)
     assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
     assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
     assert [point.latest_players for point in resp.points] == [53000, 54000]
+    assert resp.summary.steam_player_all_time_peak >= resp.summary.steam_player_24h_peak
     assert any(marker.marker_type == "first_tracked" for marker in resp.markers)
     assert any(marker.marker_type == "all_time_peak" for marker in resp.markers)
 
@@ -854,6 +855,9 @@ async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
     assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
     assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
     assert [point.latest_players for point in resp.points] == [53000, 54000]
+    assert resp.summary.steam_player_all_time_peak == 57000
+    assert resp.summary.steam_player_all_time_peak_at == last_sample
+    assert resp.summary.steam_player_all_time_peak >= resp.summary.steam_player_24h_peak
 
 
 @pytest.mark.asyncio
