@@ -39,6 +39,7 @@ interface TimelineEvent {
   type: EventType;
   date: Date;
   dateLabel: string;
+  isFuture?: boolean;
   // Review fields
   journalistName?: string;
   journalistPublicId?: string;
@@ -81,6 +82,7 @@ function EventCard({
   getEventColor,
 }: EventCardProps) {
   const eventColor = getEventColor(event.type);
+  const futureNotice = event.isFuture ? "This part of the timeline has not happened yet." : null;
 
   return (
     <div className="relative ml-0 group" onClick={onToggle}>
@@ -97,13 +99,30 @@ function EventCard({
             backgroundColor: colors.cardBg,
             border: `1px solid ${colors.border}`,
             borderLeft: `4px solid ${colors.tan}`,
+            boxShadow: event.isFuture ? `inset 0 0 0 1px ${colors.tan}22` : "none",
           }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-semibold" style={{ color: colors.tan }}>
-              Game Released
+              {event.isFuture ? "Release Scheduled" : "Game Released"}
             </span>
+            {event.isFuture && (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                style={{
+                  backgroundColor: "color-mix(in srgb, var(--background-card-strong) 84%, var(--color-tan) 16%)",
+                  color: colors.tan,
+                }}
+              >
+                Upcoming
+              </span>
+            )}
           </div>
+          {futureNotice && (
+            <p className="mt-1 text-xs" style={{ color: colors.axis }}>
+              {futureNotice}
+            </p>
+          )}
         </div>
       ) : event.type === "milestone" ? (
         <div
@@ -112,16 +131,35 @@ function EventCard({
             backgroundColor: colors.cardBg,
             border: `1px solid ${colors.border}`,
             borderLeft: `4px solid ${colors.sage}`,
+            boxShadow: event.isFuture ? `inset 0 0 0 1px ${colors.sage}22` : "none",
           }}
         >
           <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium" style={{ color: colors.sage }}>
-              {event.milestoneLabel}
-            </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium" style={{ color: colors.sage }}>
+                {event.milestoneLabel}
+              </span>
+              {event.isFuture && (
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em]"
+                  style={{
+                    backgroundColor: "color-mix(in srgb, var(--background-card-strong) 86%, var(--color-sage) 14%)",
+                    color: colors.sage,
+                  }}
+                >
+                  Upcoming
+                </span>
+              )}
+            </div>
           </div>
           {event.milestoneDetail && (
             <p className="text-xs mt-1" style={{ color: colors.axis }}>
               {event.milestoneDetail}
+            </p>
+          )}
+          {futureNotice && (
+            <p className="text-xs mt-1" style={{ color: colors.axis }}>
+              {futureNotice}
             </p>
           )}
         </div>
@@ -262,6 +300,15 @@ export function GameReceptionTimeline({
   const [showCount, setShowCount] = useState(TIMELINE_PAGE_SIZE);
   // Tracks which date+type groups are expanded (e.g. "Feb 25, 2026-review")
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [timelineReferenceMs] = useState(() => {
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    return {
+      nowMs: now.getTime(),
+      todayStartMs: todayStart.getTime(),
+    };
+  });
 
   const steamScore = steamUserScore != null ? Number(steamUserScore) : null;
   const metacriticScore = metacriticUserScore != null ? Number(metacriticUserScore) : null;
@@ -269,6 +316,8 @@ export function GameReceptionTimeline({
   // Build all timeline events
   const allEvents = useMemo(() => {
     const events: TimelineEvent[] = [];
+    const nowMs = timelineReferenceMs?.nowMs ?? Number.POSITIVE_INFINITY;
+    const todayStartMs = timelineReferenceMs?.todayStartMs ?? Number.POSITIVE_INFINITY;
 
     // 1. Release date event
     if (releaseDate) {
@@ -278,6 +327,7 @@ export function GameReceptionTimeline({
         type: "release",
         date: rd,
         dateLabel: rd.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }),
+        isFuture: rd.getTime() > todayStartMs,
         milestoneLabel: "Game Released",
       });
     }
@@ -317,6 +367,7 @@ export function GameReceptionTimeline({
         type: "review",
         date: r.pubDate,
         dateLabel: r.pubDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+        isFuture: r.pubDate.getTime() > nowMs,
         journalistName: r.journalist_name,
         journalistPublicId: r.journalist_public_id ?? undefined,
         outletName: r.outlet_name,
@@ -358,6 +409,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: m.date,
           dateLabel,
+          isFuture: m.date.getTime() > nowMs,
           milestoneLabel: "First Review Published",
           milestoneDetail: `${m.firstReview.journalist}${m.firstReview.outlet ? ` (${m.firstReview.outlet})` : ""} — ${m.firstReview.score.toFixed(0)}/100`,
         });
@@ -368,6 +420,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: m.date,
           dateLabel,
+          isFuture: m.date.getTime() > nowMs,
           milestoneLabel: `${m.endCount} Reviews Published`,
           milestoneDetail: `First by ${m.firstReview.journalist} · Critic avg: ${m.runningAvg.toFixed(1)}`,
         });
@@ -378,6 +431,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: m.date,
           dateLabel,
+          isFuture: m.date.getTime() > nowMs,
           milestoneLabel: `${m.endCount} Reviews Published`,
           milestoneDetail: `Critic average: ${m.runningAvg.toFixed(1)}`,
         });
@@ -398,6 +452,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: highest.pubDate,
           dateLabel: highest.pubDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          isFuture: highest.pubDate.getTime() > nowMs,
           milestoneLabel: `Highest Score: ${highest.scoreNum.toFixed(0)}`,
           milestoneDetail: `${highest.journalist_name}${highest.outlet_name ? ` (${highest.outlet_name})` : ""}`,
         });
@@ -408,6 +463,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: lowest.pubDate,
           dateLabel: lowest.pubDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          isFuture: lowest.pubDate.getTime() > nowMs,
           milestoneLabel: `Lowest Score: ${lowest.scoreNum.toFixed(0)}`,
           milestoneDetail: `${lowest.journalist_name}${lowest.outlet_name ? ` (${lowest.outlet_name})` : ""}`,
         });
@@ -425,6 +481,7 @@ export function GameReceptionTimeline({
           type: "milestone",
           date: sampledAt,
           dateLabel: sampledAt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          isFuture: sampledAt.getTime() > nowMs,
           milestoneLabel: marker.label,
           milestoneDetail: marker.detail ?? `${marker.concurrent_players.toLocaleString()} players`,
         });
@@ -447,6 +504,7 @@ export function GameReceptionTimeline({
           type: "news",
           date: d,
           dateLabel: d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
+          isFuture: d.getTime() > nowMs,
           newsTitle: article.title,
           newsUrl: article.url,
           newsSource: article.source_name,
@@ -457,7 +515,7 @@ export function GameReceptionTimeline({
     // Sort all events chronologically
     events.sort((a, b) => a.date.getTime() - b.date.getTime());
     return events;
-  }, [reviews, releaseDate, steamActivityMarkers, newsArticles]);
+  }, [reviews, releaseDate, steamActivityMarkers, newsArticles, timelineReferenceMs]);
 
   // Filter events
   const filteredEvents = useMemo(() => {
@@ -507,6 +565,7 @@ export function GameReceptionTimeline({
 
       return {
         ...group,
+        allFutureEvents: group.events.every((event) => event.isFuture),
         reviewEvents,
         newsEvents,
         otherEvents,
@@ -583,6 +642,7 @@ export function GameReceptionTimeline({
 
   const hasMore = totalVisibleItems > showCount;
   const remainingItems = Math.max(totalVisibleItems - showCount, 0);
+  const hasFutureEventsInView = filteredEvents.some((event) => event.isFuture);
 
   const toggleGroup = (groupKey: string) => {
     setExpandedGroups((prev) => {
@@ -726,6 +786,19 @@ export function GameReceptionTimeline({
           ))}
       </div>
 
+      {hasFutureEventsInView && (
+        <div
+          className="mb-4 rounded-lg border px-3 py-2 text-sm"
+          style={{
+            borderColor: colors.border,
+            backgroundColor: isDark ? "rgba(229, 217, 179, 0.06)" : "rgba(216, 197, 147, 0.12)",
+            color: colors.text,
+          }}
+        >
+          Upcoming items are scheduled dates or future milestones. They have not happened yet.
+        </div>
+      )}
+
       {/* Timeline */}
       <div className="relative pl-6 sm:pl-8">
         {/* Vertical line */}
@@ -742,8 +815,19 @@ export function GameReceptionTimeline({
                 <div className="flex items-center gap-2 py-2">
                   <div
                     className="absolute left-[8px] sm:left-[12px] w-[7px] h-[7px] rounded-full"
-                    style={{ backgroundColor: colors.axis }}
+                    style={{ backgroundColor: group.allFutureEvents ? colors.tan : colors.axis }}
                   />
+                  {group.allFutureEvents && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em]"
+                      style={{
+                        backgroundColor: isDark ? "rgba(229, 217, 179, 0.12)" : "rgba(216, 197, 147, 0.18)",
+                        color: colors.tan,
+                      }}
+                    >
+                      Upcoming
+                    </span>
+                  )}
                   <span className="text-xs font-medium" style={{ color: colors.axis }}>
                     {group.dateLabel}
                   </span>
