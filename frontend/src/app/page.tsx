@@ -85,11 +85,11 @@ function MiniSteamSparkline({
   const displayPlayers = latestPlayers ?? values[values.length - 1] ?? null;
   const width = 120;
   const height = 44;
-  const chartWidth = 92;
+  const chartWidth = 106;
   const chartHeight = 24;
-  const chartOffsetX = 12;
+  const chartOffsetX = 8;
   const chartOffsetY = 8;
-  const path = buildSparklinePath(values, chartWidth, chartHeight, 2);
+  const path = buildSparklinePath(values, chartWidth, chartHeight, 1.5);
   if (!path) return null;
 
   return (
@@ -115,7 +115,7 @@ function MiniSteamSparkline({
       >
         {displayPlayers != null && <title>{`Current players: ${displayPlayers.toLocaleString()}`}</title>}
         <path
-          d="M 6 38 H 110 V 6"
+          d="M 4 38 H 118 V 6"
           stroke="var(--border-strong)"
           strokeWidth="1.25"
           strokeLinecap="round"
