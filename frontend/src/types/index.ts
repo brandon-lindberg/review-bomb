@@ -130,6 +130,9 @@ export interface GameWithScores extends Game {
   opencritic_score: number | null;
   steam_user_score: number | null;
   steam_sample_size: number | null;
+  steam_current_players: number | null;
+  steam_current_players_sampled_at: string | null;
+  steam_activity_preview: number[];
   steam_player_24h_peak: number | null;
   steam_player_24h_low_observed: number | null;
   steam_player_all_time_peak: number | null;

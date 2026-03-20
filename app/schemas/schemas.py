@@ -213,6 +213,9 @@ class GameWithScores(GameSummary):
     opencritic_score: Optional[Decimal] = None
     steam_user_score: Optional[Decimal] = None
     steam_sample_size: Optional[int] = None
+    steam_current_players: Optional[int] = None
+    steam_current_players_sampled_at: Optional[datetime] = None
+    steam_activity_preview: List[int] = Field(default_factory=list)
     steam_player_24h_peak: Optional[int] = None
     steam_player_24h_low_observed: Optional[int] = None
     steam_player_all_time_peak: Optional[int] = None

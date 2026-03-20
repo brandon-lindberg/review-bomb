@@ -35,6 +35,107 @@ function getDateTimeTimestamp(dateTime: string | null): number | null {
   return parsed.getTime();
 }
 
+function buildSparklinePath(values: number[], width: number, height: number, padding = 4): string {
+  if (values.length === 0) return "";
+  if (values.length === 1) {
+    const y = height / 2;
+    return `M ${padding} ${y} L ${width - padding} ${y}`;
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const valueRange = maxValue - minValue || 1;
+  const usableWidth = width - padding * 2;
+  const usableHeight = height - padding * 2;
+
+  const points = values.map((value, index) => {
+    const x = padding + (usableWidth * index) / Math.max(values.length - 1, 1);
+    const normalized = (value - minValue) / valueRange;
+    const y = padding + usableHeight - normalized * usableHeight;
+    return { x, y };
+  });
+
+  if (points.length === 2) {
+    return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  }
+
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const midX = (current.x + next.x) / 2;
+    const midY = (current.y + next.y) / 2;
+    path += ` Q ${current.x} ${current.y} ${midX} ${midY}`;
+  }
+
+  const lastPoint = points[points.length - 1];
+  path += ` T ${lastPoint.x} ${lastPoint.y}`;
+  return path;
+}
+
+function MiniSteamSparkline({
+  values,
+  latestPlayers,
+}: {
+  values: number[];
+  latestPlayers: number | null;
+}) {
+  if (values.length < 2) return null;
+
+  const displayPlayers = latestPlayers ?? values[values.length - 1] ?? null;
+  const width = 120;
+  const height = 44;
+  const chartWidth = 92;
+  const chartHeight = 24;
+  const chartOffsetX = 12;
+  const chartOffsetY = 8;
+  const path = buildSparklinePath(values, chartWidth, chartHeight, 2);
+  if (!path) return null;
+
+  return (
+    <div className="group relative w-20 sm:w-28" title={displayPlayers != null ? `Current players: ${displayPlayers.toLocaleString()}` : "Steam activity trend"}>
+      {displayPlayers != null && (
+        <div
+          className="pointer-events-none absolute bottom-full right-0 z-10 mb-2 translate-y-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium whitespace-nowrap opacity-0 shadow-lg transition-all duration-150 group-hover:translate-y-0 group-hover:opacity-100"
+          style={{
+            borderColor: "var(--border)",
+            backgroundColor: "var(--background-card-strong)",
+            color: "var(--foreground)",
+          }}
+        >
+          Current Players: <span className="tabular-nums">{displayPlayers.toLocaleString()}</span>
+        </div>
+      )}
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-7 w-full sm:h-10"
+        fill="none"
+        role="img"
+        aria-label={displayPlayers != null ? `Steam activity trend, current players ${displayPlayers.toLocaleString()}` : "Steam activity trend"}
+      >
+        {displayPlayers != null && <title>{`Current players: ${displayPlayers.toLocaleString()}`}</title>}
+        <path
+          d="M 6 38 H 110 V 6"
+          stroke="var(--border-strong)"
+          strokeWidth="1.25"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+        <path
+          d={path}
+          transform={`translate(${chartOffsetX} ${chartOffsetY})`}
+          stroke="var(--color-rust)"
+          strokeWidth="2.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+    </div>
+  );
+}
+
 export default async function Home() {
   let stats = null;
   let recentReviews = null;
@@ -359,12 +460,18 @@ export default async function Home() {
               </Link>
             </div>
             <div className="space-y-3">
-              {sortedRecentGames.map((game) => (
-                <Link
-                  key={game.id}
-                  href={buildEntityPath("games", game.title, game.public_id)}
-                  className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
-                >
+              {sortedRecentGames.map((game) => {
+                const currentPlayers = game.steam_current_players;
+                const previewValues = game.steam_activity_preview ?? [];
+                const hasSparkline = previewValues.length >= 2;
+                const hasDisparity = game.disparity_steam != null || game.disparity_metacritic != null;
+
+                return (
+                  <Link
+                    key={game.id}
+                    href={buildEntityPath("games", game.title, game.public_id)}
+                    className="site-list-item block rounded-2xl border-0 px-0 py-3 first:pt-0 last:pb-0"
+                  >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <GameAvatar
@@ -400,15 +507,23 @@ export default async function Home() {
                         </p>
                       </div>
                     </div>
-                    {(game.disparity_steam != null || game.disparity_metacritic != null) && (
-                      <DisparityBadge
-                        disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
-                        size="sm"
-                      />
+                    {(hasSparkline || hasDisparity) && (
+                      <div className="shrink-0 flex flex-col items-end gap-3 self-center">
+                        {hasDisparity && (
+                          <DisparityBadge
+                            disparity={getDisplayDisparity(game.disparity_steam, game.disparity_metacritic)}
+                            size="sm"
+                          />
+                        )}
+                        {hasSparkline && (
+                          <MiniSteamSparkline values={previewValues} latestPlayers={currentPlayers} />
+                        )}
+                      </div>
                     )}
                   </div>
-                </Link>
-              ))}
+                  </Link>
+                );
+              })}
             </div>
           </section>
         )}

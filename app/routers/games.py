@@ -51,6 +51,7 @@ limiter = Limiter(key_func=get_remote_address)
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
 MIN_CRITIC_REVIEWS_FOR_GAMES_LIST = 5
+STEAM_ACTIVITY_PREVIEW_POINTS = 12
 
 
 def _steam_score_is_valid(game: Game) -> bool:
@@ -71,6 +72,7 @@ def _build_game_with_scores(
     game: Game,
     *,
     latest_review: Optional[ReviewWithJournalist] = None,
+    steam_activity_preview: Optional[list[int]] = None,
 ) -> GameWithScores:
     steam_valid = _steam_score_is_valid(game)
     metacritic_valid = _metacritic_score_is_valid(game)
@@ -88,6 +90,9 @@ def _build_game_with_scores(
         opencritic_score=game.top_critic_score,
         steam_user_score=game.steam_user_score if steam_valid else None,
         steam_sample_size=game.steam_sample_size if steam_valid else None,
+        steam_current_players=game.steam_current_players,
+        steam_current_players_sampled_at=game.steam_current_players_sampled_at,
+        steam_activity_preview=steam_activity_preview or [],
         steam_player_24h_peak=game.steam_player_24h_peak,
         steam_player_24h_low_observed=game.steam_player_24h_low_observed,
         steam_player_all_time_peak=game.steam_player_all_time_peak,
@@ -104,6 +109,46 @@ def _build_game_with_scores(
     )
 
 
+async def _load_steam_activity_previews(
+    db: AsyncSession,
+    game_ids: list[int],
+    *,
+    limit_per_game: int = STEAM_ACTIVITY_PREVIEW_POINTS,
+) -> dict[int, list[int]]:
+    if not game_ids:
+        return {}
+
+    ranked_snapshots = (
+        select(
+            SteamPlayerSnapshot.game_id.label("game_id"),
+            SteamPlayerSnapshot.sampled_at.label("sampled_at"),
+            SteamPlayerSnapshot.concurrent_players.label("concurrent_players"),
+            func.row_number().over(
+                partition_by=SteamPlayerSnapshot.game_id,
+                order_by=SteamPlayerSnapshot.sampled_at.desc(),
+            ).label("rn"),
+        )
+        .where(SteamPlayerSnapshot.game_id.in_(game_ids))
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(
+            ranked_snapshots.c.game_id,
+            ranked_snapshots.c.concurrent_players,
+            ranked_snapshots.c.sampled_at,
+        )
+        .where(ranked_snapshots.c.rn <= limit_per_game)
+        .order_by(ranked_snapshots.c.game_id.asc(), ranked_snapshots.c.sampled_at.asc())
+    )
+
+    previews: dict[int, list[int]] = {}
+    for row in result:
+        previews.setdefault(row.game_id, []).append(int(row.concurrent_players))
+
+    return previews
+
+
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
     page: int = Query(1, ge=1, le=10000),
@@ -116,7 +161,7 @@ async def list_games(
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
     key_hash = cache_key(
-        "games:list:v3",
+        "games:list:v4",
         page=page,
         per_page=per_page,
         year=year,
@@ -254,10 +299,13 @@ async def list_games(
         total = (await db.execute(count_query)).scalar() or 0
 
     latest_review_lookup: dict[int, ReviewWithJournalist] = {}
+    steam_activity_preview_lookup: dict[int, list[int]] = {}
     game_ids = [game.id for game in games]
     tokyo_cutoff_utc = tokyo_tomorrow_start_utc()
 
     if game_ids:
+        steam_activity_preview_lookup = await _load_steam_activity_previews(db, game_ids)
+
         ranked_reviews = (
             select(
                 Review.id.label("review_id"),
@@ -356,7 +404,13 @@ async def list_games(
 
     items = []
     for game in games:
-        items.append(_build_game_with_scores(game, latest_review=latest_review_lookup.get(game.id)))
+        items.append(
+            _build_game_with_scores(
+                game,
+                latest_review=latest_review_lookup.get(game.id),
+                steam_activity_preview=steam_activity_preview_lookup.get(game.id),
+            )
+        )
 
     response = PaginatedResponse(
         items=items,
