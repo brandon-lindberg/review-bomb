@@ -83,7 +83,7 @@ function formatPlayers(value: number | null | undefined): string {
   return value.toLocaleString();
 }
 
-function formatAbsoluteDate(value: string | null | undefined): string | null {
+function formatAbsoluteDate(value: string | null | undefined, timeZone: string): string | null {
   if (!value) return null;
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
@@ -91,6 +91,7 @@ function formatAbsoluteDate(value: string | null | undefined): string | null {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone,
   });
 }
 
@@ -106,21 +107,22 @@ function formatRelativeDate(value: string | null | undefined): string | null {
   return `${diffDays} days ago`;
 }
 
-function formatRangeDate(value: number): string {
+function formatRangeDate(value: number, timeZone: string): string {
   return new Date(value).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
+    timeZone,
   });
 }
 
-function formatLatestWindowLabel(value: number): string {
+function formatLatestWindowLabel(value: number, timeZone: string): string {
   return new Date(value).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone,
   });
 }
 
@@ -181,12 +183,13 @@ function buildSteamActivityTicks(points: SteamActivityTimelinePoint[], targetTic
   return Array.from(ticks).sort((a, b) => a - b);
 }
 
-function formatSteamActivityTick(value: number, window: SteamActivityWindow): string {
+function formatSteamActivityTick(value: number, window: SteamActivityWindow, timeZone: string): string {
   const date = new Date(value);
 
   if (window === "24h") {
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
+      timeZone,
     });
   }
 
@@ -195,6 +198,7 @@ function formatSteamActivityTick(value: number, window: SteamActivityWindow): st
       month: "short",
       day: "numeric",
       hour: "numeric",
+      timeZone,
     });
   }
 
@@ -202,12 +206,14 @@ function formatSteamActivityTick(value: number, window: SteamActivityWindow): st
     return date.toLocaleDateString("en-US", {
       month: "short",
       year: "numeric",
+      timeZone,
     });
   }
 
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    timeZone,
   });
 }
 
@@ -216,6 +222,13 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
   const colors = getThemeColors(isDark);
   const summary = activity.summary;
   const [selectedWindow, setSelectedWindow] = useState<SteamActivityWindow>("24h");
+  const timeZone = useMemo(() => {
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    } catch {
+      return "UTC";
+    }
+  }, []);
 
   const timelinePoints = useMemo(() => {
     const parsedPoints: SteamActivityTimelinePoint[] = [];
@@ -231,6 +244,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
           day: "numeric",
           hour: "numeric",
           minute: "2-digit",
+          timeZone,
+          timeZoneName: "short",
         }),
         latestPlayers: point.latest_players ?? point.observed_24h_high,
         observed24hHigh: point.observed_24h_high,
@@ -239,7 +254,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
     }
 
     return parsedPoints.sort((left, right) => left.sampledAt - right.sampledAt);
-  }, [activity.points]);
+  }, [activity.points, timeZone]);
 
   const earliestTimestamp = useMemo(
     () => (timelinePoints.length > 0 ? timelinePoints[0].sampledAt : null),
@@ -345,7 +360,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
 
   const latestMarkers = [...activity.markers].slice(-5).reverse();
   const allTimePeakWhen = formatRelativeDate(summary.steam_player_all_time_peak_at)
-    ?? formatAbsoluteDate(summary.steam_player_all_time_peak_at);
+    ?? formatAbsoluteDate(summary.steam_player_all_time_peak_at, timeZone);
   const currentPlayers = latestTimelinePoint?.latestPlayers ?? null;
 
   if (timelinePoints.length === 0) {
@@ -399,6 +414,9 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             <p className="mt-2 text-base" style={{ color: "var(--foreground-muted)" }}>
               Current players over time. Summary cards above show the rolling 24-hour high and low.
             </p>
+            <p className="mt-1 text-sm" style={{ color: colors.text }}>
+              Times shown in your local timezone.
+            </p>
           </div>
         </div>
 
@@ -447,8 +465,8 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             </h4>
             {visibleStartTimestamp != null && visibleEndTimestamp != null && (
               <p className="mt-2 text-base" style={{ color: colors.text }}>
-                Viewing the {selectedWindowDescription} of hourly history • {formatRangeDate(visibleStartTimestamp)} to{" "}
-                {formatRangeDate(visibleEndTimestamp)}
+                Viewing the {selectedWindowDescription} of hourly history • {formatRangeDate(visibleStartTimestamp, timeZone)} to{" "}
+                {formatRangeDate(visibleEndTimestamp, timeZone)}
               </p>
             )}
           </div>
@@ -465,7 +483,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
                 tickLine={{ stroke: colors.axis }}
                 axisLine={{ stroke: colors.axis }}
                 ticks={xAxisTicks}
-                tickFormatter={(value) => formatSteamActivityTick(Number(value), effectiveSelectedWindow)}
+                tickFormatter={(value) => formatSteamActivityTick(Number(value), effectiveSelectedWindow, timeZone)}
               />
               <YAxis
                 tick={{ fill: colors.text, fontSize: 12 }}
@@ -515,7 +533,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             </div>
             {visibleEndTimestamp != null && (
               <p className="text-sm" style={{ color: colors.text }}>
-                Latest window end: {formatLatestWindowLabel(visibleEndTimestamp)}
+                Latest sample: {formatLatestWindowLabel(visibleEndTimestamp, timeZone)}
               </p>
             )}
           </div>
@@ -539,7 +557,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
                     {marker.label}
                   </span>
                   <span className="text-xs" style={{ color: colors.text }}>
-                    {formatAbsoluteDate(marker.sampled_at)}
+                    {formatAbsoluteDate(marker.sampled_at, timeZone)}
                   </span>
                 </div>
                 <p className="mt-2 text-sm" style={{ color: colors.text }}>
