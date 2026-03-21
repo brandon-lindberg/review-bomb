@@ -27,3 +27,20 @@ def test_transform_game_keeps_zero_and_positive_values():
 
     assert transformed["top_critic_score"] is not None
     assert transformed["percent_recommended"] is not None
+
+
+def test_transform_game_normalizes_protocol_relative_banner_urls():
+    transformed = OpenCriticService.transform_game(
+        {
+            "id": 5581,
+            "name": "Example Game 3",
+            "bannerScreenshot": {
+                "fullRes": "//c.opencritic.com/images/games/5581/banner.jpg",
+            },
+        }
+    )
+
+    assert (
+        transformed["image_url"]
+        == "https://c.opencritic.com/images/games/5581/banner.jpg"
+    )

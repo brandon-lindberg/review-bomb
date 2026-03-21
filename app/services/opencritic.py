@@ -32,6 +32,29 @@ class OpenCriticService:
     BASE_URL = "https://opencritic-api.p.rapidapi.com"
     IMAGE_CDN_URL = "https://img.opencritic.com"
 
+    @classmethod
+    def _normalize_image_url(cls, value: Any) -> Optional[str]:
+        """Normalize OpenCritic image references into stable absolute URLs."""
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip()
+        if not normalized:
+            return None
+
+        if normalized.startswith(("https://", "http://")):
+            return normalized
+
+        # OpenCritic sometimes returns protocol-relative CDN URLs like
+        # //c.opencritic.com/images/... which should not be prefixed with img.opencritic.com.
+        if normalized.startswith("//"):
+            return f"https:{normalized}"
+
+        if normalized.startswith("/"):
+            return f"{cls.IMAGE_CDN_URL}{normalized}"
+
+        return f"{cls.IMAGE_CDN_URL}/{normalized.lstrip('/')}"
+
     def __init__(self):
         api_key = (settings.rapidapi_key or "").strip()
         if not api_key:
@@ -298,10 +321,7 @@ class OpenCriticService:
         image_url = data.get("imageSrc")
         if isinstance(image_url, dict):
             image_url = image_url.get("og") or image_url.get("lg") or image_url.get("sm")
-
-        # Convert relative path to full URL
-        if image_url and not image_url.startswith("http"):
-            image_url = f"{cls.IMAGE_CDN_URL}/{image_url}"
+        image_url = cls._normalize_image_url(image_url)
 
         return {
             "opencritic_id": data.get("id"),
@@ -318,10 +338,7 @@ class OpenCriticService:
         if isinstance(logo_url, dict):
             # Prefer 'og' (original), then 'lg', then 'sm'
             logo_url = logo_url.get("og") or logo_url.get("lg") or logo_url.get("sm")
-
-        # Convert relative path to full URL
-        if logo_url and not logo_url.startswith("http"):
-            logo_url = f"{cls.IMAGE_CDN_URL}/{logo_url}"
+        logo_url = cls._normalize_image_url(logo_url)
 
         return {
             "opencritic_id": data.get("id"),
@@ -351,10 +368,7 @@ class OpenCriticService:
             banner = data.get("bannerScreenshot")
             if isinstance(banner, dict):
                 image_url = banner.get("fullRes") or banner.get("og")
-
-        # Convert relative path to full URL
-        if image_url and not image_url.startswith("http"):
-            image_url = f"{cls.IMAGE_CDN_URL}/{image_url}"
+        image_url = cls._normalize_image_url(image_url)
 
         top_critic_raw = data.get("topCriticScore")
         percent_recommended_raw = data.get("percentRecommended")
