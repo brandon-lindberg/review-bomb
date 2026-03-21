@@ -25,7 +25,6 @@ export function GameAvatar({
         width={width}
         height={height}
         sizes={sizes ?? `${width}px`}
-        quality={90}
         className={`block ${className}`.trim()}
       />
     );

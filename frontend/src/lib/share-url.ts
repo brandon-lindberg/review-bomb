@@ -3,6 +3,7 @@ import {
   encodeSnapshotMetric,
 } from "./share-snapshot";
 import { buildEntityPath, type EntityRouteType } from "./entity-paths";
+import { serializeCompareMetricSelection, type CompareMetricId } from "./compare-metrics";
 
 export type SnapshotMode = "default" | "chart" | "timing";
 
@@ -32,6 +33,7 @@ interface CompareShareQueryInput {
   card: string;
   ids?: number[];
   labels?: string[];
+  metrics?: CompareMetricId[];
   snapshotPayload?: string;
 }
 
@@ -93,6 +95,12 @@ export function buildCompareShareParams(input: CompareShareQueryInput): URLSearc
   }
   if (input.labels && input.labels.length > 0) {
     params.set("labels", input.labels.join("|"));
+  }
+  const serializedMetrics = input.metrics
+    ? serializeCompareMetricSelection(input.type, input.metrics)
+    : undefined;
+  if (serializedMetrics) {
+    params.set("metrics", serializedMetrics);
   }
   if (input.snapshotPayload && input.snapshotPayload.trim()) {
     params.set("snap", input.snapshotPayload.trim());

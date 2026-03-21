@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { getGame, getGameHistory, getGameSteamActivity, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
+import { parseCompareMetricSelection } from "@/lib/compare-metrics";
 import { formatDisparity, getDisparityColor, getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildSparklinePath, formatCompactPlayerCount, toPlayerCountTrend } from "@/lib/player-count-chart";
 import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
@@ -26,6 +27,7 @@ interface SnapshotItem {
   playerPeak24h: number | null;
   playerLow24h: number | null;
   playerAllTimePeak: number | null;
+  achievementCount: number | null;
   playerTrend: number[];
   trend: number[];
 }
@@ -42,10 +44,77 @@ interface SnapshotPayloadItem {
   h?: unknown;
   l?: unknown;
   a?: unknown;
+  ac?: unknown;
   pt?: unknown;
 }
 
 const avatarColors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
+
+interface CompareCardLayout {
+  gap: number;
+  cardPadding: string;
+  avatarSize: number;
+  avatarFontSize: number;
+  titleFontSize: number;
+  titleMaxWidth: number;
+  titleChars: number;
+  metricLabelFontSize: number;
+  metricValueFontSize: number;
+  panelLabelFontSize: number;
+  chartWidth: number;
+  chartHeight: number;
+}
+
+function getCompareCardLayout(itemCount: number): CompareCardLayout {
+  if (itemCount <= 2) {
+    return {
+      gap: 24,
+      cardPadding: "22px 22px 18px",
+      avatarSize: 50,
+      avatarFontSize: 24,
+      titleFontSize: 31,
+      titleMaxWidth: 360,
+      titleChars: 28,
+      metricLabelFontSize: 17,
+      metricValueFontSize: 26,
+      panelLabelFontSize: 15,
+      chartWidth: 320,
+      chartHeight: 68,
+    };
+  }
+
+  if (itemCount === 3) {
+    return {
+      gap: 18,
+      cardPadding: "20px 18px 16px",
+      avatarSize: 46,
+      avatarFontSize: 23,
+      titleFontSize: 28,
+      titleMaxWidth: 280,
+      titleChars: 24,
+      metricLabelFontSize: 16,
+      metricValueFontSize: 24,
+      panelLabelFontSize: 14,
+      chartWidth: 260,
+      chartHeight: 62,
+    };
+  }
+
+  return {
+    gap: 16,
+    cardPadding: "18px 18px 16px",
+    avatarSize: 42,
+    avatarFontSize: 22,
+    titleFontSize: 27,
+    titleMaxWidth: 220,
+    titleChars: 22,
+    metricLabelFontSize: 16,
+    metricValueFontSize: 22,
+    panelLabelFontSize: 14,
+    chartWidth: 220,
+    chartHeight: 58,
+  };
+}
 
 function normalizeCompareType(rawType?: string): CompareType {
   if (rawType === "journalists" || rawType === "outlets" || rawType === "games") {
@@ -158,6 +227,7 @@ function parseSnapshotPayload(rawSnapshot?: string | null): SnapshotItem[] {
         playerPeak24h: parseOptionalNumber(rawItem.h),
         playerLow24h: parseOptionalNumber(rawItem.l),
         playerAllTimePeak: parseOptionalNumber(rawItem.a),
+        achievementCount: parseOptionalNumber(rawItem.ac),
         playerTrend: parseTrendSnapshot(rawItem.pt),
         trend: parseTrendSnapshot(rawItem.t),
       });
@@ -240,6 +310,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           playerPeak24h: null,
           playerLow24h: null,
           playerAllTimePeak: null,
+          achievementCount: null,
           playerTrend: [],
           trend: toTrendSnapshot(history),
         };
@@ -275,6 +346,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           playerPeak24h: null,
           playerLow24h: null,
           playerAllTimePeak: null,
+          achievementCount: null,
           playerTrend: [],
           trend: toTrendSnapshot(history),
         };
@@ -317,6 +389,7 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
         playerAllTimePeak: steamActivity?.summary.steam_player_all_time_peak
           ?? game.steam_player_all_time_peak
           ?? null,
+        achievementCount: game.steam_achievement_count ?? null,
         playerTrend: steamActivity ? toPlayerCountTrend(steamActivity.points) : [],
         trend: toTrendSnapshot(history),
       };
@@ -334,6 +407,8 @@ export async function GET(request: Request) {
     const type = normalizeCompareType(searchParams.get("type") ?? undefined);
     const ids = parseCompareIds(searchParams.get("ids") ?? undefined);
     const labels = parseLabels(searchParams.get("labels"));
+    const selectedMetricIds = parseCompareMetricSelection(type, searchParams.get("metrics"));
+    const selectedMetricSet = new Set(selectedMetricIds);
     const snapshotItems = parseSnapshotPayload(searchParams.get("snap"));
 
     const quickItems: SnapshotItem[] = ids.map((id, index) => ({
@@ -348,6 +423,7 @@ export async function GET(request: Request) {
       playerPeak24h: null,
       playerLow24h: null,
       playerAllTimePeak: null,
+      achievementCount: null,
       playerTrend: [],
       trend: [],
     }));
@@ -366,6 +442,7 @@ export async function GET(request: Request) {
 
     const items = merged.length > 0 ? merged : quickItems;
     const typeLabel = getTypeLabel(type);
+    const cardLayout = getCompareCardLayout(items.length);
     const title = items.length > 0
       ? `Compare ${items.map((item) => truncate(item.name, 20)).join(" vs ")}`
       : `Compare ${typeLabel}`;
@@ -412,19 +489,54 @@ export async function GET(request: Request) {
             </div>
           </div>
 
-          <div style={{ display: "flex", gap: 16, marginTop: 26, flex: 1 }}>
+          <div style={{ display: "flex", gap: cardLayout.gap, marginTop: 26, flex: 1 }}>
             {items.length > 0 ? (
               items.map((item, index) => (
                 (() => {
                   const hasPlayerData = type === "games" && (
                     item.currentPlayers != null
-                    || item.playerPeak24h != null
-                    || item.playerLow24h != null
                     || item.playerAllTimePeak != null
                     || item.playerTrend.length > 1
                   );
+                  const metricRows = [
+                    selectedMetricSet.has("avg_disparity") ? {
+                      label: "Combined disparity",
+                      value: formatDisparity(item.disparity),
+                      color: getDisparityColor(item.disparity),
+                    } : null,
+                    selectedMetricSet.has("avg_score") ? {
+                      label: "Critic score",
+                      value: formatScore(item.criticScore),
+                      color: "#F7F2E7",
+                    } : null,
+                    selectedMetricSet.has("steam_user_score") ? {
+                      label: "Steam score",
+                      value: formatScore(item.steamScore),
+                      color: "#F7F2E7",
+                    } : null,
+                    selectedMetricSet.has("metacritic_user_score") ? {
+                      label: "Metacritic score",
+                      value: formatScore(item.metacriticScore),
+                      color: "#F7F2E7",
+                    } : null,
+                    type === "games" && selectedMetricSet.has("current_players") ? {
+                      label: "Current players",
+                      value: formatCompactPlayerCount(item.currentPlayers),
+                      color: "#F7F2E7",
+                    } : null,
+                    type === "games" && selectedMetricSet.has("all_time_peak_players") ? {
+                      label: "All-time peak",
+                      value: formatCompactPlayerCount(item.playerAllTimePeak),
+                      color: "#F7F2E7",
+                    } : null,
+                    selectedMetricSet.has("review_count") ? {
+                      label: "Total reviews",
+                      value: formatReviewCount(item.reviewCount),
+                      color: "#F7F2E7",
+                    } : null,
+                  ].filter((row): row is { label: string; value: string; color: string } => row != null);
                   const playerTrendPath = item.playerTrend.length > 1
-                    ? buildSparklinePath(item.playerTrend, 220, 58, 6)
+                    ? buildSparklinePath(item.playerTrend, cardLayout.chartWidth, cardLayout.chartHeight, 6)
                     : "";
 
                   return (
@@ -435,7 +547,7 @@ export async function GET(request: Request) {
                         flexDirection: "column",
                         flex: 1,
                         borderRadius: 18,
-                        padding: "18px 18px 16px",
+                        padding: cardLayout.cardPadding,
                         backgroundColor: "rgba(255, 255, 255, 0.08)",
                         border: "1px solid rgba(255, 255, 255, 0.18)",
                       }}
@@ -444,15 +556,15 @@ export async function GET(request: Request) {
                         <div
                           style={{
                             display: "flex",
-                            width: 42,
-                            height: 42,
+                            width: cardLayout.avatarSize,
+                            height: cardLayout.avatarSize,
                             borderRadius: 999,
                             alignItems: "center",
                             justifyContent: "center",
                             backgroundColor: avatarColors[index % avatarColors.length],
                             color: "#F8F8F8",
                             fontWeight: 700,
-                            fontSize: 22,
+                            fontSize: cardLayout.avatarFontSize,
                           }}
                         >
                           {item.name.charAt(0).toUpperCase()}
@@ -460,111 +572,31 @@ export async function GET(request: Request) {
                         <div
                           style={{
                             display: "flex",
-                            fontSize: 27,
+                            fontSize: cardLayout.titleFontSize,
                             fontWeight: 700,
                             lineHeight: 1.05,
-                            maxWidth: 220,
+                            maxWidth: cardLayout.titleMaxWidth,
                           }}
                         >
-                          {truncate(item.name, 22)}
+                          {truncate(item.name, cardLayout.titleChars)}
                         </div>
                       </div>
 
                       <div style={{ display: "flex", flexDirection: "column", marginTop: 14, gap: 6 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                          <span style={{ color: "#CFC5B8" }}>Critic score</span>
-                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
-                            {formatScore(item.criticScore)}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                          <span style={{ color: "#CFC5B8" }}>Steam score</span>
-                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
-                            {formatScore(item.steamScore)}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                          <span style={{ color: "#CFC5B8" }}>Metacritic score</span>
-                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
-                            {formatScore(item.metacriticScore)}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                          <span style={{ color: "#CFC5B8" }}>Combined disparity</span>
-                          <span
-                            style={{
-                              color: getDisparityColor(item.disparity),
-                              fontWeight: 800,
-                              fontSize: 22,
-                            }}
+                        {metricRows.map((row) => (
+                          <div
+                            key={row.label}
+                            style={{ display: "flex", justifyContent: "space-between", fontSize: cardLayout.metricLabelFontSize }}
                           >
-                            {formatDisparity(item.disparity)}
-                          </span>
-                        </div>
-                        {type === "games" && (
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                            <span style={{ color: "#CFC5B8" }}>Current players</span>
-                            <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
-                              {formatCompactPlayerCount(item.currentPlayers)}
+                            <span style={{ color: "#CFC5B8" }}>{row.label}</span>
+                            <span style={{ color: row.color, fontWeight: 700, fontSize: cardLayout.metricValueFontSize }}>
+                              {row.value}
                             </span>
                           </div>
-                        )}
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
-                          <span style={{ color: "#CFC5B8" }}>Total reviews</span>
-                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
-                            {formatReviewCount(item.reviewCount)}
-                          </span>
-                        </div>
+                        ))}
                       </div>
 
-                      <div
-                        style={{
-                          display: "flex",
-                          flexDirection: "column",
-                          marginTop: 12,
-                          borderRadius: 10,
-                          border: "1px solid rgba(255,255,255,0.16)",
-                          backgroundColor: "rgba(0,0,0,0.18)",
-                          padding: "8px 10px",
-                          gap: 6,
-                        }}
-                      >
-                        <div style={{ display: "flex", fontSize: 14, color: "#CFC5B8", letterSpacing: "0.3px" }}>
-                          Disparity trend
-                        </div>
-                        {item.trend.length > 1 ? (
-                          <svg
-                            width="220"
-                            height="58"
-                            viewBox="0 0 220 58"
-                            fill="none"
-                            xmlns="http://www.w3.org/2000/svg"
-                          >
-                            <line
-                              x1="6"
-                              y1={zeroBaselineY(item.trend, 58)}
-                              x2="214"
-                              y2={zeroBaselineY(item.trend, 58)}
-                              stroke="rgba(255,255,255,0.24)"
-                              strokeWidth="1"
-                            />
-                            <polyline
-                              points={buildTrendPolyline(item.trend, 220, 58)}
-                              fill="none"
-                              stroke={getDisparityColor(item.disparity)}
-                              strokeWidth="2.4"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        ) : (
-                          <div style={{ display: "flex", height: 58, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
-                            Not enough points
-                          </div>
-                        )}
-                      </div>
-
-                      {hasPlayerData && (
+                      {hasPlayerData && selectedMetricSet.has("player_count_trend") && (
                         <div
                           style={{
                             display: "flex",
@@ -577,23 +609,23 @@ export async function GET(request: Request) {
                             gap: 6,
                           }}
                         >
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#D8C593", letterSpacing: "0.3px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: cardLayout.panelLabelFontSize, color: "#D8C593", letterSpacing: "0.3px" }}>
                             <span>Player count trend</span>
                             <span>{formatCompactPlayerCount(item.currentPlayers)} now</span>
                           </div>
                           {playerTrendPath ? (
                             <svg
-                              width="220"
-                              height="58"
-                              viewBox="0 0 220 58"
+                              width={cardLayout.chartWidth}
+                              height={cardLayout.chartHeight}
+                              viewBox={`0 0 ${cardLayout.chartWidth} ${cardLayout.chartHeight}`}
                               fill="none"
                               xmlns="http://www.w3.org/2000/svg"
                             >
                               <line
                                 x1="6"
-                                y1="52"
-                                x2="214"
-                                y2="52"
+                                y1={cardLayout.chartHeight - 6}
+                                x2={cardLayout.chartWidth - 6}
+                                y2={cardLayout.chartHeight - 6}
                                 stroke="rgba(255,255,255,0.18)"
                                 strokeWidth="1"
                               />
@@ -607,14 +639,59 @@ export async function GET(request: Request) {
                               />
                             </svg>
                           ) : (
-                            <div style={{ display: "flex", height: 58, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
+                            <div style={{ display: "flex", height: cardLayout.chartHeight, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
                               Not enough points
                             </div>
                           )}
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#CFC5B8" }}>
-                            <span>24h high {formatCompactPlayerCount(item.playerPeak24h)}</span>
-                            <span>24h low {formatCompactPlayerCount(item.playerLow24h)}</span>
+                        </div>
+                      )}
+
+                      {selectedMetricSet.has("disparity_trend") && (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            marginTop: 12,
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.16)",
+                            backgroundColor: "rgba(0,0,0,0.18)",
+                            padding: "8px 10px",
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ display: "flex", fontSize: cardLayout.panelLabelFontSize, color: "#CFC5B8", letterSpacing: "0.3px" }}>
+                            Disparity trend
                           </div>
+                          {item.trend.length > 1 ? (
+                            <svg
+                              width={cardLayout.chartWidth}
+                              height={cardLayout.chartHeight}
+                              viewBox={`0 0 ${cardLayout.chartWidth} ${cardLayout.chartHeight}`}
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <line
+                                x1="6"
+                                y1={zeroBaselineY(item.trend, cardLayout.chartHeight)}
+                                x2={cardLayout.chartWidth - 6}
+                                y2={zeroBaselineY(item.trend, cardLayout.chartHeight)}
+                                stroke="rgba(255,255,255,0.24)"
+                                strokeWidth="1"
+                              />
+                              <polyline
+                                points={buildTrendPolyline(item.trend, cardLayout.chartWidth, cardLayout.chartHeight)}
+                                fill="none"
+                                stroke={getDisparityColor(item.disparity)}
+                                strokeWidth="2.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <div style={{ display: "flex", height: cardLayout.chartHeight, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
+                              Not enough points
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -639,9 +716,7 @@ export async function GET(request: Request) {
                   Select up to 4 {typeLabel}
                 </div>
                 <div style={{ display: "flex", fontSize: 24, color: "#CFC5B8" }}>
-                  {type === "games"
-                    ? "Snapshot includes critic, user score, disparity, and Steam player counts."
-                    : "Snapshot includes critic, steam, metacritic, and disparity."}
+                  Snapshot reflects the metric selection from the compare view.
                 </div>
               </div>
             )}

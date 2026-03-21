@@ -4,6 +4,7 @@ import { isRemoteImageUrl, normalizeImageUrl } from "@/lib/image-url";
 export default function AppImage({
   src,
   unoptimized,
+  quality,
   ...props
 }: ImageProps) {
   const normalizedSrc = typeof src === "string" ? normalizeImageUrl(src) : src;
@@ -14,6 +15,7 @@ export default function AppImage({
     <NextImage
       {...props}
       src={normalizedSrc}
+      {...(!shouldBypassOptimization && quality != null ? { quality } : {})}
       unoptimized={shouldBypassOptimization}
     />
   );

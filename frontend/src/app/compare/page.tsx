@@ -5,10 +5,13 @@ import Link from "next/link";
 import { getGame, getGameHistory, getGameSteamActivity, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { MiniDisparityChart } from "@/components/DisparityChart";
+import { CompareMetricControls } from "@/components/CompareMetricControls";
+import { CompareMetricRowToggle } from "@/components/CompareMetricRowToggle";
 import { CompareSelector } from "@/components/CompareSelector";
 import { GameAvatar } from "@/components/GameAvatar";
 import { MiniPlayerCountChart } from "@/components/MiniPlayerCountChart";
 import { ShareButtons } from "@/components/ShareButtons";
+import { parseCompareMetricSelection, type CompareType } from "@/lib/compare-metrics";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { toPlayerCountTrend } from "@/lib/player-count-chart";
@@ -19,8 +22,6 @@ import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
 const COMPARE_PLAYER_TREND_LIMIT = 72;
-
-type CompareType = "journalists" | "outlets" | "games";
 
 const compareTypeLabel: Record<CompareType, string> = {
   journalists: "journalists",
@@ -58,6 +59,7 @@ interface PageProps {
     ids?: string;
     card?: string;
     labels?: string;
+    metrics?: string;
     snap?: string;
     sx?: string;
   }>;
@@ -130,6 +132,7 @@ function buildCompareSnapshotPayload(items: CompareData[]): string {
         h: item.steam_player_24h_peak,
         l: item.steam_player_24h_low_observed,
         a: item.steam_player_all_time_peak,
+        ac: item.steam_achievement_count,
         pt: item.player_count_trend,
       } : {}),
     }))
@@ -156,6 +159,9 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   if (labels.length > 0) {
     queryParams.set("labels", labels.join("|"));
   }
+  if (params.metrics?.trim()) {
+    queryParams.set("metrics", params.metrics.trim());
+  }
   if (params.snap?.trim()) {
     queryParams.set("snap", params.snap.trim());
   }
@@ -177,7 +183,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
     : `Compare ${compareLabel}`;
   const description = compareCount > 0
     ? type === "games"
-      ? "Compare selected games on ReviewDisparity. See disparity, review volume, score averages, Steam player counts, and trend snapshots side by side."
+      ? "Compare selected games on ReviewDisparity. See disparity, critic and user scores, Steam player counts, and trend snapshots side by side."
       : `Compare selected ${compareLabel} on ReviewDisparity. See disparity, review volume, score averages, and trend snapshots side by side.`
     : "Compare game journalists, outlets, and games side by side. See how their review scores, disparity trends, and Steam player counts differ over time.";
   const comparePath = `/compare?${queryParams.toString()}`;
@@ -214,6 +220,8 @@ export default async function ComparePage({ searchParams }: PageProps) {
   const params = await searchParams;
   const type = normalizeCompareType(params.type);
   const ids = parseCompareIds(params.ids);
+  const selectedMetricIds = parseCompareMetricSelection(type, params.metrics);
+  const selectedMetricSet = new Set(selectedMetricIds);
 
   const tabs = [
     { id: "journalists", label: "Journalists" },
@@ -383,9 +391,10 @@ export default async function ComparePage({ searchParams }: PageProps) {
   const comparedNames = compareData.slice(0, 4).map((item) => item.name);
   const shareUrl = buildCompareShareUrl(getSiteUrl(), {
     type,
-    card: "v6",
+    card: "v7",
     ids: compareIds,
     labels: comparedNames,
+    metrics: selectedMetricIds,
     snapshotPayload: compareData.length > 0 ? buildCompareSnapshotPayload(compareData) : undefined,
   });
   const shareText = comparedNames.length > 0
@@ -398,8 +407,33 @@ export default async function ComparePage({ searchParams }: PageProps) {
     : type === "outlets"
       ? "Outlets"
       : "Games";
-  const hasAnyPlayerCountTrend = type === "games"
-    && compareData.some((item) => item.player_count_trend.length > 1);
+  const compareColumnWidthClass = compareData.length === 1
+    ? "w-[36rem] min-w-[36rem]"
+    : compareData.length === 2
+      ? "w-[24rem] min-w-[24rem]"
+      : compareData.length === 3
+        ? "w-[18rem] min-w-[18rem]"
+        : "w-[14rem] min-w-[14rem]";
+  const renderMetricControlCell = (metricId: Parameters<typeof CompareMetricRowToggle>[0]["metricId"], label: string, description?: string) => (
+    <td className="px-4 py-4 align-top text-sm font-medium text-gray-700">
+      <div className="flex items-start gap-4">
+        <CompareMetricRowToggle
+          type={type}
+          metricId={metricId}
+          label={label}
+          selectedMetricIds={selectedMetricIds}
+        />
+        <div className="min-w-0 pt-0.5">
+          <div>{label}</div>
+          {description ? (
+            <div className="mt-1 text-xs font-normal text-gray-500">
+              {description}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </td>
+  );
 
   return (
     <div className="space-y-6">
@@ -415,7 +449,9 @@ export default async function ComparePage({ searchParams }: PageProps) {
             style={{ color: "var(--foreground-muted)" }}
           >
             Compare up to four {compareTypeLabel[type]} side by side, including disparity,
-            score baselines, review volume{type === "games" ? ", Steam player counts," : ","} and recent trend direction.
+            {type === "games"
+              ? " critic and user scores, Steam player counts, and recent trend direction."
+              : " score baselines, review volume, and recent trend direction."}
           </p>
         </div>
       </section>
@@ -466,195 +502,113 @@ export default async function ComparePage({ searchParams }: PageProps) {
 
       {/* Comparison Grid */}
       {compareData.length > 0 ? (
-        <div className="site-table-wrap">
-          <div className="overflow-x-auto">
-            <table className="site-table">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-40">
-                    Metric
-                  </th>
-                  {compareData.map((item, index) => (
-                    <th
-                      key={item.id}
-                      className="px-4 py-3 text-center text-sm font-medium text-gray-900 min-w-[200px]"
-                    >
-                      <div className="flex flex-col items-center gap-2">
-                        {item.image_url ? (
-                          type === "games" ? (
-                            <GameAvatar
-                              title={item.name}
-                              imageUrl={item.image_url}
-                              width={72}
-                              height={40}
-                              sizes="72px"
-                              className="h-10 w-[4.5rem] rounded-xl object-contain"
-                            />
-                          ) : (
-                            <Image
-                              src={item.image_url}
-                              alt={item.name}
-                              width={48}
-                              height={48}
-                              sizes="48px"
-                              className="w-12 h-12 rounded-full object-cover"
-                            />
-                          )
-                        ) : (
-                          <div
-                            className="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium"
-                            style={{ backgroundColor: colors[index] }}
-                          >
-                            {item.name.charAt(0)}
-                          </div>
-                        )}
-                        <Link
-                          href={item.linkHref}
-                          className="transition-colors hover:opacity-80"
-                          style={{ color: "var(--color-rust)" }}
-                        >
-                          {item.name}
-                        </Link>
-                      </div>
+        <div className="space-y-4">
+          <CompareMetricControls type={type} selectedMetricIds={selectedMetricIds} />
+          <div className="site-table-wrap inline-block max-w-full align-top">
+            <div>
+              <table className="site-table" style={{ width: "max-content" }}>
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500 w-[18rem] min-w-[18rem]">
+                      Metric
                     </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
+                    {compareData.map((item, index) => (
+                      <th
+                        key={item.id}
+                        className={`px-4 py-3 text-center text-sm font-medium text-gray-900 ${compareColumnWidthClass}`}
+                      >
+                        <div className="flex flex-col items-center gap-2">
+                          {item.image_url ? (
+                            type === "games" ? (
+                              <GameAvatar
+                                title={item.name}
+                                imageUrl={item.image_url}
+                                width={72}
+                                height={40}
+                                sizes="72px"
+                                className="h-10 w-[4.5rem] rounded-xl object-contain"
+                              />
+                            ) : (
+                              <Image
+                                src={item.image_url}
+                                alt={item.name}
+                                width={48}
+                                height={48}
+                                sizes="48px"
+                                className="w-12 h-12 rounded-full object-cover"
+                              />
+                            )
+                          ) : (
+                            <div
+                              className="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium"
+                              style={{ backgroundColor: colors[index] }}
+                            >
+                              {item.name.charAt(0)}
+                            </div>
+                          )}
+                          <Link
+                            href={item.linkHref}
+                            className="transition-colors hover:opacity-80"
+                            style={{ color: "var(--color-rust)" }}
+                          >
+                            {item.name}
+                          </Link>
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
                 {/* Disparity Row */}
-                <tr>
-                  <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    Avg Disparity
-                  </td>
-                  {compareData.map((item) => (
-                    <td key={item.id} className="px-4 py-4 text-center">
-                      <div className="flex justify-center">
-                        <DisparityBadge disparity={item.avg_disparity} />
-                      </div>
-                    </td>
-                  ))}
-                </tr>
+                {selectedMetricSet.has("avg_disparity") && (
+                  <tr>
+                    {renderMetricControlCell("avg_disparity", "Avg Disparity")}
+                    {compareData.map((item) => (
+                      <td key={item.id} className="px-4 py-4 text-center">
+                        <div className="flex justify-center">
+                          <DisparityBadge disparity={item.avg_disparity} />
+                        </div>
+                      </td>
+                    ))}
+                  </tr>
+                )}
 
                 {/* Review Count Row */}
-                <tr className="bg-gray-50">
-                  <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    {type === "games" ? "Total Critic Reviews" : "Total Reviews"}
-                  </td>
-                  {compareData.map((item) => (
-                    <td
-                      key={item.id}
-                      className="px-4 py-4 text-center text-gray-900 font-medium"
-                    >
-                      {item.review_count.toLocaleString()}
-                    </td>
-                  ))}
-                </tr>
+                {type !== "games" && selectedMetricSet.has("review_count") && (
+                  <tr>
+                    {renderMetricControlCell("review_count", "Total Reviews")}
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {item.review_count.toLocaleString()}
+                      </td>
+                    ))}
+                  </tr>
+                )}
 
                 {/* Avg Score Row */}
-                <tr>
-                  <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    {type === "games" ? "Avg Critic Score" : "Avg Score Given"}
-                  </td>
-                  {compareData.map((item) => (
-                    <td
-                      key={item.id}
-                      className="px-4 py-4 text-center text-gray-900 font-medium"
-                    >
-                      {item.avg_score != null
-                        ? Number(item.avg_score).toFixed(1)
-                        : "N/A"}
-                    </td>
-                  ))}
-                </tr>
-
-                {/* Steam Score Row (games only) */}
-                {type === "games" && (
-                  <tr className="bg-gray-50">
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      Current Player Count
-                    </td>
-                    {compareData.map((item) => (
-                      <td
-                        key={item.id}
-                        className="px-4 py-4 text-center text-gray-900 font-medium"
-                      >
-                        {formatPlayerCount(item.steam_current_players)}
-                      </td>
-                    ))}
-                  </tr>
-                )}
-
-                {type === "games" && (
+                {selectedMetricSet.has("avg_score") && (
                   <tr>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      All-Time Peak Player Count
-                    </td>
+                    {renderMetricControlCell("avg_score", type === "games" ? "Avg Critic Score" : "Avg Score Given")}
                     {compareData.map((item) => (
                       <td
                         key={item.id}
                         className="px-4 py-4 text-center text-gray-900 font-medium"
                       >
-                        {formatPlayerCount(item.steam_player_all_time_peak)}
-                      </td>
-                    ))}
-                  </tr>
-                )}
-
-                {type === "games" && (
-                  <tr className="bg-gray-50">
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      24-Hour High Player Count
-                    </td>
-                    {compareData.map((item) => (
-                      <td
-                        key={item.id}
-                        className="px-4 py-4 text-center text-gray-900 font-medium"
-                      >
-                        {formatPlayerCount(item.steam_player_24h_peak)}
-                      </td>
-                    ))}
-                  </tr>
-                )}
-
-                {type === "games" && (
-                  <tr>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      24-Hour Low Player Count
-                    </td>
-                    {compareData.map((item) => (
-                      <td
-                        key={item.id}
-                        className="px-4 py-4 text-center text-gray-900 font-medium"
-                      >
-                        {formatPlayerCount(item.steam_player_24h_low_observed)}
-                      </td>
-                    ))}
-                  </tr>
-                )}
-
-                {type === "games" && (
-                  <tr className="bg-gray-50">
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      Achievement Count
-                    </td>
-                    {compareData.map((item) => (
-                      <td
-                        key={item.id}
-                        className="px-4 py-4 text-center text-gray-900 font-medium"
-                      >
-                        {item.steam_achievement_count != null
-                          ? item.steam_achievement_count.toLocaleString()
+                        {item.avg_score != null
+                          ? Number(item.avg_score).toFixed(1)
                           : "N/A"}
                       </td>
                     ))}
                   </tr>
                 )}
 
-                {type === "games" && (
+                {/* Steam Score Row (games only) */}
+                {type === "games" && selectedMetricSet.has("steam_user_score") && (
                   <tr>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      Steam User Score
-                    </td>
+                    {renderMetricControlCell("steam_user_score", "Steam User Score")}
                     {compareData.map((item) => (
                       <td
                         key={item.id}
@@ -668,12 +622,9 @@ export default async function ComparePage({ searchParams }: PageProps) {
                   </tr>
                 )}
 
-                {/* Metacritic Score Row (games only) */}
-                {type === "games" && (
-                  <tr className="bg-gray-50">
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      Metacritic User Score
-                    </td>
+                {type === "games" && selectedMetricSet.has("metacritic_user_score") && (
+                  <tr>
+                    {renderMetricControlCell("metacritic_user_score", "Metacritic User Score")}
                     {compareData.map((item) => (
                       <td
                         key={item.id}
@@ -687,14 +638,41 @@ export default async function ComparePage({ searchParams }: PageProps) {
                   </tr>
                 )}
 
-                {hasAnyPlayerCountTrend && (
+                {type === "games" && selectedMetricSet.has("current_players") && (
                   <tr>
-                    <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                      <div>Player Count Trend</div>
-                      <div className="mt-1 text-xs font-normal text-gray-500">
-                        Recent hourly current-player trend with the latest value shown above
-                      </div>
-                    </td>
+                    {renderMetricControlCell("current_players", "Current Player Count")}
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {formatPlayerCount(item.steam_current_players)}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {type === "games" && selectedMetricSet.has("all_time_peak_players") && (
+                  <tr>
+                    {renderMetricControlCell("all_time_peak_players", "All-Time Peak Player Count")}
+                    {compareData.map((item) => (
+                      <td
+                        key={item.id}
+                        className="px-4 py-4 text-center text-gray-900 font-medium"
+                      >
+                        {formatPlayerCount(item.steam_player_all_time_peak)}
+                      </td>
+                    ))}
+                  </tr>
+                )}
+
+                {type === "games" && selectedMetricSet.has("player_count_trend") && (
+                  <tr>
+                    {renderMetricControlCell(
+                      "player_count_trend",
+                      "Player Count Trend",
+                      "Recent hourly current-player trend with the latest value shown above"
+                    )}
                     {compareData.map((item, index) => (
                       <td key={item.id} className="px-4 py-4">
                         {item.player_count_trend.length > 1 ? (
@@ -715,25 +693,23 @@ export default async function ComparePage({ searchParams }: PageProps) {
                 )}
 
                 {/* Trend Chart Row */}
-                <tr className={hasAnyPlayerCountTrend ? "bg-gray-50" : ""}>
-                  <td className="px-4 py-4 text-sm font-medium text-gray-700">
-                    <div>Disparity Trend</div>
-                    <div className="text-xs font-normal text-gray-500 mt-1">
-                      Combined disparity over time
-                    </div>
-                  </td>
-                  {compareData.map((item, index) => (
-                    <td key={item.id} className="px-4 py-4">
-                      <MiniDisparityChart
-                        data={item.history}
-                        color={colors[index]}
-                        height={100}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              </tbody>
-            </table>
+                {selectedMetricSet.has("disparity_trend") && (
+                  <tr>
+                    {renderMetricControlCell("disparity_trend", "Disparity Trend", "Combined disparity over time")}
+                    {compareData.map((item, index) => (
+                      <td key={item.id} className="px-4 py-4">
+                        <MiniDisparityChart
+                          data={item.history}
+                          color={colors[index]}
+                          height={100}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       ) : ids.length > 0 ? (
