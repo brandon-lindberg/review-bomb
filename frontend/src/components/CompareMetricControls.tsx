@@ -52,12 +52,12 @@ export function CompareMetricControls({
   }
 
   return (
-    <div className="flex justify-end">
+    <div className="flex justify-start lg:justify-end">
       <button
         type="button"
         onClick={handleShowAll}
         disabled={isNavigating}
-        className="inline-flex items-center gap-3 rounded-full border px-4 py-2 disabled:opacity-60"
+        className="inline-flex w-full items-center justify-between gap-3 rounded-full border px-4 py-2 text-left disabled:opacity-60 sm:w-auto"
         style={{
           borderColor: "color-mix(in srgb, var(--color-rust) 36%, transparent)",
           backgroundColor: "color-mix(in srgb, var(--background-card-strong) 84%, var(--color-rust) 16%)",

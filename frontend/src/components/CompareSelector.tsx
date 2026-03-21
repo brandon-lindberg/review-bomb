@@ -215,7 +215,7 @@ export function CompareSelector({
           {selectedItems.map((item) => (
             <span
               key={item.id}
-              className="inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm"
+              className="inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-2 text-sm"
               style={{
                 borderColor: "color-mix(in srgb, var(--color-rust) 20%, transparent)",
                 backgroundColor: "color-mix(in srgb, var(--background-card-strong) 86%, var(--color-rust) 14%)",
@@ -248,7 +248,7 @@ export function CompareSelector({
                   {item.name.charAt(0)}
                 </span>
               )}
-              <span className="font-medium">{item.name}</span>
+              <span className="max-w-[10rem] truncate font-medium sm:max-w-[14rem]">{item.name}</span>
               <button
                 onClick={() => handleRemove(item.id)}
                 className="transition-colors hover:text-rust disabled:opacity-60"

@@ -1,4 +1,4 @@
-import { Suspense } from "react";
+import { Suspense, type ReactNode } from "react";
 import type { Metadata } from "next";
 import Image from "@/components/AppImage";
 import Link from "next/link";
@@ -414,6 +414,82 @@ export default async function ComparePage({ searchParams }: PageProps) {
       : compareData.length === 3
         ? "w-[18rem] min-w-[18rem]"
         : "w-[14rem] min-w-[14rem]";
+  const mobileMetricCardStyle = {
+    borderColor: "var(--border)",
+    background: "linear-gradient(180deg, var(--background-card-strong), var(--background-card))",
+    boxShadow: "var(--shadow-soft)",
+  };
+  const mobileCompareItemStyle = {
+    borderColor: "color-mix(in srgb, var(--border) 82%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--background-card-strong) 72%, transparent)",
+  };
+  const renderMobileCompareIdentity = (item: CompareData, index: number) => (
+    <div className="flex min-w-0 items-center gap-3">
+      {item.image_url ? (
+        type === "games" ? (
+          <GameAvatar
+            title={item.name}
+            imageUrl={item.image_url}
+            width={52}
+            height={30}
+            sizes="52px"
+            className="h-[1.875rem] w-[3.25rem] rounded-lg object-contain"
+          />
+        ) : (
+          <Image
+            src={item.image_url}
+            alt={item.name}
+            width={36}
+            height={36}
+            sizes="36px"
+            className="h-9 w-9 rounded-full object-cover"
+          />
+        )
+      ) : (
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-medium text-white"
+          style={{ backgroundColor: colors[index] }}
+        >
+          {item.name.charAt(0)}
+        </div>
+      )}
+      <Link
+        href={item.linkHref}
+        className="block truncate text-sm font-medium transition-colors hover:opacity-80"
+        style={{ color: "var(--foreground)" }}
+      >
+        {item.name}
+      </Link>
+    </div>
+  );
+  const renderMobileValueEntry = (item: CompareData, index: number, value: ReactNode) => (
+    <div
+      key={item.id}
+      className="rounded-[1.25rem] border px-3 py-3"
+      style={mobileCompareItemStyle}
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          {renderMobileCompareIdentity(item, index)}
+        </div>
+        <div className="shrink-0">
+          {value}
+        </div>
+      </div>
+    </div>
+  );
+  const renderMobileChartEntry = (item: CompareData, index: number, chart: ReactNode) => (
+    <div
+      key={item.id}
+      className="rounded-[1.25rem] border px-3 py-3"
+      style={mobileCompareItemStyle}
+    >
+      <div className="mb-3 min-w-0">
+        {renderMobileCompareIdentity(item, index)}
+      </div>
+      {chart}
+    </div>
+  );
   const renderMetricControlCell = (metricId: Parameters<typeof CompareMetricRowToggle>[0]["metricId"], label: string, description?: string) => (
     <td className="px-4 py-4 align-top text-sm font-medium text-gray-700">
       <div className="flex items-start gap-4">
@@ -434,6 +510,47 @@ export default async function ComparePage({ searchParams }: PageProps) {
       </div>
     </td>
   );
+  const renderMobileMetricSection = (
+    metricId: Parameters<typeof CompareMetricRowToggle>[0]["metricId"],
+    label: string,
+    content: ReactNode,
+    description?: string
+  ) => {
+    if (!selectedMetricSet.has(metricId)) {
+      return null;
+    }
+
+    return (
+      <section
+        key={metricId}
+        className="overflow-hidden rounded-[1.5rem] border lg:hidden"
+        style={mobileMetricCardStyle}
+      >
+        <div
+          className="flex items-start gap-3 px-4 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <CompareMetricRowToggle
+            type={type}
+            metricId={metricId}
+            label={label}
+            selectedMetricIds={selectedMetricIds}
+          />
+          <div className="min-w-0">
+            <div className="text-sm font-semibold text-gray-900">{label}</div>
+            {description ? (
+              <div className="mt-1 text-xs text-gray-500">
+                {description}
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="space-y-3 p-3">
+          {content}
+        </div>
+      </section>
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -504,7 +621,133 @@ export default async function ComparePage({ searchParams }: PageProps) {
       {compareData.length > 0 ? (
         <div className="space-y-4">
           <CompareMetricControls type={type} selectedMetricIds={selectedMetricIds} />
-          <div className="site-table-wrap inline-block max-w-full align-top">
+          <div className="space-y-3 lg:hidden">
+            {renderMobileMetricSection(
+              "avg_disparity",
+              "Avg Disparity",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="flex justify-end">
+                  <DisparityBadge disparity={item.avg_disparity} />
+                </div>
+              ))
+            )}
+
+            {type !== "games" && renderMobileMetricSection(
+              "review_count",
+              "Total Reviews",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {item.review_count.toLocaleString()}
+                </div>
+              ))
+            )}
+
+            {renderMobileMetricSection(
+              "avg_score",
+              type === "games" ? "Avg Critic Score" : "Avg Score Given",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {item.avg_score != null ? Number(item.avg_score).toFixed(1) : "N/A"}
+                </div>
+              ))
+            )}
+
+            {type === "games" && renderMobileMetricSection(
+              "steam_user_score",
+              "Steam User Score",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {item.steam_user_score != null ? Number(item.steam_user_score).toFixed(1) : "N/A"}
+                </div>
+              ))
+            )}
+
+            {type === "games" && renderMobileMetricSection(
+              "metacritic_user_score",
+              "Metacritic User Score",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {item.metacritic_user_score != null ? Number(item.metacritic_user_score).toFixed(1) : "N/A"}
+                </div>
+              ))
+            )}
+
+            {type === "games" && renderMobileMetricSection(
+              "current_players",
+              "Current Player Count",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {formatPlayerCount(item.steam_current_players)}
+                </div>
+              ))
+            )}
+
+            {type === "games" && renderMobileMetricSection(
+              "all_time_peak_players",
+              "All-Time Peak Player Count",
+              compareData.map((item, index) => renderMobileValueEntry(
+                item,
+                index,
+                <div className="text-right text-lg font-semibold text-gray-900">
+                  {formatPlayerCount(item.steam_player_all_time_peak)}
+                </div>
+              ))
+            )}
+
+            {type === "games" && renderMobileMetricSection(
+              "player_count_trend",
+              "Player Count Trend",
+              compareData.map((item, index) => renderMobileChartEntry(
+                item,
+                index,
+                item.player_count_trend.length > 1 ? (
+                  <MiniPlayerCountChart
+                    values={item.player_count_trend}
+                    color={colors[index]}
+                    className="w-full"
+                    ariaLabel={`${item.name} player count trend`}
+                  />
+                ) : (
+                  <div
+                    className="flex h-20 items-center justify-center rounded-xl border border-dashed text-sm text-gray-400"
+                    style={{ borderColor: "var(--border)" }}
+                  >
+                    N/A
+                  </div>
+                )
+              )),
+              "Recent hourly current-player trend with the latest value shown above"
+            )}
+
+            {renderMobileMetricSection(
+              "disparity_trend",
+              "Disparity Trend",
+              compareData.map((item, index) => renderMobileChartEntry(
+                item,
+                index,
+                <MiniDisparityChart
+                  data={item.history}
+                  color={colors[index]}
+                  height={88}
+                />
+              )),
+              "Combined disparity over time"
+            )}
+          </div>
+
+          <div className="hidden lg:inline-block lg:max-w-full lg:align-top site-table-wrap">
             <div>
               <table className="site-table" style={{ width: "max-content" }}>
                 <thead className="bg-gray-50">

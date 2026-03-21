@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Image from "@/components/AppImage";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { HeaderSearch } from "./HeaderSearch";
 import { ThemeToggle } from "./ThemeToggle";
 
 const navigation = [
@@ -20,9 +21,12 @@ const navigation = [
 export function Header() {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const showHeaderSearch = pathname === "/";
+  const hasBlockingOverlay = mobileMenuOpen || (showHeaderSearch && searchOpen);
 
   useEffect(() => {
-    if (!mobileMenuOpen) return;
+    if (!hasBlockingOverlay) return;
 
     const previousBodyOverflow = document.body.style.overflow;
     const previousHtmlOverflow = document.documentElement.style.overflow;
@@ -33,7 +37,51 @@ export function Header() {
       document.body.style.overflow = previousBodyOverflow;
       document.documentElement.style.overflow = previousHtmlOverflow;
     };
-  }, [mobileMenuOpen]);
+  }, [hasBlockingOverlay]);
+
+  useEffect(() => {
+    if (showHeaderSearch || !searchOpen) return;
+
+    const closeTimeout = window.setTimeout(() => {
+      setSearchOpen(false);
+    }, 0);
+
+    return () => window.clearTimeout(closeTimeout);
+  }, [searchOpen, showHeaderSearch]);
+
+  const renderSearchTrigger = () => (
+    <button
+      type="button"
+      className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition-opacity hover:opacity-80"
+      style={{
+        borderColor: "var(--border)",
+        background:
+          "linear-gradient(180deg, var(--background-card-strong), var(--background-card))",
+        color: "var(--foreground)",
+      }}
+      onClick={() => {
+        setMobileMenuOpen(false);
+        setSearchOpen((current) => !current);
+      }}
+      aria-label={searchOpen ? "Close search" : "Open search"}
+      aria-expanded={searchOpen}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="11" cy="11" r="8" />
+        <path d="m21 21-4.35-4.35" />
+      </svg>
+    </button>
+  );
 
   return (
     <>
@@ -79,8 +127,8 @@ export function Header() {
               </div>
             </Link>
 
-            <div className="hidden min-w-0 items-center gap-3 lg:flex">
-              <nav className="site-tab-nav" aria-label="Primary navigation">
+	            <div className="hidden min-w-0 items-center gap-3 lg:flex">
+	              <nav className="site-tab-nav" aria-label="Primary navigation">
                 {navigation.map((item) => {
                   const isActive = pathname === item.href
                     || (item.href !== "/" && pathname.startsWith(item.href));
@@ -95,14 +143,16 @@ export function Header() {
                     </Link>
                   );
                 })}
-              </nav>
+	              </nav>
 
-              <ThemeToggle />
-            </div>
+	              {showHeaderSearch ? renderSearchTrigger() : null}
+	              <ThemeToggle />
+	            </div>
 
-            <div className="flex items-center gap-2 lg:hidden">
-              <button
-                type="button"
+	            <div className="flex items-center gap-2 lg:hidden">
+	              {showHeaderSearch ? renderSearchTrigger() : null}
+	              <button
+	                type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border"
                 style={{
                   borderColor: "var(--border)",
@@ -135,7 +185,7 @@ export function Header() {
         </div>
       </header>
 
-      {mobileMenuOpen && (
+	      {mobileMenuOpen && (
         <>
           <div
             className="fixed inset-0 z-40 bg-black/55 lg:hidden"
@@ -254,7 +304,11 @@ export function Header() {
             </div>
           </div>
         </>
-      )}
-    </>
+	      )}
+
+	      {showHeaderSearch && (
+	        <HeaderSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+	      )}
+	    </>
   );
 }
