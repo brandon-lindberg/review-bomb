@@ -426,9 +426,6 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
             <h3 className="text-[1.45rem] font-semibold leading-none tracking-[-0.03em] sm:text-[1.9rem]" style={{ color: "var(--foreground)" }}>
               Hourly Player Count
             </h3>
-            <p className="mt-2 text-sm sm:text-base" style={{ color: "var(--foreground-muted)" }}>
-              Current players over time. Summary cards above show the rolling 24-hour high and low.
-            </p>
             <p className="mt-1 text-xs sm:text-sm" style={{ color: colors.text }}>
               Times shown in your local timezone.
             </p>
