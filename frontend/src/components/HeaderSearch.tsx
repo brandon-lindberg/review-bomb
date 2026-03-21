@@ -8,11 +8,19 @@ import { DisparityBadge } from "@/components/DisparityBadge";
 import { GameAvatar } from "@/components/GameAvatar";
 import { getBrowserApiUrl } from "@/lib/api-base-url";
 import { buildEntityPath } from "@/lib/entity-paths";
+import { formatCompactPlayerCount } from "@/lib/player-count-chart";
 import type { Game, Journalist, Outlet, SearchResult } from "@/types";
 
 interface HeaderSearchProps {
   open: boolean;
   onClose: () => void;
+}
+
+interface SearchSectionData {
+  key: string;
+  title: string;
+  count: number;
+  children: ReactNode[];
 }
 
 const EMPTY_SEARCH_RESULT: SearchResult = {
@@ -24,10 +32,12 @@ const EMPTY_SEARCH_RESULT: SearchResult = {
 function SearchSection({
   title,
   count,
+  childrenClassName,
   children,
 }: {
   title: string;
   count: number;
+  childrenClassName?: string;
   children: ReactNode;
 }) {
   return (
@@ -47,7 +57,7 @@ function SearchSection({
           {count}
         </span>
       </div>
-      <div className="space-y-2">
+      <div className={childrenClassName ?? "space-y-2"}>
         {children}
       </div>
     </section>
@@ -59,21 +69,21 @@ function SearchResultCard({
   media,
   title,
   subtitle,
-  disparity,
+  trailing,
   onSelect,
 }: {
   href: string;
   media: ReactNode;
   title: string;
   subtitle: string;
-  disparity: number | null | undefined;
+  trailing?: ReactNode;
   onSelect: () => void;
 }) {
   return (
     <Link
       href={href}
       onClick={onSelect}
-      className="flex items-center justify-between gap-3 rounded-[1rem] border px-3 py-3 transition-opacity hover:opacity-85"
+      className="flex items-center gap-3 rounded-[1rem] border px-3 py-3 transition-opacity hover:opacity-85"
       style={{
         borderColor: "color-mix(in srgb, var(--border) 86%, transparent)",
         backgroundColor: "color-mix(in srgb, var(--background-card-strong) 84%, transparent)",
@@ -90,9 +100,11 @@ function SearchResultCard({
           </div>
         </div>
       </div>
-      <div className="shrink-0">
-        <DisparityBadge disparity={disparity} size="sm" />
-      </div>
+      {trailing ? (
+        <div className="ml-auto shrink-0">
+          {trailing}
+        </div>
+      ) : null}
     </Link>
   );
 }
@@ -105,7 +117,9 @@ function renderJournalistResult(journalist: Journalist, onSelect: () => void) {
       onSelect={onSelect}
       title={journalist.name}
       subtitle={`${journalist.review_count.toLocaleString()} review${journalist.review_count === 1 ? "" : "s"}`}
-      disparity={journalist.avg_disparity}
+      trailing={journalist.avg_disparity != null ? (
+        <DisparityBadge disparity={journalist.avg_disparity} size="sm" />
+      ) : undefined}
       media={journalist.image_url ? (
         <Image
           src={journalist.image_url}
@@ -128,7 +142,13 @@ function renderJournalistResult(journalist: Journalist, onSelect: () => void) {
 }
 
 function renderOutletResult(outlet: Outlet, onSelect: () => void) {
+  const journalistCount = outlet.journalist_count ?? 0;
   const reviewCount = outlet.review_count ?? 0;
+  const subtitle = reviewCount > 0
+    ? `${reviewCount.toLocaleString()} review${reviewCount === 1 ? "" : "s"}`
+    : journalistCount > 0
+      ? `${journalistCount.toLocaleString()} journalist${journalistCount === 1 ? "" : "s"}`
+      : "Outlet profile";
 
   return (
     <SearchResultCard
@@ -136,8 +156,17 @@ function renderOutletResult(outlet: Outlet, onSelect: () => void) {
       href={buildEntityPath("outlets", outlet.name, outlet.public_id)}
       onSelect={onSelect}
       title={outlet.name}
-      subtitle={`${reviewCount.toLocaleString()} review${reviewCount === 1 ? "" : "s"}`}
-      disparity={outlet.avg_disparity}
+      subtitle={subtitle}
+      trailing={journalistCount > 0 ? (
+        <div className="text-right leading-tight">
+          <div className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+            {journalistCount.toLocaleString()}
+          </div>
+          <div className="text-[11px] uppercase tracking-[0.12em]" style={{ color: "var(--foreground-muted)" }}>
+            Journalists
+          </div>
+        </div>
+      ) : undefined}
       media={outlet.logo_url ? (
         <Image
           src={outlet.logo_url}
@@ -160,6 +189,9 @@ function renderOutletResult(outlet: Outlet, onSelect: () => void) {
 }
 
 function renderGameResult(game: Game, onSelect: () => void) {
+  const criticReviewCount = game.critic_review_count ?? 0;
+  const currentPlayers = game.steam_current_players ?? null;
+  const showCurrentPlayers = currentPlayers != null && currentPlayers > 0;
   const subtitle = game.release_date
     ? new Date(`${game.release_date}T00:00:00`).toLocaleDateString(undefined, {
         year: "numeric",
@@ -175,7 +207,18 @@ function renderGameResult(game: Game, onSelect: () => void) {
       onSelect={onSelect}
       title={game.title}
       subtitle={subtitle}
-      disparity={game.disparity}
+      trailing={(
+        <div className="text-right leading-tight">
+          <div className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
+            {showCurrentPlayers
+              ? formatCompactPlayerCount(currentPlayers)
+              : criticReviewCount.toLocaleString()}
+          </div>
+          <div className="text-[11px] uppercase tracking-[0.12em]" style={{ color: "var(--foreground-muted)" }}>
+            {showCurrentPlayers ? "Current Players" : "Critic Reviews"}
+          </div>
+        </div>
+      )}
       media={(
         <GameAvatar
           title={game.title}
@@ -281,6 +324,40 @@ export function HeaderSearch({
   const totalResults = activeResults.journalists.length + activeResults.outlets.length + activeResults.games.length;
   const hasVisibleResults = hasEnoughQuery && totalResults > 0;
   const searchPlaceholder = "Search games, journalists, or outlets";
+  const visibleSections: SearchSectionData[] = [];
+  if (activeResults.games.length > 0) {
+    visibleSections.push({
+      key: "games",
+      title: "Games",
+      count: activeResults.games.length,
+      children: activeResults.games.map((game) => renderGameResult(game, onClose)),
+    });
+  }
+  if (activeResults.journalists.length > 0) {
+    visibleSections.push({
+      key: "journalists",
+      title: "Journalists",
+      count: activeResults.journalists.length,
+      children: activeResults.journalists.map((journalist) => renderJournalistResult(journalist, onClose)),
+    });
+  }
+  if (activeResults.outlets.length > 0) {
+    visibleSections.push({
+      key: "outlets",
+      title: "Outlets",
+      count: activeResults.outlets.length,
+      children: activeResults.outlets.map((outlet) => renderOutletResult(outlet, onClose)),
+    });
+  }
+  const visibleSectionCount = visibleSections.length;
+  const sectionGridClassName = visibleSectionCount <= 1
+    ? "grid gap-2 lg:grid-cols-2"
+    : "space-y-2";
+  const resultsGridClassName = visibleSectionCount <= 1
+    ? "grid gap-4"
+    : visibleSectionCount === 2
+      ? "grid gap-4 xl:grid-cols-2"
+      : "grid gap-4 lg:grid-cols-2 xl:grid-cols-3";
 
   const handleFullSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -300,9 +377,9 @@ export function HeaderSearch({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="fixed inset-x-3 top-20 z-50 sm:inset-x-6 sm:top-24">
+      <div className="fixed inset-x-3 top-20 bottom-3 z-50 overflow-y-auto sm:inset-x-6 sm:top-24 sm:bottom-6">
         <div
-          className="mx-auto w-full max-w-5xl overflow-hidden rounded-[1.9rem] border"
+          className="mx-auto flex h-full w-full max-w-5xl flex-col overflow-hidden rounded-[1.9rem] border"
           style={{
             borderColor: "var(--border-strong)",
             background:
@@ -427,7 +504,7 @@ export function HeaderSearch({
             </div>
           </div>
 
-          <div className="max-h-[min(68vh,42rem)] overflow-y-auto px-4 py-4 sm:px-5">
+          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
             {!hasEnoughQuery ? (
               <div
                 className="rounded-[1.4rem] border px-4 py-5 text-sm"
@@ -451,24 +528,17 @@ export function HeaderSearch({
                 Searching for matches...
               </div>
             ) : hasVisibleResults ? (
-              <div className="grid gap-4 lg:grid-cols-3">
-                {activeResults.games.length > 0 ? (
-                  <SearchSection title="Games" count={activeResults.games.length}>
-                    {activeResults.games.map((game) => renderGameResult(game, onClose))}
+              <div className={resultsGridClassName}>
+                {visibleSections.map((section) => (
+                  <SearchSection
+                    key={section.key}
+                    title={section.title}
+                    count={section.count}
+                    childrenClassName={sectionGridClassName}
+                  >
+                    {section.children}
                   </SearchSection>
-                ) : null}
-
-                {activeResults.journalists.length > 0 ? (
-                  <SearchSection title="Journalists" count={activeResults.journalists.length}>
-                    {activeResults.journalists.map((journalist) => renderJournalistResult(journalist, onClose))}
-                  </SearchSection>
-                ) : null}
-
-                {activeResults.outlets.length > 0 ? (
-                  <SearchSection title="Outlets" count={activeResults.outlets.length}>
-                    {activeResults.outlets.map((outlet) => renderOutletResult(outlet, onClose))}
-                  </SearchSection>
-                ) : null}
+                ))}
               </div>
             ) : (
               <div

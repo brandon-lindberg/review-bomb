@@ -5,6 +5,7 @@ import { search } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { GameAvatar } from "@/components/GameAvatar";
 import { buildEntityPath } from "@/lib/entity-paths";
+import { formatCompactPlayerCount } from "@/lib/player-count-chart";
 
 export const revalidate = 30;
 
@@ -26,6 +27,19 @@ interface PageProps {
   searchParams: Promise<{
     q?: string;
   }>;
+}
+
+function formatReleaseDate(value: string | null | undefined): string {
+  if (!value) return "Release date unavailable";
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function formatPlural(value: number, singular: string): string {
+  return `${value.toLocaleString()} ${singular}${value === 1 ? "" : "s"}`;
 }
 
 export default async function SearchPage({ searchParams }: PageProps) {
@@ -115,7 +129,9 @@ export default async function SearchPage({ searchParams }: PageProps) {
                           </p>
                         </div>
                       </div>
-                      <DisparityBadge disparity={journalist.avg_disparity} />
+                      {journalist.avg_disparity != null ? (
+                        <DisparityBadge disparity={journalist.avg_disparity} />
+                      ) : null}
                     </div>
                   </Link>
                 ))}
@@ -131,6 +147,16 @@ export default async function SearchPage({ searchParams }: PageProps) {
               </h2>
               <div className="bg-white rounded-lg shadow divide-y divide-gray-200">
                 {results.outlets.map((outlet) => (
+                  (() => {
+                    const reviewCount = outlet.review_count ?? 0;
+                    const journalistCount = outlet.journalist_count ?? 0;
+                    const subtitle = reviewCount > 0
+                      ? formatPlural(reviewCount, "review")
+                      : journalistCount > 0
+                        ? formatPlural(journalistCount, "journalist")
+                        : "Outlet profile";
+
+                    return (
                   <Link
                     key={outlet.id}
                     href={buildEntityPath("outlets", outlet.name, outlet.public_id)}
@@ -159,13 +185,24 @@ export default async function SearchPage({ searchParams }: PageProps) {
                             {outlet.name}
                           </p>
                           <p className="text-sm text-gray-500">
-                            {outlet.review_count} reviews
+                            {subtitle}
                           </p>
                         </div>
                       </div>
-                      <DisparityBadge disparity={outlet.avg_disparity} />
+                      {journalistCount > 0 ? (
+                        <div className="text-right">
+                          <p className="font-medium text-gray-900">
+                            {journalistCount.toLocaleString()}
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.12em] text-gray-500">
+                            Journalists
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   </Link>
+                    );
+                  })()
                 ))}
               </div>
             </section>
@@ -179,6 +216,12 @@ export default async function SearchPage({ searchParams }: PageProps) {
               </h2>
               <div className="bg-white rounded-lg shadow divide-y divide-gray-200">
                 {results.games.map((game) => (
+                  (() => {
+                    const currentPlayers = game.steam_current_players ?? null;
+                    const showCurrentPlayers = currentPlayers != null && currentPlayers > 0;
+                    const criticReviewCount = game.critic_review_count ?? 0;
+
+                    return (
                   <Link
                     key={game.id}
                     href={buildEntityPath("games", game.title, game.public_id)}
@@ -196,16 +239,25 @@ export default async function SearchPage({ searchParams }: PageProps) {
                         />
                         <div>
                           <p className="font-medium text-gray-900">{game.title}</p>
-                          {game.release_date && (
-                            <p className="text-sm text-gray-500">
-                              {new Date(game.release_date).toLocaleDateString()}
-                            </p>
-                          )}
+                          <p className="text-sm text-gray-500">
+                            {formatReleaseDate(game.release_date)}
+                          </p>
                         </div>
                       </div>
-                      <DisparityBadge disparity={game.disparity} />
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900">
+                          {showCurrentPlayers
+                            ? formatCompactPlayerCount(currentPlayers)
+                            : criticReviewCount.toLocaleString()}
+                        </p>
+                        <p className="text-xs uppercase tracking-[0.12em] text-gray-500">
+                          {showCurrentPlayers ? "Current Players" : "Critic Reviews"}
+                        </p>
+                      </div>
                     </div>
                   </Link>
+                    );
+                  })()
                 ))}
               </div>
             </section>

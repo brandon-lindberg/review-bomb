@@ -73,6 +73,9 @@ async def search(
             website_url=o.website_url,
             logo_url=o.logo_url,
             opencritic_id=o.opencritic_id,
+            journalist_count=o.journalist_count or 0,
+            review_count=o.review_count_scored or 0,
+            avg_disparity=o.avg_disparity,
         )
         for o in outlets
     ]
@@ -98,6 +101,7 @@ async def search(
             opencritic_id=g.opencritic_id,
             steam_app_id=g.steam_app_id,
             critic_review_count=g.critic_review_count or 0,
+            steam_current_players=g.steam_current_players,
         )
         for g in games
     ]

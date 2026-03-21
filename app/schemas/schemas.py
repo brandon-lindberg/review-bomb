@@ -57,6 +57,9 @@ class OutletSummary(OutletBase):
     public_id: str
     opencritic_id: Optional[int] = None
     is_binary_scorer: bool = False
+    journalist_count: int = 0
+    review_count: int = 0
+    avg_disparity: Optional[Decimal] = None
 
 
 class OutletWithStats(OutletSummary):
@@ -206,6 +209,7 @@ class GameSummary(GameBase):
     opencritic_id: Optional[int] = None
     steam_app_id: Optional[int] = None
     critic_review_count: int = 0
+    steam_current_players: Optional[int] = None
 
 
 class GameWithScores(GameSummary):

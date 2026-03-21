@@ -87,6 +87,7 @@ export interface Outlet {
   website_url: string | null;
   logo_url: string | null;
   opencritic_id: number | null;
+  journalist_count?: number;
   review_count?: number;
   avg_disparity?: number | null;
 }
@@ -122,6 +123,7 @@ export interface Game {
   opencritic_id: number | null;
   steam_app_id: number | null;
   critic_review_count?: number;
+  steam_current_players?: number | null;
   disparity?: number | null;
 }
 
