@@ -22,6 +22,7 @@ import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
 const COMPARE_PLAYER_TREND_LIMIT = 72;
+const COMPARE_DISPARITY_TREND_LIMIT = 180;
 
 const compareTypeLabel: Record<CompareType, string> = {
   journalists: "journalists",
@@ -240,7 +241,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
             try {
               const [journalist, history] = await Promise.all([
                 getJournalist(id),
-                getJournalistHistory(id),
+                getJournalistHistory(id, COMPARE_DISPARITY_TREND_LIMIT),
               ]);
               return { journalist, history };
             } catch {
@@ -289,7 +290,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
             try {
               const [outlet, history] = await Promise.all([
                 getOutlet(id),
-                getOutletHistory(id),
+                getOutletHistory(id, COMPARE_DISPARITY_TREND_LIMIT),
               ]);
               return { outlet, history };
             } catch {
@@ -330,7 +331,7 @@ export default async function ComparePage({ searchParams }: PageProps) {
             try {
               const [game, history, steamActivity] = await Promise.all([
                 getGame(id),
-                getGameHistory(id),
+                getGameHistory(id, COMPARE_DISPARITY_TREND_LIMIT),
                 getGameSteamActivity(id, COMPARE_PLAYER_TREND_LIMIT).catch(() => null),
               ]);
               return { game, history, steamActivity };

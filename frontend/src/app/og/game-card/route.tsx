@@ -3,8 +3,7 @@ import { getGameHistory } from "@/lib/api";
 import { formatDisparity, getDisparityColor } from "@/lib/disparity-colors";
 import { readTrendSnapshot, toTrendSnapshot } from "@/lib/share-snapshot";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+export const revalidate = 300;
 
 const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 630;

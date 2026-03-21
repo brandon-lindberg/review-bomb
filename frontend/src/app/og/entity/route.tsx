@@ -1,1 +1,1 @@
-export { GET, dynamic, revalidate } from "@/app/og/entity-v2/route";
+export { GET, revalidate } from "@/app/og/entity-v2/route";

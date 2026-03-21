@@ -7,7 +7,6 @@ import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
 import type { DisparitySnapshot } from "@/types";
 
 export const revalidate = 300;
-export const dynamic = "force-dynamic";
 
 const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 630;
