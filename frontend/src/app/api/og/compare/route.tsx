@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
-import { getGame, getGameHistory, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
+import { getGame, getGameHistory, getGameSteamActivity, getJournalist, getJournalistHistory, getOutlet, getOutletHistory } from "@/lib/api";
 import { formatDisparity, getDisparityColor, getDisplayDisparity } from "@/lib/disparity-colors";
+import { buildSparklinePath, formatCompactPlayerCount, toPlayerCountTrend } from "@/lib/player-count-chart";
 import { deriveSourceScoreFromDisparity } from "@/lib/share-snapshot";
 import type { DisparitySnapshot } from "@/types";
 
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 630;
+const COMPARE_PLAYER_TREND_LIMIT = 72;
 
 type CompareType = "journalists" | "outlets" | "games";
 
@@ -20,6 +22,11 @@ interface SnapshotItem {
   criticScore: number | null;
   steamScore: number | null;
   metacriticScore: number | null;
+  currentPlayers: number | null;
+  playerPeak24h: number | null;
+  playerLow24h: number | null;
+  playerAllTimePeak: number | null;
+  playerTrend: number[];
   trend: number[];
 }
 
@@ -31,6 +38,11 @@ interface SnapshotPayloadItem {
   d?: unknown;
   r?: unknown;
   t?: unknown;
+  p?: unknown;
+  h?: unknown;
+  l?: unknown;
+  a?: unknown;
+  pt?: unknown;
 }
 
 const avatarColors = ["#BB3B0E", "#DD7631", "#708160", "#D8C593"];
@@ -142,6 +154,11 @@ function parseSnapshotPayload(rawSnapshot?: string | null): SnapshotItem[] {
         metacriticScore: parseOptionalNumber(rawItem.m),
         disparity: parseOptionalNumber(rawItem.d),
         reviewCount: parseOptionalNumber(rawItem.r),
+        currentPlayers: parseOptionalNumber(rawItem.p),
+        playerPeak24h: parseOptionalNumber(rawItem.h),
+        playerLow24h: parseOptionalNumber(rawItem.l),
+        playerAllTimePeak: parseOptionalNumber(rawItem.a),
+        playerTrend: parseTrendSnapshot(rawItem.pt),
         trend: parseTrendSnapshot(rawItem.t),
       });
     }
@@ -219,6 +236,11 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           criticScore,
           steamScore,
           metacriticScore,
+          currentPlayers: null,
+          playerPeak24h: null,
+          playerLow24h: null,
+          playerAllTimePeak: null,
+          playerTrend: [],
           trend: toTrendSnapshot(history),
         };
       } catch {
@@ -249,6 +271,11 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
           criticScore,
           steamScore,
           metacriticScore,
+          currentPlayers: null,
+          playerPeak24h: null,
+          playerLow24h: null,
+          playerAllTimePeak: null,
+          playerTrend: [],
           trend: toTrendSnapshot(history),
         };
       } catch {
@@ -261,10 +288,14 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
 
   const results: Array<SnapshotItem | null> = await Promise.all(ids.map(async (id): Promise<SnapshotItem | null> => {
     try {
-      const [game, history] = await Promise.all([
+      const [game, history, steamActivity] = await Promise.all([
         getGame(id),
         getGameHistory(id, 180),
+        getGameSteamActivity(id, COMPARE_PLAYER_TREND_LIMIT).catch(() => null),
       ]);
+      const latestPoint = steamActivity?.points.length
+        ? steamActivity.points[steamActivity.points.length - 1]
+        : null;
       return {
         id: game.id,
         name: game.title,
@@ -273,6 +304,20 @@ async function getSnapshotItems(type: CompareType, ids: number[]): Promise<Snaps
         criticScore: game.avg_critic_score ?? null,
         steamScore: game.steam_user_score ?? null,
         metacriticScore: game.metacritic_user_score ?? null,
+        currentPlayers: latestPoint?.latest_players
+          ?? steamActivity?.summary.steam_current_players
+          ?? game.steam_current_players
+          ?? null,
+        playerPeak24h: steamActivity?.summary.steam_player_24h_peak
+          ?? game.steam_player_24h_peak
+          ?? null,
+        playerLow24h: steamActivity?.summary.steam_player_24h_low_observed
+          ?? game.steam_player_24h_low_observed
+          ?? null,
+        playerAllTimePeak: steamActivity?.summary.steam_player_all_time_peak
+          ?? game.steam_player_all_time_peak
+          ?? null,
+        playerTrend: steamActivity ? toPlayerCountTrend(steamActivity.points) : [],
         trend: toTrendSnapshot(history),
       };
     } catch {
@@ -299,6 +344,11 @@ export async function GET(request: Request) {
       criticScore: null,
       steamScore: null,
       metacriticScore: null,
+      currentPlayers: null,
+      playerPeak24h: null,
+      playerLow24h: null,
+      playerAllTimePeak: null,
+      playerTrend: [],
       trend: [],
     }));
 
@@ -365,134 +415,211 @@ export async function GET(request: Request) {
           <div style={{ display: "flex", gap: 16, marginTop: 26, flex: 1 }}>
             {items.length > 0 ? (
               items.map((item, index) => (
-                <div
-                  key={`${item.id}-${index}`}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    flex: 1,
-                    borderRadius: 18,
-                    padding: "18px 18px 16px",
-                    backgroundColor: "rgba(255, 255, 255, 0.08)",
-                    border: "1px solid rgba(255, 255, 255, 0.18)",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div
-                      style={{
-                        display: "flex",
-                        width: 42,
-                        height: 42,
-                        borderRadius: 999,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        backgroundColor: avatarColors[index % avatarColors.length],
-                        color: "#F8F8F8",
-                        fontWeight: 700,
-                        fontSize: 22,
-                      }}
-                    >
-                      {item.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div
-                      style={{
-                        display: "flex",
-                        fontSize: 27,
-                        fontWeight: 700,
-                        lineHeight: 1.05,
-                        maxWidth: 220,
-                      }}
-                    >
-                      {truncate(item.name, 22)}
-                    </div>
-                  </div>
+                (() => {
+                  const hasPlayerData = type === "games" && (
+                    item.currentPlayers != null
+                    || item.playerPeak24h != null
+                    || item.playerLow24h != null
+                    || item.playerAllTimePeak != null
+                    || item.playerTrend.length > 1
+                  );
+                  const playerTrendPath = item.playerTrend.length > 1
+                    ? buildSparklinePath(item.playerTrend, 220, 58, 6)
+                    : "";
 
-                  <div style={{ display: "flex", flexDirection: "column", marginTop: 16, gap: 8 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18 }}>
-                      <span style={{ color: "#CFC5B8" }}>Critic score</span>
-                      <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 24 }}>
-                        {formatScore(item.criticScore)}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18 }}>
-                      <span style={{ color: "#CFC5B8" }}>Steam score</span>
-                      <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 24 }}>
-                        {formatScore(item.steamScore)}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18 }}>
-                      <span style={{ color: "#CFC5B8" }}>Metacritic score</span>
-                      <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 24 }}>
-                        {formatScore(item.metacriticScore)}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18 }}>
-                      <span style={{ color: "#CFC5B8" }}>Combined disparity</span>
-                      <span
+                  return (
+                    <div
+                      key={`${item.id}-${index}`}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        flex: 1,
+                        borderRadius: 18,
+                        padding: "18px 18px 16px",
+                        backgroundColor: "rgba(255, 255, 255, 0.08)",
+                        border: "1px solid rgba(255, 255, 255, 0.18)",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <div
+                          style={{
+                            display: "flex",
+                            width: 42,
+                            height: 42,
+                            borderRadius: 999,
+                            alignItems: "center",
+                            justifyContent: "center",
+                            backgroundColor: avatarColors[index % avatarColors.length],
+                            color: "#F8F8F8",
+                            fontWeight: 700,
+                            fontSize: 22,
+                          }}
+                        >
+                          {item.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            fontSize: 27,
+                            fontWeight: 700,
+                            lineHeight: 1.05,
+                            maxWidth: 220,
+                          }}
+                        >
+                          {truncate(item.name, 22)}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", marginTop: 14, gap: 6 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                          <span style={{ color: "#CFC5B8" }}>Critic score</span>
+                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
+                            {formatScore(item.criticScore)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                          <span style={{ color: "#CFC5B8" }}>Steam score</span>
+                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
+                            {formatScore(item.steamScore)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                          <span style={{ color: "#CFC5B8" }}>Metacritic score</span>
+                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
+                            {formatScore(item.metacriticScore)}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                          <span style={{ color: "#CFC5B8" }}>Combined disparity</span>
+                          <span
+                            style={{
+                              color: getDisparityColor(item.disparity),
+                              fontWeight: 800,
+                              fontSize: 22,
+                            }}
+                          >
+                            {formatDisparity(item.disparity)}
+                          </span>
+                        </div>
+                        {type === "games" && (
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                            <span style={{ color: "#CFC5B8" }}>Current players</span>
+                            <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
+                              {formatCompactPlayerCount(item.currentPlayers)}
+                            </span>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16 }}>
+                          <span style={{ color: "#CFC5B8" }}>Total reviews</span>
+                          <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 22 }}>
+                            {formatReviewCount(item.reviewCount)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
                         style={{
-                          color: getDisparityColor(item.disparity),
-                          fontWeight: 800,
-                          fontSize: 24,
+                          display: "flex",
+                          flexDirection: "column",
+                          marginTop: 12,
+                          borderRadius: 10,
+                          border: "1px solid rgba(255,255,255,0.16)",
+                          backgroundColor: "rgba(0,0,0,0.18)",
+                          padding: "8px 10px",
+                          gap: 6,
                         }}
                       >
-                        {formatDisparity(item.disparity)}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 18 }}>
-                      <span style={{ color: "#CFC5B8" }}>Total reviews</span>
-                      <span style={{ color: "#F7F2E7", fontWeight: 700, fontSize: 24 }}>
-                        {formatReviewCount(item.reviewCount)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      marginTop: 12,
-                      borderRadius: 10,
-                      border: "1px solid rgba(255,255,255,0.16)",
-                      backgroundColor: "rgba(0,0,0,0.18)",
-                      padding: "8px 10px",
-                      gap: 6,
-                    }}
-                  >
-                    <div style={{ display: "flex", fontSize: 14, color: "#CFC5B8", letterSpacing: "0.3px" }}>
-                      Disparity trend
-                    </div>
-                    {item.trend.length > 1 ? (
-                      <svg
-                        width="220"
-                        height="58"
-                        viewBox="0 0 220 58"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                      >
-                        <line
-                          x1="6"
-                          y1={zeroBaselineY(item.trend, 58)}
-                          x2="214"
-                          y2={zeroBaselineY(item.trend, 58)}
-                          stroke="rgba(255,255,255,0.24)"
-                          strokeWidth="1"
-                        />
-                        <polyline
-                          points={buildTrendPolyline(item.trend, 220, 58)}
-                          fill="none"
-                          stroke={getDisparityColor(item.disparity)}
-                          strokeWidth="2.4"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    ) : (
-                      <div style={{ display: "flex", height: 58, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
-                        Not enough points
+                        <div style={{ display: "flex", fontSize: 14, color: "#CFC5B8", letterSpacing: "0.3px" }}>
+                          Disparity trend
+                        </div>
+                        {item.trend.length > 1 ? (
+                          <svg
+                            width="220"
+                            height="58"
+                            viewBox="0 0 220 58"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <line
+                              x1="6"
+                              y1={zeroBaselineY(item.trend, 58)}
+                              x2="214"
+                              y2={zeroBaselineY(item.trend, 58)}
+                              stroke="rgba(255,255,255,0.24)"
+                              strokeWidth="1"
+                            />
+                            <polyline
+                              points={buildTrendPolyline(item.trend, 220, 58)}
+                              fill="none"
+                              stroke={getDisparityColor(item.disparity)}
+                              strokeWidth="2.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : (
+                          <div style={{ display: "flex", height: 58, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
+                            Not enough points
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                </div>
+
+                      {hasPlayerData && (
+                        <div
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            marginTop: 10,
+                            borderRadius: 10,
+                            border: "1px solid rgba(255,255,255,0.16)",
+                            backgroundColor: "rgba(216,197,147,0.08)",
+                            padding: "8px 10px",
+                            gap: 6,
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: "#D8C593", letterSpacing: "0.3px" }}>
+                            <span>Player count trend</span>
+                            <span>{formatCompactPlayerCount(item.currentPlayers)} now</span>
+                          </div>
+                          {playerTrendPath ? (
+                            <svg
+                              width="220"
+                              height="58"
+                              viewBox="0 0 220 58"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <line
+                                x1="6"
+                                y1="52"
+                                x2="214"
+                                y2="52"
+                                stroke="rgba(255,255,255,0.18)"
+                                strokeWidth="1"
+                              />
+                              <path
+                                d={playerTrendPath}
+                                fill="none"
+                                stroke="#D8C593"
+                                strokeWidth="2.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : (
+                            <div style={{ display: "flex", height: 58, alignItems: "center", color: "#A69C8F", fontSize: 16 }}>
+                              Not enough points
+                            </div>
+                          )}
+                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#CFC5B8" }}>
+                            <span>24h high {formatCompactPlayerCount(item.playerPeak24h)}</span>
+                            <span>24h low {formatCompactPlayerCount(item.playerLow24h)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
               ))
             ) : (
               <div
@@ -512,7 +639,9 @@ export async function GET(request: Request) {
                   Select up to 4 {typeLabel}
                 </div>
                 <div style={{ display: "flex", fontSize: 24, color: "#CFC5B8" }}>
-                  Snapshot includes critic, steam, metacritic, and disparity.
+                  {type === "games"
+                    ? "Snapshot includes critic, user score, disparity, and Steam player counts."
+                    : "Snapshot includes critic, steam, metacritic, and disparity."}
                 </div>
               </div>
             )}
