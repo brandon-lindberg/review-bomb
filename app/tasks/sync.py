@@ -25,6 +25,12 @@ from app.services.steam import SteamService
 from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
 from app.services.metacritic import MetacriticService
 from app.services.game_matcher import GameMatcher
+from app.services.game_taxonomy import (
+    extract_metacritic_source_labels,
+    extract_opencritic_source_labels,
+    extract_steam_source_labels,
+    sync_game_source_taxonomy,
+)
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.post_sync_refresh import refresh_news_after_sync
 
@@ -224,6 +230,17 @@ async def _sync_opencritic_full():
                     },
                 )
                 await db.execute(stmt)
+                game_row = await db.execute(
+                    select(Game).where(Game.opencritic_id == transformed["opencritic_id"])
+                )
+                internal_game = game_row.scalar_one_or_none()
+                if internal_game is not None:
+                    await sync_game_source_taxonomy(
+                        db,
+                        internal_game,
+                        source="opencritic",
+                        source_labels=extract_opencritic_source_labels(game_data),
+                    )
                 records_processed += 1
                 games_imported += 1
                 imported_game_ids.add(game_data.get("id"))
@@ -395,6 +412,13 @@ async def _sync_steam_scores():
             async with SteamService() as service, SteamActivityService() as activity_service:
                 for game in games:
                     try:
+                        app_details = await service.get_app_details(game.steam_app_id)
+                        await sync_game_source_taxonomy(
+                            db,
+                            game,
+                            source="steam",
+                            source_labels=extract_steam_source_labels(app_details),
+                        )
                         score_data = await service.get_user_score(game.steam_app_id)
                         if score_data:
                             user_score = UserScore(
@@ -513,6 +537,12 @@ async def _sync_metacritic_scores():
                             title=game.title,
                         )
                         if score_data:
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="metacritic",
+                                source_labels=extract_metacritic_source_labels(score_data),
+                            )
                             resolved_slug = score_data.get("resolved_slug")
                             if resolved_slug and resolved_slug != game.metacritic_slug:
                                 print(f"Resolved Metacritic slug for {game.title}: {game.metacritic_slug} -> {resolved_slug}")

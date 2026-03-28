@@ -7,6 +7,8 @@ Usage:
     python -m app sync --status     Show sync status and progress
     python -m app sync --reset      Reset sync state (start fresh)
     python -m app sync --full-scan  Force full OpenCritic catalog sweep
+    python -m app import-steam-game --app-id 2701720
+                                    Import a Steam-only game directly into the catalog
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app match --days 180  Match only games released in last 180 days
     python -m app steam             Sync Steam user scores and public Steam activity
@@ -24,6 +26,16 @@ Usage:
     python -m app merge-games       Merge deprecated games into canonical records
     python -m app news              Fetch latest gaming news from RSS feeds
     python -m app news-backfill     Link existing news articles to games by title matching
+    python -m app taxonomy-backfill Refresh stored taxonomy labels and canonical facets
+    python -m app description-backfill Refresh source-specific descriptions and taxonomy V2 text corpus
+    python -m app taxonomy-audit    Show raw source labels that do not map to canonical facets
+    python -m app similar-debug     Explain why a game does or does not qualify for similar games
+    python -m app taxonomy-v2-backfill Compute and store Similar Games Taxonomy V2 fingerprints
+    python -m app taxonomy-v2-debug    Inspect the Similar Games Taxonomy V2 fingerprint for one game
+    python -m app taxonomy-v2-label-audit Audit raw label coverage against Similar Games Taxonomy V2
+    python -m app taxonomy-v2-text-audit  Audit recurring text phrases by Similar Games Taxonomy V2 status
+    python -m app taxonomy-v2-near-miss-audit Audit missing required axes for V2 near-miss games
+    python -m app taxonomy-v2-boilerplate-audit Audit recurring storefront boilerplate in V2 text corpora
 """
 
 import argparse
@@ -33,6 +45,15 @@ from datetime import datetime, timezone, timedelta
 
 from app.database import async_session_maker
 from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get_sync_status
+
+
+def _truncate_cli_text(value: str | None, *, limit: int = 96) -> str:
+    if not value:
+        return ""
+    cleaned = " ".join(str(value).split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
 
 
 def _should_update_release_date_from_metacritic(
@@ -208,6 +229,10 @@ async def _load_cli_steam_games(db, args, Game):
 
 async def cmd_steam(args):
     """Handle Steam sync command."""
+    from app.services.game_taxonomy import (
+        extract_steam_source_labels,
+        sync_game_source_taxonomy,
+    )
     from app.services.steam import SteamService
     from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
     from app.models.models import Game, UserScore, UserScoreSource
@@ -268,7 +293,14 @@ async def cmd_steam(args):
                                 f"{c['steam_app_id']}:{c['name']}" for c in candidates[:3]
                             )
                             print(f"  Candidate app IDs: {top}")
-                        continue
+                            continue
+
+                    await sync_game_source_taxonomy(
+                        db,
+                        game,
+                        source="steam",
+                        source_labels=extract_steam_source_labels(app_details),
+                    )
 
                     steam_title = (app_details.get("name") or "").strip()
                     release_info = app_details.get("release_date") or {}
@@ -430,10 +462,208 @@ async def cmd_steamdb(args):
         )
 
 
+async def cmd_import_steam_game(args):
+    """Import or update a game directly from Steam, even without OpenCritic coverage."""
+    import re
+
+    from sqlalchemy import select, func
+
+    from app.models.models import Game, UserScore, UserScoreSource
+    from app.services.game_taxonomy import (
+        extract_steam_source_labels,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.steam import SteamService
+    from app.services.steam_activity import (
+        SteamActivityService,
+        sync_game_steam_public_activity,
+        sync_game_steamdb_peaks,
+    )
+
+    if args.app_id is None and not getattr(args, "query", None):
+        print("Provide either --app-id or --query.")
+        return 1
+
+    def normalize_title(value: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    async with async_session_maker() as db:
+        async with SteamService() as steam_service, SteamActivityService() as activity_service:
+            app_id = args.app_id
+            selected_name = None
+
+            if app_id is None:
+                query = args.query.strip()
+                search_results = await steam_service.search_games(query)
+                if not search_results:
+                    print(f"No Steam results found for query: {query}")
+                    return 1
+
+                normalized_query = normalize_title(query)
+
+                def result_rank(item: dict[str, object]) -> tuple[int, int]:
+                    name = normalize_title(str(item.get("name") or ""))
+                    if name == normalized_query:
+                        return (3, len(name))
+                    if name.startswith(normalized_query):
+                        return (2, len(name))
+                    if normalized_query in name:
+                        return (1, len(name))
+                    return (0, len(name))
+
+                ranked_results = sorted(search_results, key=result_rank, reverse=True)
+                best_match = ranked_results[0]
+                app_id = int(best_match["steam_app_id"])
+                selected_name = str(best_match.get("name") or "").strip() or None
+                print(f"Selected Steam app {app_id}: {selected_name or 'Unknown title'}")
+
+            app_details = await steam_service.get_app_details(app_id)
+            if not app_details:
+                print(f"Steam app details not found for app_id={app_id}")
+                return 1
+
+            transformed = SteamService.transform_app_details(app_details, app_id)
+            steam_title = (transformed.get("title") or selected_name or "").strip()
+            if not steam_title:
+                print(f"Steam app {app_id} did not return a title")
+                return 1
+
+            existing_by_app = (
+                await db.execute(select(Game).where(Game.steam_app_id == app_id))
+            ).scalar_one_or_none()
+            existing_by_title = (
+                await db.execute(
+                    select(Game).where(func.lower(Game.title) == steam_title.lower())
+                )
+            ).scalar_one_or_none()
+
+            if existing_by_app is not None:
+                game = existing_by_app
+                action = "Updated existing Steam-linked game"
+            elif existing_by_title is not None:
+                if existing_by_title.steam_app_id is not None and existing_by_title.steam_app_id != app_id:
+                    print(
+                        "Refusing to import due to title collision with a different Steam app ID: "
+                        f"{existing_by_title.title} already points to {existing_by_title.steam_app_id}"
+                    )
+                    return 1
+                game = existing_by_title
+                action = "Updated existing title match"
+            else:
+                game = Game(
+                    title=steam_title,
+                    steam_app_id=app_id,
+                    description=transformed.get("description"),
+                    release_date=transformed.get("release_date"),
+                    image_url=transformed.get("image_url"),
+                )
+                db.add(game)
+                await db.flush()
+                action = "Created new Steam-only game"
+
+            if game.steam_app_id != app_id:
+                game.steam_app_id = app_id
+
+            if not game.title:
+                game.title = steam_title
+            elif normalize_title(game.title) == normalize_title(steam_title) and game.title != steam_title:
+                game.title = steam_title
+
+            if transformed.get("description") and not game.description:
+                game.description = transformed["description"]
+            apply_steam_descriptions(
+                game,
+                short_description=transformed.get("steam_short_description"),
+                detailed_description=transformed.get("steam_detailed_description"),
+            )
+            refresh_game_taxonomy_v2_text(game)
+
+            if transformed.get("image_url") and not game.image_url:
+                game.image_url = transformed["image_url"]
+
+            candidate_release_date = transformed.get("release_date")
+            today = datetime.now(timezone.utc).date()
+            if _should_update_release_date_from_metacritic(
+                game.release_date,
+                candidate_release_date,
+                today=today,
+            ):
+                game.release_date = candidate_release_date
+
+            score_data = await steam_service.get_user_score(app_id)
+            if score_data:
+                db.add(
+                    UserScore(
+                        game_id=game.id,
+                        source=UserScoreSource.STEAM,
+                        score=score_data["score"],
+                        score_raw=score_data["score_raw"],
+                        sample_size=score_data["sample_size"],
+                        positive_count=score_data["positive_count"],
+                        negative_count=score_data["negative_count"],
+                        review_score_desc=score_data["review_score_desc"],
+                        scraped_at=score_data["scraped_at"],
+                    )
+                )
+                game.steam_user_score = score_data["score"]
+                game.steam_sample_size = score_data["sample_size"]
+
+            activity_result = await sync_game_steam_public_activity(
+                db,
+                game,
+                activity_service,
+            )
+            await sync_game_source_taxonomy(
+                db,
+                game,
+                source="steam",
+                source_labels=extract_steam_source_labels(app_details),
+            )
+            peak_result = await sync_game_steamdb_peaks(
+                game,
+                activity_service,
+            )
+
+            await db.commit()
+
+            print(action)
+            print(f"  Title: {game.title}")
+            print(f"  Public ID: {game.public_id}")
+            print(f"  Steam app ID: {game.steam_app_id}")
+            if game.release_date is not None:
+                print(f"  Release date: {game.release_date.isoformat()}")
+            if game.steam_user_score is not None:
+                print(
+                    "  Steam user score: "
+                    f"{game.steam_user_score} ({game.steam_sample_size or 0} reviews)"
+                )
+            if activity_result["current_players"] is not None:
+                print(f"  Current players: {activity_result['current_players']:,}")
+            if peak_result.get("steam_player_24h_peak") is not None:
+                print(f"  24h peak: {peak_result['steam_player_24h_peak']:,}")
+            if peak_result.get("steam_player_all_time_peak") is not None:
+                print(f"  All-time peak: {peak_result['steam_player_all_time_peak']:,}")
+
+    return 0
+
+
 async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
     import asyncio
     import time
+    from app.services.game_taxonomy import (
+        extract_metacritic_source_labels,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        refresh_game_taxonomy_v2_text,
+    )
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource, Review
     from sqlalchemy import select, func, delete, or_, and_, case
@@ -680,11 +910,20 @@ async def cmd_metacritic(args):
                         print(f"  No data returned from Metacritic")
 
                     if score_data:
+                        await sync_game_source_taxonomy(
+                            db,
+                            game,
+                            source="metacritic",
+                            source_labels=extract_metacritic_source_labels(score_data),
+                        )
                         updated_anything = False
                         resolved_slug = score_data.get("resolved_slug")
                         if resolved_slug and resolved_slug != game.metacritic_slug:
                             print(f"  Slug resolved: {game.metacritic_slug} -> {resolved_slug}")
                             game.metacritic_slug = resolved_slug
+                            updated_anything = True
+                        if apply_metacritic_description(game, score_data.get("description")):
+                            refresh_game_taxonomy_v2_text(game)
                             updated_anything = True
 
                         # Check and update user score/sample size only if changed
@@ -819,6 +1058,925 @@ async def cmd_metacritic(args):
 
         await db.commit()
         print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")
+
+
+async def cmd_taxonomy_backfill(args):
+    """Refresh stored source taxonomy labels and canonical game taxonomy."""
+    from sqlalchemy import select, or_
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy import (
+        extract_metacritic_source_labels,
+        extract_opencritic_source_labels,
+        extract_steam_source_labels,
+        rebuild_game_taxonomy,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        apply_opencritic_description,
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.metacritic import MetacriticService
+    from app.services.opencritic import OpenCriticService
+    from app.services.steam import SteamService
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await resolve_entity_by_identifier(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = select(Game).where(
+                or_(
+                    Game.opencritic_id.isnot(None),
+                    Game.steam_app_id.isnot(None),
+                    Game.metacritic_slug.isnot(None),
+                )
+            ).order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for taxonomy backfill.")
+            return 1
+
+        opencritic_service = OpenCriticService()
+        processed = 0
+        updated = 0
+
+        async with SteamService() as steam_service, MetacriticService() as metacritic_service:
+            for game in games:
+                if game is None:
+                    continue
+                print(f"Backfilling taxonomy for: {game.title}")
+                touched = False
+
+                if args.source in (None, "opencritic") and game.opencritic_id is not None:
+                    game_data = await opencritic_service.get_game(game.opencritic_id)
+                    if game_data:
+                        apply_opencritic_description(game, game_data.get("description"))
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="opencritic",
+                                source_labels=extract_opencritic_source_labels(game_data),
+                            )
+                            or touched
+                        )
+
+                if args.source in (None, "steam") and game.steam_app_id is not None:
+                    app_details = await steam_service.get_app_details(game.steam_app_id)
+                    if app_details:
+                        transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
+                        apply_steam_descriptions(
+                            game,
+                            short_description=transformed.get("steam_short_description"),
+                            detailed_description=transformed.get("steam_detailed_description"),
+                        )
+                        store_tags = await steam_service.get_store_tags(game.steam_app_id)
+                        if store_tags:
+                            app_details = {**app_details, "store_tags": store_tags}
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="steam",
+                                source_labels=extract_steam_source_labels(app_details),
+                            )
+                            or touched
+                        )
+
+                if args.source in (None, "metacritic") and game.metacritic_slug:
+                    score_data = await metacritic_service.get_scores(
+                        game.metacritic_slug,
+                        title=game.title,
+                    )
+                    if score_data:
+                        apply_metacritic_description(game, score_data.get("description"))
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="metacritic",
+                                source_labels=extract_metacritic_source_labels(score_data),
+                            )
+                            or touched
+                        )
+
+                if not touched:
+                    await rebuild_game_taxonomy(db, game)
+                refresh_game_taxonomy_v2_text(game)
+
+                processed += 1
+                if touched:
+                    updated += 1
+                if processed % 10 == 0 or processed == len(games):
+                    await db.commit()
+                    print(f"  Progress: {processed}/{len(games)}")
+
+        await db.commit()
+        print(f"Taxonomy backfill complete: {updated} updated, {processed} processed")
+    return 0
+
+
+async def cmd_description_backfill(args):
+    """Fetch and store source-specific narrative descriptions for taxonomy V2 text enrichment."""
+    from contextlib import AsyncExitStack
+    from sqlalchemy import or_, select
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        apply_opencritic_description,
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.metacritic import MetacriticService
+    from app.services.opencritic import OpenCriticService
+    from app.services.steam import SteamService
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await resolve_entity_by_identifier(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = (
+                select(Game)
+                .where(
+                    or_(
+                        Game.opencritic_id.isnot(None),
+                        Game.steam_app_id.isnot(None),
+                        Game.metacritic_slug.isnot(None),
+                    )
+                )
+                .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            )
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for description backfill.")
+            return 1
+
+        use_opencritic = args.source in (None, "opencritic")
+        use_steam = args.source in (None, "steam")
+        use_metacritic = args.source in (None, "metacritic")
+
+        opencritic_service = OpenCriticService() if use_opencritic else None
+        processed = 0
+        updated = 0
+
+        async with AsyncExitStack() as stack:
+            steam_service = await stack.enter_async_context(SteamService()) if use_steam else None
+            metacritic_service = (
+                await stack.enter_async_context(MetacriticService()) if use_metacritic else None
+            )
+            for game in games:
+                if game is None:
+                    continue
+                print(f"Backfilling descriptions for: {game.title}")
+                changed = False
+
+                if opencritic_service and game.opencritic_id is not None:
+                    game_data = await opencritic_service.get_game(game.opencritic_id)
+                    if game_data:
+                        changed = apply_opencritic_description(game, game_data.get("description")) or changed
+
+                if steam_service and game.steam_app_id is not None:
+                    app_details = await steam_service.get_app_details(game.steam_app_id)
+                    if app_details:
+                        transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
+                        changed = (
+                            apply_steam_descriptions(
+                                game,
+                                short_description=transformed.get("steam_short_description"),
+                                detailed_description=transformed.get("steam_detailed_description"),
+                            )
+                            or changed
+                        )
+
+                if metacritic_service and game.metacritic_slug:
+                    score_data = await metacritic_service.get_scores(
+                        game.metacritic_slug,
+                        title=game.title,
+                    )
+                    if score_data:
+                        changed = apply_metacritic_description(game, score_data.get("description")) or changed
+
+                previous_corpus = getattr(game, "taxonomy_v2_text_corpus", None)
+                previous_sources = list(getattr(game, "taxonomy_v2_text_sources", None) or [])
+                corpus, sources = refresh_game_taxonomy_v2_text(game)
+                if corpus != previous_corpus or sources != previous_sources:
+                    changed = True
+
+                processed += 1
+                if changed:
+                    updated += 1
+                if processed % 10 == 0 or processed == len(games):
+                    await db.commit()
+                    print(f"  Progress: {processed}/{len(games)}")
+
+        await db.commit()
+        print(f"Description backfill complete: {updated} updated, {processed} processed")
+    return 0
+
+
+async def cmd_taxonomy_audit(args):
+    """Show raw source labels that do not map to canonical taxonomy."""
+    from collections import defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import GameSourceTaxonomyLabel
+    from app.services.game_taxonomy import raw_label_is_mapped
+
+    async with async_session_maker() as db:
+        query = select(GameSourceTaxonomyLabel)
+        if args.source:
+            query = query.where(GameSourceTaxonomyLabel.source == args.source)
+        result = await db.execute(query)
+        rows = result.scalars().all()
+
+        unmapped: dict[tuple[str, str, str], dict[str, object]] = defaultdict(
+            lambda: {"count": 0, "sample": ""}
+        )
+        for row in rows:
+            if raw_label_is_mapped(row.source, row.facet, row.raw_label):
+                continue
+            key = (row.source, row.facet, row.normalized_label)
+            unmapped[key]["count"] = int(unmapped[key]["count"]) + 1
+            unmapped[key]["sample"] = row.raw_label
+
+        if not unmapped:
+            print("All stored taxonomy labels map to canonical facets.")
+            return 0
+
+        print("Unmapped taxonomy labels:")
+        ranked = sorted(
+            unmapped.items(),
+            key=lambda item: (-int(item[1]["count"]), item[0][0], item[0][1], item[0][2]),
+        )
+        for index, ((source, facet, normalized), info) in enumerate(ranked[: args.limit or 50], start=1):
+            print(
+                f"{index:>3}. {source}/{facet}: {normalized} "
+                f"(games={info['count']}, sample='{info['sample']}')"
+            )
+    return 0
+
+
+async def cmd_similar_debug(args):
+    """Explain current taxonomy support and top strict similar-game matches."""
+    from sqlalchemy import select, and_, or_
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy import (
+        build_game_taxonomy_sets,
+        build_similarity_breakdown,
+        game_has_curated_override,
+        game_has_sufficient_taxonomy_support,
+    )
+
+    async with async_session_maker() as db:
+        game = await resolve_entity_by_identifier(db, Game, str(args.game))
+        if not game:
+            print("Game not found.")
+            return 1
+
+        taxonomy = build_game_taxonomy_sets(game)
+        print(f"Game: {game.title}")
+        print(f"  Sources: {', '.join(game.taxonomy_sources or []) or 'none'}")
+        print(f"  Curated override: {'yes' if game_has_curated_override(game) else 'no'}")
+        print(f"  Genres: {', '.join(sorted(taxonomy['genres'])) or 'none'}")
+        print(f"  Themes: {', '.join(sorted(taxonomy['themes'])) or 'none'}")
+        print(f"  Modes: {', '.join(sorted(taxonomy['modes'])) or 'none'}")
+        print(f"  Perspectives: {', '.join(sorted(taxonomy['perspectives'])) or 'none'}")
+
+        if not game_has_sufficient_taxonomy_support(game):
+            print("  Fails support gate: requires at least 2 taxonomy sources or a curated override.")
+            return 0
+        if not taxonomy["genres"]:
+            print("  Fails similarity gate: no canonical genres.")
+            return 0
+        if not (taxonomy["themes"] or taxonomy["modes"] or taxonomy["perspectives"]):
+            print("  Fails similarity gate: no secondary gameplay facets (theme/mode/perspective).")
+            return 0
+
+        secondary_overlap_clauses = []
+        if game.taxonomy_themes:
+            secondary_overlap_clauses.append(Game.taxonomy_themes.overlap(list(game.taxonomy_themes)))
+        if game.taxonomy_modes:
+            secondary_overlap_clauses.append(Game.taxonomy_modes.overlap(list(game.taxonomy_modes)))
+        if game.taxonomy_perspectives:
+            secondary_overlap_clauses.append(Game.taxonomy_perspectives.overlap(list(game.taxonomy_perspectives)))
+
+        query = (
+            select(Game)
+            .where(
+                Game.id != game.id,
+                Game.release_date.isnot(None),
+                Game.release_date <= datetime.now(timezone.utc).date(),
+                Game.taxonomy_genres.overlap(list(game.taxonomy_genres or [])),
+                or_(*secondary_overlap_clauses),
+                or_(
+                    Game.steam_sample_size >= 50,
+                    and_(
+                        Game.metacritic_user_score.isnot(None),
+                        or_(Game.metacritic_sample_size.is_(None), Game.metacritic_sample_size >= 20),
+                    ),
+                    Game.critic_review_count >= 5,
+                ),
+            )
+            .limit(args.limit or 10)
+        )
+        result = await db.execute(query)
+        candidates = result.scalars().all()
+        if not candidates:
+            print("  No candidate games passed the coarse query.")
+            return 0
+
+        ranked: list[tuple[int, str, list[str]]] = []
+        for candidate in candidates:
+            breakdown = build_similarity_breakdown(game, candidate)
+            if breakdown is None:
+                continue
+            ranked.append((breakdown.score, candidate.title, breakdown.match_reasons))
+
+        if not ranked:
+            print("  Candidates exist, but none passed strict similarity rules.")
+            return 0
+
+        ranked.sort(key=lambda item: (-item[0], item[1].lower()))
+        print("Top strict matches:")
+        for index, (score, title, reasons) in enumerate(ranked[: args.limit or 10], start=1):
+            print(f"{index:>3}. {title} (score={score})")
+            for reason in reasons:
+                print(f"     - {reason}")
+    return 0
+
+
+async def cmd_taxonomy_v2_backfill(args):
+    """Compute and store Similar Games Taxonomy V2 fingerprints."""
+    from sqlalchemy import or_, select
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy_v2 import (
+        TAXONOMY_V2_STATUS_COMPUTED,
+        TAXONOMY_V2_STATUS_CURATED,
+        TAXONOMY_V2_STATUS_FAILED,
+        TAXONOMY_V2_STATUS_NEEDS_REVIEW,
+        compute_and_store_game_taxonomy_v2,
+    )
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await resolve_entity_by_identifier(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = (
+                select(Game)
+                .where(
+                    or_(
+                        Game.description.isnot(None),
+                        Game.opencritic_description.isnot(None),
+                        Game.steam_short_description.isnot(None),
+                        Game.steam_detailed_description.isnot(None),
+                        Game.metacritic_description.isnot(None),
+                        Game.taxonomy_v2_text_corpus.isnot(None),
+                        Game.opencritic_id.isnot(None),
+                        Game.steam_app_id.isnot(None),
+                        Game.metacritic_slug.isnot(None),
+                    )
+                )
+                .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            )
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for taxonomy V2 backfill.")
+            return 1
+
+        processed = 0
+        computed = 0
+        curated = 0
+        needs_review = 0
+        failed = 0
+
+        for game in games:
+            if game is None:
+                continue
+            print(f"Backfilling taxonomy V2 for: {game.title}")
+            result = await compute_and_store_game_taxonomy_v2(db, game)
+            processed += 1
+            if result.status == TAXONOMY_V2_STATUS_COMPUTED:
+                computed += 1
+            elif result.status == TAXONOMY_V2_STATUS_CURATED:
+                curated += 1
+            elif result.status == TAXONOMY_V2_STATUS_NEEDS_REVIEW:
+                needs_review += 1
+            elif result.status == TAXONOMY_V2_STATUS_FAILED:
+                failed += 1
+            if processed % 25 == 0 or processed == len(games):
+                await db.commit()
+                print(
+                    f"  Progress: {processed}/{len(games)} "
+                    f"(computed={computed}, curated={curated}, needs_review={needs_review}, failed={failed})"
+                )
+
+        await db.commit()
+        print(
+            "Taxonomy V2 backfill complete: "
+            f"{processed} processed, {computed} computed, {curated} curated, "
+            f"{needs_review} needs review, {failed} failed"
+        )
+    return 0
+
+
+async def cmd_taxonomy_v2_debug(args):
+    """Explain the computed Similar Games Taxonomy V2 fingerprint for a game."""
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy_v2 import (
+        compute_game_taxonomy_v2,
+        display_taxonomy_v2_token,
+        store_game_taxonomy_v2,
+    )
+
+    async with async_session_maker() as db:
+        game = await resolve_entity_by_identifier(db, Game, str(args.game))
+        if not game:
+            print("Game not found.")
+            return 1
+
+        result = await compute_game_taxonomy_v2(db, game)
+        if args.persist:
+            await store_game_taxonomy_v2(db, game, result)
+            await db.commit()
+
+        print(f"Game: {game.title}")
+        print(f"  Status: {result.status}")
+        print(f"  Version: {result.version}")
+        print(f"  Primary family: {result.primary_family or 'none'}")
+        print(f"  Primary archetype: {result.primary_archetype or 'none'}")
+        print(f"  Secondary archetypes: {', '.join(result.secondary_archetypes) or 'none'}")
+        print(f"  Confidence: {result.confidence:.2f}" if result.confidence is not None else "  Confidence: none")
+        print(f"  Curated override: {'yes' if result.curated else 'no'}")
+        text_sources = result.debug_payload.get("text_sources", [])
+        print(f"  Text sources: {', '.join(text_sources) or 'none'}")
+        print(f"  Text length: {result.debug_payload.get('text_length', 0)}")
+
+        interesting_axes = (
+            "world_topology",
+            "world_density",
+            "session_shape",
+            "perspective",
+            "combat_presence",
+            "combat_style",
+            "combat_tempo",
+            "combat_structure",
+            "traversal_verbs",
+            "progression_model",
+            "challenge_model",
+            "narrative_structure",
+            "setting",
+            "tone",
+            "mode_profile",
+            "content_model",
+            "input_complexity",
+        )
+        print("  Fingerprint:")
+        for axis in interesting_axes:
+            values = result.fingerprint.get(axis, [])
+            if not values:
+                continue
+            rendered = ", ".join(display_taxonomy_v2_token(value) for value in values)
+            print(f"    {axis}: {rendered}")
+        print(
+            "    hard_exclusions: "
+            f"{', '.join(display_taxonomy_v2_token(value) for value in result.hard_exclusions) or 'none'}"
+        )
+        print(
+            "    soft_penalties: "
+            f"{', '.join(display_taxonomy_v2_token(value) for value in result.soft_penalties) or 'none'}"
+        )
+
+        candidates = result.debug_payload.get("candidate_archetypes", [])
+        if candidates:
+            print("  Top archetype candidates:")
+            for index, candidate in enumerate(candidates[: args.limit or 5], start=1):
+                print(
+                    f"    {index}. {candidate['archetype']} "
+                    f"(score={candidate['score']}, required={candidate['required_hits']}/{candidate['required_total']}, "
+                    f"preferred={candidate['preferred_hits']}/{candidate['preferred_total']}, "
+                    f"confidence={candidate['confidence']})"
+                )
+        else:
+            print("  Top archetype candidates: none")
+
+        if result.evidence:
+            print("  Evidence:")
+            ranked_evidence = sorted(
+                result.evidence,
+                key=lambda item: (-item.confidence, item.field, item.value, item.source),
+            )
+            for record in ranked_evidence[: args.evidence_limit]:
+                note = f" ({record.evidence_text})" if record.evidence_text else ""
+                print(
+                    f"    - {record.field}={record.value} "
+                    f"[{record.source}/{record.source_field}, confidence={record.confidence:.2f}]{note}"
+                )
+        else:
+            print("  Evidence: none")
+    return 0
+
+
+async def cmd_taxonomy_v2_label_audit(args):
+    """Audit grouped raw labels against the V2 label extractor."""
+    from sqlalchemy import func, select
+
+    from app.models.models import GameSourceTaxonomyLabel
+    from app.services.game_taxonomy_v2 import analyze_taxonomy_v2_label
+
+    async with async_session_maker() as db:
+        query = (
+            select(
+                GameSourceTaxonomyLabel.source,
+                GameSourceTaxonomyLabel.facet,
+                GameSourceTaxonomyLabel.normalized_label,
+                func.min(GameSourceTaxonomyLabel.raw_label).label("sample_raw_label"),
+                func.count().label("row_count"),
+                func.count(func.distinct(GameSourceTaxonomyLabel.game_id)).label("game_count"),
+            )
+            .group_by(
+                GameSourceTaxonomyLabel.source,
+                GameSourceTaxonomyLabel.facet,
+                GameSourceTaxonomyLabel.normalized_label,
+            )
+        )
+        if args.source:
+            query = query.where(GameSourceTaxonomyLabel.source == args.source)
+        if args.facet:
+            query = query.where(GameSourceTaxonomyLabel.facet == args.facet)
+
+        rows = (await db.execute(query)).all()
+
+    audited: list[dict[str, object]] = []
+    for source, facet, normalized_label, sample_raw_label, row_count, game_count in rows:
+        if int(game_count) < args.min_count:
+            continue
+        analysis = analyze_taxonomy_v2_label(
+            source=str(source),
+            facet=str(facet),
+            raw_label=str(normalized_label),
+            normalized_label=str(normalized_label),
+        )
+        audited.append(
+            {
+                "source": str(source),
+                "facet": str(facet),
+                "normalized_label": str(normalized_label),
+                "sample_raw_label": str(sample_raw_label or normalized_label),
+                "row_count": int(row_count),
+                "game_count": int(game_count),
+                "analysis": analysis,
+            }
+        )
+
+    if not audited:
+        print("No grouped labels matched the requested audit scope.")
+        return 0
+
+    mapped = [row for row in audited if row["analysis"].mapped]
+    suppressed = [row for row in audited if row["analysis"].suppressed]
+    unmapped = [row for row in audited if not row["analysis"].mapped and not row["analysis"].suppressed]
+    print(
+        "Taxonomy V2 label audit: "
+        f"{len(audited)} grouped labels "
+        f"(mapped={len(mapped)}, suppressed={len(suppressed)}, unmapped={len(unmapped)}, min_count={args.min_count})"
+    )
+
+    if suppressed:
+        print("Top suppressed labels:")
+        ranked_suppressed = sorted(
+            suppressed,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_suppressed[: args.limit], start=1):
+            analysis = row["analysis"]
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, reason={analysis.suppression_reason or 'suppressed'})"
+            )
+    else:
+        print("Top suppressed labels: none")
+
+    if unmapped:
+        print("Top unmapped labels:")
+        ranked_unmapped = sorted(
+            unmapped,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_unmapped[: args.limit], start=1):
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, rows={row['row_count']}, sample='{_truncate_cli_text(str(row['sample_raw_label']), limit=72)}')"
+            )
+    else:
+        print("Top unmapped labels: none")
+
+    if args.show_mapped:
+        print("Top mapped labels:")
+        ranked_mapped = sorted(
+            mapped,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_mapped[: args.limit], start=1):
+            analysis = row["analysis"]
+            tokens = ", ".join(analysis.resolved_tokens[:4]) or "none"
+            signals = ", ".join(analysis.emitted_signals[:4]) or "none"
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, tokens={tokens}, signals={signals})"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_text_audit(args):
+    """Audit recurring phrases in stored V2 text corpora."""
+    from collections import Counter, defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import extract_taxonomy_v2_text_phrases
+
+    async with async_session_maker() as db:
+        query = select(Game.title, Game.taxonomy_v2_status, Game.taxonomy_v2_text_corpus).where(
+            Game.taxonomy_v2_text_corpus.isnot(None)
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    phrase_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    phrase_samples: dict[str, dict[str, str]] = defaultdict(dict)
+    game_counts = Counter()
+
+    for title, status, text_corpus in rows:
+        status_key = str(status or "unknown")
+        game_counts[status_key] += 1
+        phrases = extract_taxonomy_v2_text_phrases(
+            text_corpus,
+            ngram=args.ngram,
+            exclude_boilerplate=not args.include_boilerplate,
+        )
+        for phrase in phrases:
+            phrase_counts[status_key][phrase] += 1
+            phrase_samples[status_key].setdefault(phrase, str(title))
+
+    if not game_counts:
+        print("No games with taxonomy V2 text corpus matched the requested audit scope.")
+        return 0
+
+    statuses = list(args.status or [])
+    if not statuses:
+        statuses = [
+            status
+            for status in ("computed", "needs_review", "failed", "curated", "pending", "unknown")
+            if status in game_counts
+        ]
+
+    print(
+        "Taxonomy V2 text audit: "
+        f"games_scanned={sum(game_counts.values())}, "
+        f"ngram={args.ngram}, "
+        f"exclude_boilerplate={'no' if args.include_boilerplate else 'yes'}"
+    )
+    for status in statuses:
+        print(f"  {status}: games={game_counts.get(status, 0)}")
+
+    for status in statuses:
+        ranked = [
+            (phrase, count)
+            for phrase, count in phrase_counts.get(status, Counter()).most_common()
+            if count >= args.min_count
+        ]
+        print(f"Top phrases for {status}:")
+        if not ranked:
+            print("  none")
+            continue
+        for index, (phrase, count) in enumerate(ranked[: args.limit], start=1):
+            sample_title = phrase_samples.get(status, {}).get(phrase, "")
+            print(
+                f"{index:>3}. {phrase} "
+                f"(games={count}, sample='{_truncate_cli_text(sample_title, limit=56)}')"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_near_miss_audit(args):
+    """Audit the closest archetype misses for V2 games without a clean classification."""
+    from collections import Counter, defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import display_taxonomy_v2_token, rank_taxonomy_v2_near_misses
+
+    async with async_session_maker() as db:
+        query = select(
+            Game.title,
+            Game.public_id,
+            Game.taxonomy_v2_status,
+            Game.taxonomy_v2_fingerprint,
+            Game.taxonomy_v2_hard_exclusions,
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    games_scanned = 0
+    games_with_fingerprint = 0
+    games_with_near_miss = 0
+    archetype_counts = Counter()
+    missing_axis_counts = Counter()
+    archetype_missing_axis_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    examples: list[tuple[int, int, int, str, str, object]] = []
+
+    for title, public_id, status, fingerprint, hard_exclusions in rows:
+        games_scanned += 1
+        if not fingerprint:
+            continue
+        games_with_fingerprint += 1
+        near_misses = rank_taxonomy_v2_near_misses(
+            fingerprint,
+            hard_exclusions=hard_exclusions or [],
+            limit=args.candidate_depth,
+        )
+        if not near_misses:
+            continue
+        games_with_near_miss += 1
+        top = near_misses[0]
+        archetype_counts[top.archetype] += 1
+        for axis in top.missing_required_axes:
+            missing_axis_counts[axis] += 1
+            archetype_missing_axis_counts[top.archetype][axis] += 1
+        examples.append(
+            (
+                top.required_hits,
+                -len(top.missing_required_axes),
+                top.preferred_hits,
+                str(title),
+                str(public_id or ""),
+                top,
+            )
+        )
+
+    print(
+        "Taxonomy V2 near-miss audit: "
+        f"games_scanned={games_scanned}, "
+        f"with_fingerprint={games_with_fingerprint}, "
+        f"with_near_miss={games_with_near_miss}, "
+        f"statuses={', '.join(args.status or []) or 'all'}"
+    )
+
+    print("Top near archetypes:")
+    if not archetype_counts:
+        print("  none")
+    else:
+        for index, (archetype, count) in enumerate(archetype_counts.most_common(args.limit), start=1):
+            common_missing = ", ".join(
+                display_taxonomy_v2_token(axis)
+                for axis, _ in archetype_missing_axis_counts[archetype].most_common(3)
+            ) or "none"
+            print(
+                f"{index:>3}. {display_taxonomy_v2_token(archetype)} "
+                f"(games={count}, common_missing={common_missing})"
+            )
+
+    print("Top missing required axes:")
+    if not missing_axis_counts:
+        print("  none")
+    else:
+        for index, (axis, count) in enumerate(missing_axis_counts.most_common(args.limit), start=1):
+            print(f"{index:>3}. {display_taxonomy_v2_token(axis)} (games={count})")
+
+    print("Examples:")
+    if not examples:
+        print("  none")
+    else:
+        examples.sort(key=lambda item: (-item[0], item[1], -item[2], item[3].lower()))
+        for index, (_, _, _, title, public_id, near_miss) in enumerate(examples[: args.examples], start=1):
+            missing = ", ".join(display_taxonomy_v2_token(axis) for axis in near_miss.missing_required_axes) or "none"
+            print(
+                f"{index:>3}. {title} -> {display_taxonomy_v2_token(near_miss.archetype)} "
+                f"(missing={missing}, required={near_miss.required_hits}/{near_miss.required_total})"
+            )
+            if public_id:
+                print(f"     public_id={public_id}")
+    return 0
+
+
+async def cmd_taxonomy_v2_boilerplate_audit(args):
+    """Audit recurring storefront boilerplate in taxonomy V2 text corpora."""
+    from collections import Counter
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import detect_taxonomy_v2_boilerplate_segments
+
+    async with async_session_maker() as db:
+        query = select(Game.title, Game.taxonomy_v2_status, Game.taxonomy_v2_text_corpus).where(
+            Game.taxonomy_v2_text_corpus.isnot(None)
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    category_game_counts = Counter()
+    category_hit_counts = Counter()
+    snippet_counts = Counter()
+    snippet_samples: dict[tuple[str, str], tuple[str, str]] = {}
+    games_scanned = 0
+
+    for title, status, text_corpus in rows:
+        games_scanned += 1
+        hits = detect_taxonomy_v2_boilerplate_segments(text_corpus)
+        seen_categories: set[str] = set()
+        seen_snippets: set[tuple[str, str]] = set()
+        for hit in hits:
+            category_hit_counts[hit.category] += 1
+            seen_categories.add(hit.category)
+            marker = (hit.category, hit.normalized_segment)
+            if marker in seen_snippets:
+                continue
+            seen_snippets.add(marker)
+            snippet_counts[marker] += 1
+            snippet_samples.setdefault(marker, (str(title), hit.segment))
+        for category in seen_categories:
+            category_game_counts[category] += 1
+
+    print(
+        "Taxonomy V2 boilerplate audit: "
+        f"games_scanned={games_scanned}, statuses={', '.join(args.status or []) or 'all'}"
+    )
+
+    print("Top boilerplate categories:")
+    if not category_game_counts:
+        print("  none")
+    else:
+        for index, (category, game_count) in enumerate(category_game_counts.most_common(args.limit), start=1):
+            print(
+                f"{index:>3}. {category} "
+                f"(games={game_count}, hits={category_hit_counts.get(category, 0)})"
+            )
+
+    print("Top boilerplate snippets:")
+    ranked_snippets = [
+        (marker, count)
+        for marker, count in snippet_counts.most_common()
+        if count >= args.min_count
+    ]
+    if not ranked_snippets:
+        print("  none")
+    else:
+        for index, ((category, normalized_segment), count) in enumerate(ranked_snippets[: args.limit], start=1):
+            sample_title, sample_segment = snippet_samples[(category, normalized_segment)]
+            print(
+                f"{index:>3}. [{category}] {_truncate_cli_text(sample_segment, limit=96)} "
+                f"(games={count}, sample='{_truncate_cli_text(sample_title, limit=40)}')"
+            )
+    return 0
 
 
 async def cmd_disparity(args):
@@ -1618,6 +2776,14 @@ def main():
     match_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     match_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
+    # Steam-only import command
+    import_steam_parser = subparsers.add_parser(
+        "import-steam-game",
+        help="Import a game directly from Steam, even without OpenCritic coverage",
+    )
+    import_steam_parser.add_argument("--app-id", type=int, help="Steam app ID to import")
+    import_steam_parser.add_argument("--query", type=str, help="Steam store search query to resolve and import")
+
     # Steam command
     steam_parser = subparsers.add_parser(
         "steam",
@@ -1728,6 +2894,146 @@ def main():
     news_backfill_parser.add_argument("--limit", type=int, help="Limit number of articles to process")
     news_backfill_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to DB")
 
+    taxonomy_backfill_parser = subparsers.add_parser(
+        "taxonomy-backfill",
+        help="Refresh raw taxonomy labels and canonical game taxonomy",
+    )
+    taxonomy_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    taxonomy_backfill_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only refresh one taxonomy source",
+    )
+    taxonomy_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    description_backfill_parser = subparsers.add_parser(
+        "description-backfill",
+        help="Refresh source-specific descriptions and taxonomy V2 text corpus",
+    )
+    description_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    description_backfill_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only refresh one source",
+    )
+    description_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    taxonomy_audit_parser = subparsers.add_parser(
+        "taxonomy-audit",
+        help="Show raw taxonomy labels that do not map to canonical facets",
+    )
+    taxonomy_audit_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only audit one source",
+    )
+    taxonomy_audit_parser.add_argument("--limit", type=int, default=50, help="Max rows to print")
+
+    similar_debug_parser = subparsers.add_parser(
+        "similar-debug",
+        help="Explain why a game does or does not qualify for similar games",
+    )
+    similar_debug_parser.add_argument("--game", required=True, help="Game public_id or numeric ID")
+    similar_debug_parser.add_argument("--limit", type=int, default=10, help="Max matches to print")
+
+    taxonomy_v2_backfill_parser = subparsers.add_parser(
+        "taxonomy-v2-backfill",
+        help="Compute and store Similar Games Taxonomy V2 fingerprints",
+    )
+    taxonomy_v2_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    taxonomy_v2_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    taxonomy_v2_debug_parser = subparsers.add_parser(
+        "taxonomy-v2-debug",
+        help="Explain the computed Similar Games Taxonomy V2 fingerprint for a game",
+    )
+    taxonomy_v2_debug_parser.add_argument("--game", required=True, help="Game public_id or numeric ID")
+    taxonomy_v2_debug_parser.add_argument("--limit", type=int, default=5, help="Max archetype candidates to print")
+    taxonomy_v2_debug_parser.add_argument(
+        "--evidence-limit",
+        type=int,
+        default=20,
+        help="Max evidence rows to print",
+    )
+    taxonomy_v2_debug_parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Write the computed V2 fingerprint and evidence back to the database",
+    )
+
+    taxonomy_v2_label_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-label-audit",
+        help="Audit grouped raw labels against the Similar Games Taxonomy V2 extractor",
+    )
+    taxonomy_v2_label_audit_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only audit one source",
+    )
+    taxonomy_v2_label_audit_parser.add_argument("--facet", help="Only audit one stored facet")
+    taxonomy_v2_label_audit_parser.add_argument("--min-count", type=int, default=5, help="Min games per grouped label")
+    taxonomy_v2_label_audit_parser.add_argument("--limit", type=int, default=50, help="Max rows to print")
+    taxonomy_v2_label_audit_parser.add_argument(
+        "--show-mapped",
+        action="store_true",
+        help="Also print top mapped labels and emitted signals",
+    )
+
+    taxonomy_v2_text_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-text-audit",
+        help="Audit recurring phrases in stored Similar Games Taxonomy V2 text corpora",
+    )
+    taxonomy_v2_text_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        choices=["pending", "computed", "curated", "failed", "needs_review"],
+        help="Only audit one or more V2 statuses",
+    )
+    taxonomy_v2_text_audit_parser.add_argument("--ngram", type=int, default=3, help="Phrase length in words")
+    taxonomy_v2_text_audit_parser.add_argument("--min-count", type=int, default=10, help="Min games per phrase")
+    taxonomy_v2_text_audit_parser.add_argument("--limit", type=int, default=25, help="Max phrases per status")
+    taxonomy_v2_text_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+    taxonomy_v2_text_audit_parser.add_argument(
+        "--include-boilerplate",
+        action="store_true",
+        help="Include phrases from segments that look like storefront boilerplate",
+    )
+
+    taxonomy_v2_near_miss_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-near-miss-audit",
+        help="Audit closest archetype misses for Similar Games Taxonomy V2 fingerprints",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        default=["needs_review"],
+        choices=["pending", "computed", "curated", "failed", "needs_review"],
+        help="Audit one or more V2 statuses",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument("--limit", type=int, default=15, help="Max summary rows to print")
+    taxonomy_v2_near_miss_audit_parser.add_argument("--examples", type=int, default=10, help="Max examples to print")
+    taxonomy_v2_near_miss_audit_parser.add_argument(
+        "--candidate-depth",
+        type=int,
+        default=3,
+        help="How many near-miss archetypes to evaluate per game",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+
+    taxonomy_v2_boilerplate_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-boilerplate-audit",
+        help="Audit recurring storefront boilerplate in Similar Games Taxonomy V2 text corpora",
+    )
+    taxonomy_v2_boilerplate_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        choices=["pending", "computed", "curated", "failed", "needs_review"],
+        help="Only audit one or more V2 statuses",
+    )
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--min-count", type=int, default=5, help="Min games per snippet")
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--limit", type=int, default=25, help="Max rows to print")
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -1739,6 +3045,8 @@ def main():
         return asyncio.run(cmd_sync(args))
     elif args.command == "match":
         return asyncio.run(cmd_match(args))
+    elif args.command == "import-steam-game":
+        return asyncio.run(cmd_import_steam_game(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
     elif args.command == "steamdb":
@@ -1765,6 +3073,26 @@ def main():
         return asyncio.run(cmd_news(args))
     elif args.command == "news-backfill":
         return asyncio.run(cmd_news_backfill(args))
+    elif args.command == "taxonomy-backfill":
+        return asyncio.run(cmd_taxonomy_backfill(args))
+    elif args.command == "description-backfill":
+        return asyncio.run(cmd_description_backfill(args))
+    elif args.command == "taxonomy-audit":
+        return asyncio.run(cmd_taxonomy_audit(args))
+    elif args.command == "similar-debug":
+        return asyncio.run(cmd_similar_debug(args))
+    elif args.command == "taxonomy-v2-backfill":
+        return asyncio.run(cmd_taxonomy_v2_backfill(args))
+    elif args.command == "taxonomy-v2-debug":
+        return asyncio.run(cmd_taxonomy_v2_debug(args))
+    elif args.command == "taxonomy-v2-label-audit":
+        return asyncio.run(cmd_taxonomy_v2_label_audit(args))
+    elif args.command == "taxonomy-v2-text-audit":
+        return asyncio.run(cmd_taxonomy_v2_text_audit(args))
+    elif args.command == "taxonomy-v2-near-miss-audit":
+        return asyncio.run(cmd_taxonomy_v2_near_miss_audit(args))
+    elif args.command == "taxonomy-v2-boilerplate-audit":
+        return asyncio.run(cmd_taxonomy_v2_boilerplate_audit(args))
     else:
         parser.print_help()
         return 1

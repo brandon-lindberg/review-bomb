@@ -15,6 +15,7 @@ import type {
   NewsArticle,
   TrendingGamesResponse,
   SteamActivityResponse,
+  SimilarGame,
 } from "@/types";
 import { getApiUrl } from "@/lib/api-base-url";
 
@@ -185,6 +186,13 @@ export async function getGameReviews(
   if (reviewTiming) url += `&review_timing=${reviewTiming}`;
   if (sortOrder) url += `&sort_order=${sortOrder}`;
   return fetchAPI<PaginatedResponse<ReviewWithJournalist>>(url);
+}
+
+export async function getGameSimilarGames(
+  id: string | number,
+  limit = 4,
+): Promise<SimilarGame[]> {
+  return fetchAPI<SimilarGame[]>(`/games/${id}/similar?limit=${limit}`);
 }
 
 // Leaderboards

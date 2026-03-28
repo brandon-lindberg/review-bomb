@@ -155,6 +155,21 @@ export interface GameWithScores extends Game {
   latest_review?: ReviewWithJournalist | null;
 }
 
+export interface SimilarGame {
+  id: number;
+  public_id: string;
+  title: string;
+  release_date: string | null;
+  image_url: string | null;
+  avg_critic_score: number | null;
+  steam_user_score: number | null;
+  metacritic_user_score: number | null;
+  critic_review_count: number;
+  match_reasons: string[];
+  similarity_score: number;
+  confidence: string;
+}
+
 // Review Types
 export interface Review {
   id: number;

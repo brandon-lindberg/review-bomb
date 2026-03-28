@@ -31,6 +31,14 @@ from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.game_matcher import GameMatcher
+from app.services.game_taxonomy import (
+    extract_opencritic_source_labels,
+    sync_game_source_taxonomy,
+)
+from app.services.game_taxonomy_v2 import (
+    apply_opencritic_description,
+    refresh_game_taxonomy_v2_text,
+)
 from app.services.steam import SteamService
 
 
@@ -319,6 +327,7 @@ class SyncOrchestrator:
             set_={
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
+                "opencritic_description": stmt.excluded.opencritic_description,
                 # Keep existing date when OpenCritic omits it temporarily,
                 # and prevent future placeholder dates from replacing known released dates.
                 "release_date": case(
@@ -339,9 +348,18 @@ class SyncOrchestrator:
 
         # Get the ID
         result = await self.db.execute(
-            select(Game.id).where(Game.opencritic_id == transformed["opencritic_id"])
+            select(Game).where(Game.opencritic_id == transformed["opencritic_id"])
         )
-        return result.scalar_one_or_none()
+        game = result.scalar_one_or_none()
+        if game is not None:
+            await sync_game_source_taxonomy(
+                self.db,
+                game,
+                source="opencritic",
+                source_labels=extract_opencritic_source_labels(game_data),
+            )
+            return game.id
+        return None
 
     async def _sync_game_reviews(self, opencritic_game_id: int, internal_game_id: int) -> int:
         """
@@ -612,6 +630,12 @@ class SyncOrchestrator:
             self._request_count += 1
             if game_data:
                 transformed = OpenCriticService.transform_game(game_data)
+                await sync_game_source_taxonomy(
+                    self.db,
+                    game,
+                    source="opencritic",
+                    source_labels=extract_opencritic_source_labels(game_data),
+                )
 
                 if transformed.get("title") and transformed["title"] != game.title:
                     game.title = transformed["title"]
@@ -622,6 +646,9 @@ class SyncOrchestrator:
                     and transformed["description"] != game.description
                 ):
                     game.description = transformed["description"]
+                    metadata_updated = True
+                if apply_opencritic_description(game, transformed.get("description")):
+                    refresh_game_taxonomy_v2_text(game)
                     metadata_updated = True
 
                 new_release_date = transformed.get("release_date")
@@ -1094,11 +1121,19 @@ class SyncOrchestrator:
                 self._request_count += 1
                 if game_data:
                     transformed = OpenCriticService.transform_game(game_data)
+                    await sync_game_source_taxonomy(
+                        self.db,
+                        game,
+                        source="opencritic",
+                        source_labels=extract_opencritic_source_labels(game_data),
+                    )
                     today = datetime.now(timezone.utc).date()
                     if transformed.get("title"):
                         game.title = transformed["title"]
                     if transformed.get("description") is not None:
                         game.description = transformed["description"]
+                    if apply_opencritic_description(game, transformed.get("description")):
+                        refresh_game_taxonomy_v2_text(game)
                     if self._should_replace_release_date(
                         game.release_date,
                         transformed.get("release_date"),

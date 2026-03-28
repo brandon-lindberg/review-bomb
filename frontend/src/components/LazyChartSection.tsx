@@ -11,10 +11,12 @@ import {
 } from "@/lib/api";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
 import { ShareButtons } from "./ShareButtons";
+import { SimilarGamesSection } from "./SimilarGamesSection";
 import type {
   ReviewWithDisparity,
   ReviewWithJournalist,
   NewsArticle,
+  SimilarGame,
   SteamActivityResponse,
 } from "@/types";
 import { withTrendSnapshot } from "@/lib/share-url";
@@ -143,6 +145,7 @@ interface LazyChartSectionProps {
   releaseDate?: string | null;
   steamUserScore?: number | null;
   metacriticUserScore?: number | null;
+  similarGames?: SimilarGame[];
 }
 
 function dedupeNewsArticles(articles: NewsArticle[]): NewsArticle[] {
@@ -170,13 +173,14 @@ export function LazyChartSection({
   releaseDate,
   steamUserScore,
   metacriticUserScore,
+  similarGames = [],
 }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
-  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">(
+  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity" | "similar">(
     entityType === "game"
       ? (hasSteamApp ? "activity" : "timeline")
       : "disparity"
@@ -394,6 +398,7 @@ export function LazyChartSection({
       )}
     </div>
   ) : null;
+  const hasSimilarGames = entityType === "game" && similarGames.length >= 2;
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -473,6 +478,18 @@ export function LazyChartSection({
                       >
                         Disparity Trend
                       </button>
+                      {hasSimilarGames && (
+                        <button
+                          onClick={() => setChartTab("similar")}
+                          className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
+                          style={chartTab === "similar"
+                            ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                            : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                          }
+                        >
+                          Similar Games
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -571,6 +588,10 @@ export function LazyChartSection({
                     No Steam activity data available yet.
                   </div>
                 )
+              )}
+
+              {chartTab === "similar" && entityType === "game" && hasSimilarGames && (
+                <SimilarGamesSection games={similarGames} />
               )}
 
               {chartTab === "timeline" && entityType === "journalist" && (

@@ -247,6 +247,23 @@ class GameDetail(GameWithScores):
     recent_news: list["NewsArticleSummary"] = []
 
 
+class SimilarGame(BaseModel):
+    """Strict similar-game result for game detail pages."""
+
+    id: int
+    public_id: str
+    title: str
+    release_date: Optional[date] = None
+    image_url: Optional[str] = None
+    avg_critic_score: Optional[Decimal] = None
+    steam_user_score: Optional[Decimal] = None
+    metacritic_user_score: Optional[Decimal] = None
+    critic_review_count: int = 0
+    match_reasons: list[str] = []
+    similarity_score: int
+    confidence: str
+
+
 class SteamPlayerPoint(BaseModel):
     """Single observed 24-hour high/low chart point."""
     sampled_at: datetime

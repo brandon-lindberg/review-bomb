@@ -1,0 +1,349 @@
+{
+  "version": "taxonomy_v2_label_crosswalk_2",
+  "aliases": {
+    "global": {
+      "2d fighting": ["2d_fighter", "fighting"],
+      "3d fighting": ["3d_fighter", "fighting"],
+      "2d platformer": ["2d_platformer", "platformer"],
+      "3d platformer": ["3d_platformer", "platformer"],
+      "auto racing": ["racing"],
+      "auto racing sim": ["automobile_sim", "racing"],
+      "beat-'em-up": ["beat_em_up"],
+      "beat em up": ["beat_em_up"],
+      "beat 'em up": ["beat_em_up"],
+      "card battle": ["card_battler"],
+      "card battler": ["card_battler"],
+      "card game": ["card_game"],
+      "collectathon": ["collectathon", "3d_platformer"],
+      "crime simulator": ["crime", "heist", "immersive_sim"],
+      "deck builder": ["deckbuilding"],
+      "deckbuilder": ["deckbuilding"],
+      "deckbuilding": ["deckbuilding"],
+      "driving": ["driving"],
+      "hidden object": ["hidden_object", "puzzle"],
+      "immersive sim": ["immersive_sim"],
+      "jrpg": ["jrpg"],
+      "job simulator": ["job_simulator"],
+      "life sim": ["life_sim"],
+      "logic puzzle": ["logic", "puzzle"],
+      "metroidvania": ["metroidvania", "platformer"],
+      "minigame collection": ["minigames", "party"],
+      "minigames": ["minigames"],
+      "monster taming": ["monster_taming"],
+      "monster tamer": ["monster_taming"],
+      "open-world action": ["open_world", "action_adventure"],
+      "open world action": ["open_world", "action_adventure"],
+      "party": ["party", "minigames"],
+      "party game": ["party"],
+      "pinball": ["pinball"],
+      "point-and-click": ["point_and_click"],
+      "point and click": ["point_and_click"],
+      "precision platformer": ["precision_platformer", "platformer"],
+      "psychological horror": ["psychological_horror", "horror"],
+      "real time tactics": ["real_time_tactics"],
+      "real-time tactics": ["real_time_tactics"],
+      "real time strategy": ["rts"],
+      "real-time strategy": ["rts"],
+      "rhythm": ["rhythm"],
+      "roguevania": ["roguelite", "metroidvania"],
+      "soccer": ["soccer", "sports"],
+      "spectacle fighter": ["spectacle_fighter", "fighting"],
+      "survival horror": ["survival_horror", "horror"],
+      "third-person adventure": ["third_person", "adventure"],
+      "third person adventure": ["third_person", "adventure"],
+      "time management": ["time_management", "management"],
+      "trading card game": ["trading_card_game", "card_game"],
+      "turn based combat": ["turn_based_combat"],
+      "turn-based combat": ["turn_based_combat"],
+      "turn based rpg": ["turn_based_rpg"],
+      "turn-based rpg": ["turn_based_rpg"],
+      "virtual career": ["job_simulator", "management", "building"],
+      "virtual pet": ["virtual_pet", "life_sim"],
+      "visual novel": ["visual_novel"]
+    }
+  },
+  "tag_rules": {
+    "action_adventure": [
+      ["combat_presence", "dominant", 0.62]
+    ],
+    "automobile_sim": [
+      ["traversal_verbs", "driving", 0.94],
+      ["challenge_model", "sim_realism", 0.9],
+      ["soft_penalties", "sim_heavy", 0.82]
+    ],
+    "beat_em_up": [
+      ["combat_presence", "dominant", 0.92],
+      ["combat_style", "melee", 0.9],
+      ["world_topology", "level_based", 0.82],
+      ["session_shape", "campaign", 0.68]
+    ],
+    "building": [
+      ["progression_model", "base_growth", 0.74]
+    ],
+    "card_battler": [
+      ["progression_model", "deck_growth", 0.95],
+      ["combat_tempo", "tactical", 0.88],
+      ["session_shape", "match_session", 0.7],
+      ["interface_control", "deck_management", 0.9],
+      ["mechanics_structure", "deck_construction", 0.9],
+      ["entity_interaction", "card_play", 0.88]
+    ],
+    "card_game": [
+      ["progression_model", "deck_growth", 0.8],
+      ["combat_tempo", "tactical", 0.72],
+      ["interface_control", "deck_management", 0.82],
+      ["entity_interaction", "card_play", 0.8]
+    ],
+    "crime": [
+      ["setting", "modern", 0.72],
+      ["narrative_topic", "crime_heist", 0.84]
+    ],
+    "deckbuilding": [
+      ["progression_model", "deck_growth", 0.96],
+      ["combat_tempo", "tactical", 0.82],
+      ["keyword_layer", "deckbuilding", 0.88],
+      ["interface_control", "deck_management", 0.9],
+      ["mechanics_structure", "deck_construction", 0.92],
+      ["entity_interaction", "card_play", 0.9]
+    ],
+    "driving": [
+      ["traversal_verbs", "driving", 0.96],
+      ["session_shape", "match_session", 0.7],
+      ["vehicular_theme", "cars", 0.84],
+      ["interface_control", "vehicle_control", 0.84],
+      ["mechanics_structure", "vehicular_racing", 0.86]
+    ],
+    "heist": [
+      ["combat_structure", "systemic_emergent", 0.82],
+      ["setting", "modern", 0.74],
+      ["narrative_topic", "crime_heist", 0.9],
+      ["rules_goals", "infiltrate_avoid_detection", 0.82]
+    ],
+    "hidden_object": [
+      ["challenge_model", "puzzle_gating", 0.94],
+      ["combat_presence", "none", 0.9],
+      ["tone", "cozy", 0.66],
+      ["keyword_layer", "hidden_object", 0.88],
+      ["interface_control", "cursor_driven", 0.88],
+      ["mechanics_structure", "environmental_puzzle_solving", 0.9],
+      ["entity_interaction", "cursor_driven_interaction", 0.88],
+      ["rules_goals", "solve_mysteries", 0.8]
+    ],
+    "immersive_sim": [
+      ["combat_structure", "systemic_emergent", 0.95],
+      ["combat_style", "stealth", 0.82],
+      ["keyword_layer", "immersive_sim", 0.92],
+      ["mechanics_structure", "systemic_problem_solving", 0.92]
+    ],
+    "jrpg": [
+      ["session_shape", "campaign", 0.84],
+      ["combat_structure", "party_management", 0.82],
+      ["progression_model", "skill_tree", 0.82],
+      ["narrative_structure", "authored_linear", 0.8]
+    ],
+    "job_simulator": [
+      ["progression_model", "base_growth", 0.74],
+      ["session_shape", "sandbox_loop", 0.78],
+      ["combat_presence", "none", 0.84]
+    ],
+    "life_sim": [
+      ["progression_model", "relationship_social", 0.92],
+      ["tone", "cozy", 0.86],
+      ["combat_presence", "none", 0.82],
+      ["world_density", "sandbox_light", 0.78]
+    ],
+    "logic": [
+      ["challenge_model", "puzzle_gating", 0.9],
+      ["combat_presence", "none", 0.88],
+      ["mechanics_structure", "environmental_puzzle_solving", 0.82]
+    ],
+    "management": [
+      ["progression_model", "base_growth", 0.78],
+      ["session_shape", "sandbox_loop", 0.72],
+      ["combat_presence", "light", 0.64]
+    ],
+    "metroidvania": [
+      ["perspective", "side_scrolling", 0.9],
+      ["traversal_verbs", "platforming", 0.92],
+      ["world_topology", "semi_open", 0.9],
+      ["world_density", "handcrafted_discovery", 0.82],
+      ["progression_model", "skill_tree", 0.78],
+      ["progression_model", "metaprogression", 0.7]
+    ],
+    "minigames": [
+      ["session_shape", "match_session", 0.84],
+      ["tone", "comedic", 0.72]
+    ],
+    "monster_taming": [
+      ["combat_structure", "party_management", 0.9],
+      ["progression_model", "buildcraft", 0.82],
+      ["progression_model", "skill_tree", 0.76],
+      ["tone", "whimsical", 0.74],
+      ["session_shape", "campaign", 0.76],
+      ["keyword_layer", "monster_taming", 0.9],
+      ["mechanics_structure", "creature_collection", 0.92],
+      ["rules_goals", "capture_and_raise_companions", 0.9],
+      ["entity_interaction", "creature_collection", 0.9],
+      ["narrative_topic", "monster_bonding", 0.84]
+    ],
+    "open_world": [
+      ["world_topology", "open_world", 0.94],
+      ["world_density", "handcrafted_discovery", 0.82]
+    ],
+    "party": [
+      ["session_shape", "match_session", 0.88],
+      ["mode_profile", "party_coop", 0.76],
+      ["tone", "comedic", 0.72]
+    ],
+    "pinball": [
+      ["session_shape", "match_session", 0.94],
+      ["challenge_model", "sim_realism", 0.78],
+      ["input_complexity", "moderate", 0.66],
+      ["keyword_layer", "pinball", 0.92],
+      ["mechanics_structure", "score_attack", 0.88],
+      ["interface_control", "timing_input", 0.76]
+    ],
+    "point_and_click": [
+      ["challenge_model", "puzzle_gating", 0.92],
+      ["combat_presence", "none", 0.88],
+      ["narrative_structure", "authored_linear", 0.84],
+      ["session_shape", "campaign", 0.74],
+      ["keyword_layer", "point_and_click", 0.88],
+      ["interface_control", "cursor_driven", 0.9],
+      ["mechanics_structure", "environmental_puzzle_solving", 0.9],
+      ["entity_interaction", "cursor_driven_interaction", 0.88]
+    ],
+    "platformer": [
+      ["traversal_verbs", "platforming", 0.9],
+      ["world_topology", "level_based", 0.78]
+    ],
+    "precision_platformer": [
+      ["traversal_verbs", "platforming", 0.92],
+      ["challenge_model", "precision_platforming", 0.96],
+      ["perspective", "side_scrolling", 0.84]
+    ],
+    "psychological_horror": [
+      ["setting", "horror", 0.94],
+      ["tone", "melancholic", 0.86],
+      ["world_topology", "linear", 0.72],
+      ["combat_presence", "light", 0.7],
+      ["keyword_layer", "psychological_horror", 0.9],
+      ["narrative_topic", "survival_escape", 0.72]
+    ],
+    "puzzle": [
+      ["challenge_model", "puzzle_gating", 0.88],
+      ["combat_presence", "none", 0.78]
+    ],
+    "racing": [
+      ["traversal_verbs", "driving", 0.9],
+      ["session_shape", "match_session", 0.76],
+      ["vehicular_theme", "cars", 0.84],
+      ["interface_control", "vehicle_control", 0.84],
+      ["mechanics_structure", "vehicular_racing", 0.88],
+      ["rules_goals", "win_races", 0.88]
+    ],
+    "real_time_tactics": [
+      ["perspective", "tactical_overhead", 0.86],
+      ["combat_tempo", "tactical", 0.94],
+      ["challenge_model", "tactical_optimization", 0.86],
+      ["world_topology", "mission_based", 0.72]
+    ],
+    "roguelite": [
+      ["world_topology", "run_based", 0.92],
+      ["session_shape", "roguelite_run", 0.92],
+      ["progression_model", "metaprogression", 0.78]
+    ],
+    "rhythm": [
+      ["session_shape", "match_session", 0.84],
+      ["input_complexity", "moderate", 0.76],
+      ["keyword_layer", "rhythm", 0.9],
+      ["interface_control", "timing_input", 0.88],
+      ["mechanics_structure", "rhythm_timing", 0.92],
+      ["rules_goals", "hit_beats", 0.9]
+    ],
+    "rts": [
+      ["perspective", "tactical_overhead", 0.88],
+      ["combat_tempo", "tactical", 0.92],
+      ["world_density", "systemic_sandbox", 0.8],
+      ["progression_model", "base_growth", 0.8]
+    ],
+    "soccer": [
+      ["session_shape", "match_session", 0.94],
+      ["mode_profile", "pvp", 0.76],
+      ["sports_theme", "soccer", 0.92],
+      ["rules_goals", "win_matches", 0.9]
+    ],
+    "spectacle_fighter": [
+      ["combat_presence", "dominant", 0.92],
+      ["combat_tempo", "combo_driven", 0.94],
+      ["input_complexity", "mastery_heavy", 0.86]
+    ],
+    "sports": [
+      ["session_shape", "match_session", 0.7],
+      ["rules_goals", "win_matches", 0.74]
+    ],
+    "survival_horror": [
+      ["setting", "horror", 0.96],
+      ["combat_style", "survival", 0.92],
+      ["tone", "bleak", 0.84],
+      ["hard_exclusions", "pure_survival_horror", 0.96]
+    ],
+    "third_person": [
+      ["perspective", "third_person", 0.92]
+    ],
+    "time_management": [
+      ["session_shape", "sandbox_loop", 0.82],
+      ["progression_model", "base_growth", 0.72]
+    ],
+    "trading_card_game": [
+      ["progression_model", "deck_growth", 0.88],
+      ["combat_tempo", "tactical", 0.78]
+    ],
+    "turn_based_combat": [
+      ["combat_tempo", "tactical", 0.9],
+      ["combat_structure", "party_management", 0.8]
+    ],
+    "turn_based_rpg": [
+      ["combat_tempo", "tactical", 0.88],
+      ["combat_structure", "party_management", 0.82],
+      ["session_shape", "campaign", 0.78]
+    ],
+    "2d_fighter": [
+      ["combat_presence", "dominant", 0.94],
+      ["combat_structure", "duel_focused", 0.94],
+      ["mode_profile", "pvp", 0.84],
+      ["perspective", "side_scrolling", 0.86],
+      ["input_complexity", "mastery_heavy", 0.8]
+    ],
+    "3d_fighter": [
+      ["combat_presence", "dominant", 0.94],
+      ["combat_structure", "duel_focused", 0.94],
+      ["mode_profile", "pvp", 0.84],
+      ["perspective", "third_person", 0.84],
+      ["input_complexity", "mastery_heavy", 0.8]
+    ],
+    "2d_platformer": [
+      ["perspective", "side_scrolling", 0.92],
+      ["traversal_verbs", "platforming", 0.94],
+      ["world_topology", "level_based", 0.82]
+    ],
+    "3d_platformer": [
+      ["perspective", "third_person", 0.92],
+      ["traversal_verbs", "platforming", 0.94],
+      ["world_topology", "level_based", 0.82]
+    ],
+    "virtual_pet": [
+      ["progression_model", "relationship_social", 0.94],
+      ["tone", "cozy", 0.9],
+      ["combat_presence", "none", 0.9],
+      ["world_density", "sandbox_light", 0.76]
+    ],
+    "visual_novel": [
+      ["hard_exclusions", "non_combat", 0.84],
+      ["combat_presence", "none", 0.88],
+      ["session_shape", "campaign", 0.78],
+      ["narrative_structure", "authored_linear", 0.86],
+      ["interface_control", "cursor_driven", 0.76]
+    ]
+  }
+}

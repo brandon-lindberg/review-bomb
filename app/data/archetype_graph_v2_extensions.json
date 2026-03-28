@@ -1,0 +1,149 @@
+{
+  "version": "taxonomy_v2_graph_extensions_1",
+  "nodes": {
+    "traditional_fighter": {
+      "family": "fighting_party",
+      "required_axes": {
+        "combat_presence": ["dominant"],
+        "combat_structure": ["duel_focused"],
+        "mode_profile": ["pvp"],
+        "input_complexity": ["mastery_heavy"]
+      },
+      "preferred_axes": {
+        "perspective": ["side_scrolling", "third_person"]
+      },
+      "strong_neighbors": ["character_action"],
+      "adjacent_neighbors": ["beat_em_up"],
+      "blocked_neighbors": ["city_builder", "life_sim", "grand_strategy", "survival_horror"],
+      "hard_exclusions": ["non_combat", "cozy_sim"]
+    },
+    "beat_em_up": {
+      "family": "fighting_party",
+      "required_axes": {
+        "combat_presence": ["dominant"],
+        "combat_style": ["melee"],
+        "world_topology": ["level_based"]
+      },
+      "preferred_axes": {
+        "perspective": ["side_scrolling", "third_person"]
+      },
+      "strong_neighbors": ["character_action"],
+      "adjacent_neighbors": ["traditional_fighter", "action_platformer"],
+      "blocked_neighbors": ["grand_strategy", "city_builder", "life_sim", "survival_horror"],
+      "hard_exclusions": ["non_combat", "cozy_sim"]
+    },
+    "realistic_racer": {
+      "family": "sports_racing",
+      "required_axes": {
+        "traversal_verbs": ["driving"],
+        "challenge_model": ["sim_realism"],
+        "session_shape": ["match_session"]
+      },
+      "preferred_axes": {
+        "mode_profile": ["pvp", "single_player"]
+      },
+      "strong_neighbors": ["arcade_racer", "sports_sim"],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["mmo_action_rpg", "western_narrative_rpg", "city_builder", "survival_horror"],
+      "hard_exclusions": ["non_vehicle", "cozy_daily_loop"]
+    },
+    "arcade_racer": {
+      "family": "sports_racing",
+      "required_axes": {
+        "traversal_verbs": ["driving"],
+        "session_shape": ["match_session"]
+      },
+      "preferred_axes": {
+        "mode_profile": ["pvp", "single_player"]
+      },
+      "strong_neighbors": ["realistic_racer", "sports_sim"],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["mmo_action_rpg", "western_narrative_rpg", "city_builder", "survival_horror"],
+      "hard_exclusions": ["non_vehicle", "cozy_daily_loop"]
+    },
+    "sports_sim": {
+      "family": "sports_racing",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "mode_profile": ["pvp", "single_player"]
+      },
+      "preferred_axes": {
+        "challenge_model": ["sim_realism"]
+      },
+      "strong_neighbors": ["realistic_racer", "arcade_racer"],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["western_narrative_rpg", "city_builder", "survival_horror", "life_sim"],
+      "hard_exclusions": ["open_world_fantasy", "non_competitive"]
+    },
+    "card_battler": {
+      "family": "card_board",
+      "required_axes": {
+        "progression_model": ["deck_growth"],
+        "combat_tempo": ["tactical"]
+      },
+      "preferred_axes": {
+        "session_shape": ["roguelite_run", "match_session"]
+      },
+      "strong_neighbors": ["turn_based_tactics"],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["character_action", "military_fps", "survival_horror", "life_sim"],
+      "hard_exclusions": ["real_time_shooter", "dominant_platforming"]
+    },
+    "hidden_object_puzzle": {
+      "family": "puzzle",
+      "required_axes": {
+        "challenge_model": ["puzzle_gating"],
+        "combat_presence": ["none"]
+      },
+      "preferred_axes": {
+        "tone": ["cozy", "relaxing"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["military_fps", "character_action", "survival_horror", "mmo_action_rpg"],
+      "hard_exclusions": ["dominant_combat", "twitch_shooter"]
+    },
+    "party_game": {
+      "family": "fighting_party",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "mode_profile": ["party_coop", "pvp"]
+      },
+      "preferred_axes": {
+        "tone": ["comedic"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["western_narrative_rpg", "city_builder", "survival_horror", "grand_strategy"],
+      "hard_exclusions": ["grim_horror", "single_player_story_first"]
+    },
+    "pinball": {
+      "family": "sports_racing",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "challenge_model": ["sim_realism"]
+      },
+      "preferred_axes": {
+        "input_complexity": ["moderate"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": ["party_game"],
+      "blocked_neighbors": ["western_narrative_rpg", "city_builder", "survival_horror", "life_sim"],
+      "hard_exclusions": ["open_world_fantasy", "cozy_daily_loop"]
+    },
+    "rhythm_game": {
+      "family": "fighting_party",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "input_complexity": ["moderate", "mastery_heavy"]
+      },
+      "preferred_axes": {
+        "tone": ["heroic", "comedic"]
+      },
+      "strong_neighbors": ["party_game"],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["western_narrative_rpg", "city_builder", "survival_horror", "life_sim"],
+      "hard_exclusions": ["grim_horror", "open_world_fantasy"]
+    }
+  }
+}

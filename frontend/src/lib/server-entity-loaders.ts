@@ -5,6 +5,7 @@ import {
   getGame,
   getGameHistory,
   getGameNews,
+  getGameSimilarGames,
   getJournalist,
   getJournalistHistory,
   getOutlet,
@@ -17,6 +18,9 @@ export const getCachedGameHistory = cache(async (id: string | number, limit = 18
 );
 export const getCachedGameNews = cache(async (id: string | number, page = 1, perPage = 5) =>
   getGameNews(id, page, perPage)
+);
+export const getCachedGameSimilarGames = cache(async (id: string | number, limit = 4) =>
+  getGameSimilarGames(id, limit)
 );
 
 export const getCachedJournalist = cache(async (id: string | number) => getJournalist(id));

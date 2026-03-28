@@ -25,6 +25,7 @@ from app.models.models import (
 from app.public_ids import resolve_entity_by_identifier
 from app.schemas.schemas import (
     GameDetail,
+    SimilarGame,
     GameWithScores,
     DisparitySnapshot as DisparitySnapshotSchema,
     SteamActivityResponse,
@@ -41,6 +42,16 @@ from app.services.player_scraper import PlayerScraperClient, sync_scraper_activi
 from app.services.steam_activity import (
     build_observed_24h_player_points,
     build_steam_activity_markers,
+)
+from app.services.game_taxonomy import (
+    build_similarity_breakdown,
+    game_has_sufficient_taxonomy_support,
+)
+from app.services.game_taxonomy_v2 import (
+    TAXONOMY_V2_READY_STATUSES,
+    build_similarity_breakdown_v2,
+    game_has_sufficient_taxonomy_v2_support,
+    get_taxonomy_v2_allowed_archetypes,
 )
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
@@ -65,6 +76,30 @@ def _metacritic_score_is_valid(game: Game) -> bool:
             game.metacritic_sample_size is None
             or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS
         )
+    )
+
+
+def _meaningful_game_signal_expression():
+    return or_(
+        Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+        and_(
+            Game.metacritic_user_score.isnot(None),
+            or_(
+                Game.metacritic_sample_size.is_(None),
+                Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+            ),
+        ),
+        Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAMES_LIST,
+    )
+
+
+def _meaningful_v2_similarity_signal_expression():
+    return or_(
+        _meaningful_game_signal_expression(),
+        Game.top_critic_score.isnot(None),
+        Game.avg_critic_score.isnot(None),
+        Game.percent_recommended.isnot(None),
+        Game.metacritic_score.isnot(None),
     )
 
 
@@ -107,6 +142,79 @@ def _build_game_with_scores(
         disparity_metacritic=game.disparity_metacritic if metacritic_valid else None,
         latest_review=latest_review,
     )
+
+
+def _build_similar_game(
+    game: Game,
+    breakdown,
+) -> SimilarGame:
+    steam_valid = _steam_score_is_valid(game)
+    metacritic_valid = _metacritic_score_is_valid(game)
+
+    return SimilarGame(
+        id=game.id,
+        public_id=game.public_id or str(game.id),
+        title=game.title,
+        release_date=game.release_date,
+        image_url=game.image_url,
+        avg_critic_score=game.avg_critic_score,
+        steam_user_score=game.steam_user_score if steam_valid else None,
+        metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
+        critic_review_count=game.critic_review_count or 0,
+        match_reasons=breakdown.match_reasons,
+        similarity_score=breakdown.score,
+        confidence=breakdown.confidence,
+    )
+
+
+def _select_diverse_v2_similar_games(
+    qualified: list[tuple[int, Game, SimilarGame]],
+    *,
+    limit: int,
+) -> list[SimilarGame]:
+    if len(qualified) <= limit:
+        return [item for _, _, item in qualified]
+
+    def selection_key(
+        entry: tuple[int, Game, SimilarGame],
+        *,
+        duplicate_count: int,
+    ) -> tuple[int, int, int, str]:
+        score, _candidate, item = entry
+        review_bonus = min(item.critic_review_count or 0, 120)
+        critic_bonus = int(item.avg_critic_score or 0) // 2
+        duplicate_penalty = duplicate_count * 150
+        return (
+            score + review_bonus + critic_bonus - duplicate_penalty,
+            score,
+            item.critic_review_count or 0,
+            item.title.lower(),
+        )
+
+    remaining = list(qualified)
+    selected: list[tuple[int, Game, SimilarGame]] = []
+    primary_counts: dict[str, int] = {}
+
+    while remaining and len(selected) < limit:
+        best_index = 0
+        best_entry = remaining[0]
+        best_primary = getattr(best_entry[1], "taxonomy_v2_primary_archetype", None) or ""
+        best_key = selection_key(best_entry, duplicate_count=primary_counts.get(best_primary, 0))
+
+        for index, entry in enumerate(remaining[1:], start=1):
+            primary_archetype = getattr(entry[1], "taxonomy_v2_primary_archetype", None) or ""
+            entry_key = selection_key(entry, duplicate_count=primary_counts.get(primary_archetype, 0))
+            if entry_key > best_key:
+                best_index = index
+                best_entry = entry
+                best_primary = primary_archetype
+                best_key = entry_key
+
+        selected.append(best_entry)
+        primary_counts[best_primary] = primary_counts.get(best_primary, 0) + 1
+        remaining.pop(best_index)
+
+    return [entry for _, _, entry in selected]
 
 
 async def _load_steam_activity_previews(
@@ -528,6 +636,209 @@ async def get_game(
         updated_at=game.updated_at,
         recent_news=[NewsArticleSummary.model_validate(a) for a in recent_news],
     )
+
+
+@router.get("/{game_id}/similar", response_model=list[SimilarGame])
+async def get_game_similar(
+    game_id: str,
+    limit: int = Query(4, ge=2, le=5),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get strict similar games using canonical gameplay taxonomy."""
+    game = await resolve_entity_by_identifier(db, Game, str(game_id))
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    cache_hash = cache_key(
+        "games:similar:v15",
+        game_id=game_id,
+        limit=limit,
+        taxonomy_v2_status=getattr(game, "taxonomy_v2_status", None),
+        taxonomy_v2_version=getattr(game, "taxonomy_v2_version", None),
+        taxonomy_v2_computed_at=(
+            getattr(game, "taxonomy_v2_computed_at", None).isoformat()
+            if getattr(game, "taxonomy_v2_computed_at", None) is not None
+            else None
+        ),
+        updated_at=(
+            getattr(game, "updated_at", None).isoformat()
+            if getattr(game, "updated_at", None) is not None
+            else None
+        ),
+    )
+    cached = await get_cached(f"games:similar:{cache_hash}")
+    if cached:
+        return [SimilarGame(**item) for item in json.loads(cached)]
+
+    if game_has_sufficient_taxonomy_v2_support(game):
+        allowed_archetypes = sorted(get_taxonomy_v2_allowed_archetypes(game))
+        if not allowed_archetypes:
+            return []
+
+        candidate_query = (
+            select(Game)
+            .where(
+                Game.id != game.id,
+                Game.release_date.isnot(None),
+                Game.release_date <= func.current_date(),
+                _meaningful_v2_similarity_signal_expression(),
+                Game.taxonomy_v2_status.in_(list(TAXONOMY_V2_READY_STATUSES)),
+                or_(
+                    Game.taxonomy_v2_primary_archetype.in_(allowed_archetypes),
+                    Game.taxonomy_v2_secondary_archetypes.overlap(allowed_archetypes),
+                ),
+            )
+            .order_by(
+                Game.critic_review_count.desc().nulls_last(),
+                Game.release_date.desc().nulls_last(),
+                Game.id.desc(),
+            )
+            .limit(max(limit * 60, 600))
+        )
+        candidate_result = await db.execute(candidate_query)
+        candidates = candidate_result.scalars().all()
+        if not candidates:
+            return []
+
+        qualified: list[tuple[int, Game, SimilarGame]] = []
+        for candidate in candidates:
+            breakdown = build_similarity_breakdown_v2(game, candidate)
+            if breakdown is None:
+                continue
+            qualified.append((breakdown.score, candidate, _build_similar_game(candidate, breakdown)))
+
+        qualified.sort(
+            key=lambda item: (
+                -item[0],
+                -(item[2].critic_review_count or 0),
+                item[2].title.lower(),
+            ),
+        )
+
+        items = _select_diverse_v2_similar_games(qualified, limit=limit)
+        if len(items) < 2:
+            return []
+    else:
+        if not game_has_sufficient_taxonomy_support(game):
+            return []
+
+        anchor_genres = list(game.taxonomy_genres or [])
+        secondary_overlap_clauses = []
+        if game.taxonomy_themes:
+            secondary_overlap_clauses.append(Game.taxonomy_themes.overlap(list(game.taxonomy_themes)))
+        if game.taxonomy_modes:
+            secondary_overlap_clauses.append(Game.taxonomy_modes.overlap(list(game.taxonomy_modes)))
+        if game.taxonomy_perspectives:
+            secondary_overlap_clauses.append(Game.taxonomy_perspectives.overlap(list(game.taxonomy_perspectives)))
+
+        if not anchor_genres or not secondary_overlap_clauses:
+            return []
+
+        candidate_query = (
+            select(Game)
+            .where(
+                Game.id != game.id,
+                Game.release_date.isnot(None),
+                Game.release_date <= func.current_date(),
+                _meaningful_game_signal_expression(),
+                Game.taxonomy_genres.overlap(anchor_genres),
+                or_(*secondary_overlap_clauses),
+            )
+            .order_by(
+                Game.release_date.desc().nulls_last(),
+                Game.critic_review_count.desc().nulls_last(),
+                Game.id.desc(),
+            )
+            .limit(max(limit * 20, 80))
+        )
+        candidate_result = await db.execute(candidate_query)
+        candidates = candidate_result.scalars().all()
+        if not candidates:
+            return []
+
+        anchor_outlets = (
+            select(Review.outlet_id.label("outlet_id"))
+            .where(Review.game_id == game.id, Review.outlet_id.isnot(None))
+            .distinct()
+            .subquery()
+        )
+        anchor_journalists = (
+            select(Review.journalist_id.label("journalist_id"))
+            .where(Review.game_id == game.id)
+            .distinct()
+            .subquery()
+        )
+        candidate_ids = [candidate.id for candidate in candidates]
+        overlap_result = await db.execute(
+            select(
+                Review.game_id,
+                func.count(
+                    func.distinct(
+                        case(
+                            (
+                                Review.outlet_id.in_(select(anchor_outlets.c.outlet_id)),
+                                Review.outlet_id,
+                            ),
+                            else_=None,
+                        )
+                    )
+                ).label("shared_outlets"),
+                func.count(
+                    func.distinct(
+                        case(
+                            (
+                                Review.journalist_id.in_(select(anchor_journalists.c.journalist_id)),
+                                Review.journalist_id,
+                            ),
+                            else_=None,
+                        )
+                    )
+                ).label("shared_journalists"),
+            )
+            .where(Review.game_id.in_(candidate_ids))
+            .group_by(Review.game_id)
+        )
+        overlap_lookup = {
+            row.game_id: (
+                int(getattr(row, "shared_outlets", 0) or 0),
+                int(getattr(row, "shared_journalists", 0) or 0),
+            )
+            for row in overlap_result
+        }
+
+        qualified: list[tuple[int, SimilarGame]] = []
+        for candidate in candidates:
+            shared_outlets, shared_journalists = overlap_lookup.get(candidate.id, (0, 0))
+            breakdown = build_similarity_breakdown(
+                game,
+                candidate,
+                shared_outlets=shared_outlets,
+                shared_journalists=shared_journalists,
+            )
+            if breakdown is None:
+                continue
+            qualified.append((breakdown.score, _build_similar_game(candidate, breakdown)))
+
+        qualified.sort(
+            key=lambda item: (
+                -item[0],
+                -(item[1].critic_review_count or 0),
+                -(item[1].release_date.toordinal() if item[1].release_date else -1),
+                item[1].title.lower(),
+            ),
+            reverse=False,
+        )
+
+        items = [item for _, item in qualified[:limit]]
+        if len(items) < 2:
+            return []
+
+    await set_cached(
+        f"games:similar:{cache_hash}",
+        json.dumps([item.model_dump(mode="json") for item in items]),
+        expire_seconds=CACHE_TTL_SHORT,
+    )
+    return items
 
 
 @router.get("/{game_id}/steam-activity", response_model=SteamActivityResponse)

@@ -42,6 +42,9 @@ DEFAULT_COOKIES = {
     "wants_mature_content": "1",
 }
 
+_APP_TAG_RE = re.compile(r'<a[^>]+class="app_tag[^"]*"[^>]*>(.*?)</a>', flags=re.IGNORECASE | re.DOTALL)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
 
 class SteamService:
     """Service for interacting with the Steam Web API."""
@@ -326,6 +329,62 @@ class SteamService:
                 print(f"  Fallback app page fetch failed for app_id={app_id}: {e}")
                 return None
 
+    @staticmethod
+    def _normalize_store_text(value: Any) -> Optional[str]:
+        """Normalize Steam HTML/text blobs into clean readable plain text."""
+        if not isinstance(value, str):
+            return None
+        cleaned = unescape(value)
+        cleaned = cleaned.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+        cleaned = re.sub(r"</p\s*>", "\n\n", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"</li\s*>", "\n", cleaned, flags=re.IGNORECASE)
+        cleaned = _HTML_TAG_RE.sub(" ", cleaned)
+        cleaned = cleaned.replace("\xa0", " ")
+        cleaned = re.sub(r"[ \t]+", " ", cleaned)
+        cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = re.sub(r" ?\n ?", "\n", cleaned)
+        cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned)
+        cleaned = cleaned.strip()
+        return cleaned or None
+
+    @staticmethod
+    def _parse_store_tags_from_html(html: str) -> List[str]:
+        """Extract the top visible store tags from a Steam app page."""
+        if not html:
+            return []
+        matches = _APP_TAG_RE.findall(html)
+        if not matches:
+            return []
+        tags: list[str] = []
+        seen: set[str] = set()
+        for raw_match in matches:
+            cleaned = unescape(_HTML_TAG_RE.sub(" ", raw_match or ""))
+            cleaned = re.sub(r"\s+", " ", cleaned).strip()
+            if not cleaned:
+                continue
+            marker = cleaned.casefold()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            tags.append(cleaned)
+        return tags
+
+    async def get_store_tags(self, app_id: int) -> List[str]:
+        """Fetch the top visible Steam store tags from the app page."""
+        async with app_details_rate_limiter:
+            await asyncio.sleep(0.5)
+            try:
+                client = await self._get_client()
+                response = await client.get(
+                    f"https://store.steampowered.com/app/{app_id}/",
+                    params={"l": "english", "cc": "us"},
+                )
+                response.raise_for_status()
+                return self._parse_store_tags_from_html(response.text)
+            except Exception as e:
+                print(f"  Store tag fetch failed for app_id={app_id}: {e}")
+                return []
+
     async def get_user_score(self, app_id: int) -> Optional[Dict[str, Any]]:
         """
         Get normalized user score for a game.
@@ -441,7 +500,9 @@ class SteamService:
         return {
             "steam_app_id": app_id,
             "title": data.get("name"),
-            "description": data.get("short_description"),
+            "description": SteamService._normalize_store_text(data.get("short_description")),
+            "steam_short_description": SteamService._normalize_store_text(data.get("short_description")),
+            "steam_detailed_description": SteamService._normalize_store_text(data.get("detailed_description")),
             "release_date": release_date,
             "image_url": data.get("header_image"),
         }

@@ -10,7 +10,7 @@ Key design decisions:
 import enum
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Optional, List
+from typing import Any, Optional, List
 
 from sqlalchemy import (
     String,
@@ -28,6 +28,7 @@ from sqlalchemy import (
     func,
     text,
 )
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from app.public_ids import generate_public_id
 
@@ -167,6 +168,10 @@ class Game(Base):
     steam_app_id: Mapped[Optional[int]] = mapped_column(Integer, index=True)
     metacritic_slug: Mapped[Optional[str]] = mapped_column(String(255), index=True)
     description: Mapped[Optional[str]] = mapped_column(Text)
+    opencritic_description: Mapped[Optional[str]] = mapped_column(Text)
+    steam_short_description: Mapped[Optional[str]] = mapped_column(Text)
+    steam_detailed_description: Mapped[Optional[str]] = mapped_column(Text)
+    metacritic_description: Mapped[Optional[str]] = mapped_column(Text)
     release_date: Mapped[Optional[date]] = mapped_column(Date, index=True)
 
     # OpenCritic aggregate scores (for reference)
@@ -197,6 +202,94 @@ class Game(Base):
     steam_player_stats_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     steam_achievement_count: Mapped[Optional[int]] = mapped_column(Integer)
     steam_achievement_count_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    taxonomy_genres: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_themes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_modes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_perspectives: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_studios: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_publishers: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_sources: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    taxonomy_v2_version: Mapped[Optional[str]] = mapped_column(String(64))
+    taxonomy_v2_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="pending",
+        server_default=text("'pending'"),
+    )
+    taxonomy_v2_primary_family: Mapped[Optional[str]] = mapped_column(String(64), index=True)
+    taxonomy_v2_primary_archetype: Mapped[Optional[str]] = mapped_column(String(128), index=True)
+    taxonomy_v2_secondary_archetypes: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_v2_hard_exclusions: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_v2_soft_penalties: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_v2_confidence: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2))
+    taxonomy_v2_text_corpus: Mapped[Optional[str]] = mapped_column(Text)
+    taxonomy_v2_text_sources: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    taxonomy_v2_text_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    taxonomy_v2_fingerprint: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    taxonomy_v2_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    taxonomy_v2_curated: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    taxonomy_v2_debug_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
 
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -220,6 +313,14 @@ class Game(Base):
     )
     steam_player_range_snapshots: Mapped[List["SteamPlayerRangeSnapshot"]] = relationship(
         back_populates="game"
+    )
+    source_taxonomy_labels: Mapped[List["GameSourceTaxonomyLabel"]] = relationship(
+        back_populates="game",
+        cascade="all, delete-orphan",
+    )
+    taxonomy_v2_evidence_rows: Mapped[List["GameTaxonomyV2Evidence"]] = relationship(
+        back_populates="game",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
@@ -374,6 +475,94 @@ class SteamPlayerRangeSnapshot(Base):
         UniqueConstraint("game_id", "sampled_at", name="uq_steam_player_range_snapshots_game_sampled"),
         Index("idx_steam_player_range_snapshots_game_sampled", "game_id", "sampled_at"),
         Index("idx_steam_player_range_snapshots_sampled_at", "sampled_at"),
+    )
+
+
+class GameSourceTaxonomyLabel(Base):
+    """Raw source taxonomy labels captured per game/source/facet."""
+
+    __tablename__ = "game_source_taxonomy_labels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False)
+    facet: Mapped[str] = mapped_column(String(32), nullable=False)
+    raw_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    normalized_label: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    game: Mapped["Game"] = relationship(back_populates="source_taxonomy_labels")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "game_id",
+            "source",
+            "facet",
+            "normalized_label",
+            name="uq_game_source_taxonomy_labels_game_source_facet_label",
+        ),
+        Index("idx_game_source_taxonomy_labels_game_source", "game_id", "source"),
+        Index(
+            "idx_game_source_taxonomy_labels_source_facet_normalized",
+            "source",
+            "facet",
+            "normalized_label",
+        ),
+    )
+
+
+class GameTaxonomyV2Evidence(Base):
+    """Per-field evidence rows that explain V2 fingerprint assignments."""
+
+    __tablename__ = "game_taxonomy_v2_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    taxonomy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    field: Mapped[str] = mapped_column(String(64), nullable=False)
+    value: Mapped[str] = mapped_column(String(128), nullable=False)
+    source: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_field: Mapped[str] = mapped_column(String(64), nullable=False)
+    confidence: Mapped[Optional[Decimal]] = mapped_column(Numeric(4, 2))
+    evidence_text: Mapped[Optional[str]] = mapped_column(Text)
+    curated: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    weight: Mapped[Optional[Decimal]] = mapped_column(Numeric(5, 2))
+    conflict_group: Mapped[Optional[str]] = mapped_column(String(64))
+    suppressed_by_rule: Mapped[Optional[str]] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    game: Mapped["Game"] = relationship(back_populates="taxonomy_v2_evidence_rows")
+
+    __table_args__ = (
+        Index("idx_game_taxonomy_v2_evidence_game_id", "game_id"),
+        Index(
+            "idx_game_taxonomy_v2_evidence_version_field_value",
+            "taxonomy_version",
+            "field",
+            "value",
+        ),
+        Index(
+            "idx_game_taxonomy_v2_evidence_source_source_field",
+            "source",
+            "source_field",
+        ),
+        Index("idx_game_taxonomy_v2_evidence_game_field", "game_id", "field"),
     )
 
 
