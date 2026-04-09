@@ -1,0 +1,617 @@
+{
+  "version": "phrase_matrix_v7",
+  "rules": [
+    {
+      "id": "jrpg_party_journey",
+      "scope": [
+        "jrpg_story_rpg",
+        "monster_collect_rpg"
+      ],
+      "patterns": [
+        "\\bparty members\\b",
+        "\\bturn[- ]based battles?\\b",
+        "\\bepic journey\\b",
+        "\\bsave the world\\b"
+      ],
+      "emits": [
+        [
+          "combat_structure",
+          "party_management",
+          0.86
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.78
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "monster_collecting_loop",
+      "scope": [
+        "monster_collect_rpg"
+      ],
+      "patterns": [
+        "\\bcapture creatures\\b",
+        "\\braise companions\\b",
+        "\\bbefriend monsters\\b",
+        "\\btrain monsters\\b"
+      ],
+      "emits": [
+        [
+          "mechanics_structure",
+          "creature_collection",
+          0.92
+        ],
+        [
+          "rules_goals",
+          "capture_and_raise_companions",
+          0.9
+        ],
+        [
+          "entity_interaction",
+          "creature_collection",
+          0.9
+        ],
+        [
+          "narrative_topic",
+          "monster_bonding",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "sports_match_loop",
+      "scope": [
+        "sports_sim",
+        "realistic_racer",
+        "arcade_racer"
+      ],
+      "patterns": [
+        "\\bwin matches\\b",
+        "\\bseason mode\\b",
+        "\\bleague table\\b",
+        "\\bchampionship\\b",
+        "\\brace weekend\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "match_session",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.88
+        ]
+      ]
+    },
+        {
+            "id": "fighter_roster_duels",
+            "scope": [
+                "traditional_fighter",
+                "beat_em_up"
+            ],
+            "patterns": [
+                "\\bplayable roster\\b",
+                "\\bhead[- ]to[- ]head\\b",
+                "\\bcombo system\\b",
+                "\\bfight your rival\\b"
+            ],
+            "emits": [
+        [
+          "combat_structure",
+          "duel_focused",
+          0.9
+        ],
+        [
+          "input_complexity",
+          "mastery_heavy",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "pvp",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "horror_escape_loop",
+      "scope": [
+        "action_horror",
+        "survival_horror",
+        "psychological_horror"
+      ],
+      "patterns": [
+        "\\bescape the horror\\b",
+        "\\bsurvive the night\\b",
+        "\\bdread\\b",
+        "\\bnightmar(?:e|ish)\\b",
+        "\\bflee\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.88
+        ],
+        [
+          "tone",
+          "bleak",
+          0.8
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "city_builder_optimization",
+      "scope": [
+        "city_builder",
+        "colony_sim",
+        "grand_strategy"
+      ],
+      "patterns": [
+        "\\bbuild and optimize\\b",
+        "\\bmanage resources\\b",
+        "\\bgrow your city\\b",
+        "\\bexpand your colony\\b",
+        "\\bissue commands\\b"
+      ],
+      "emits": [
+        [
+          "mechanics_structure",
+          "real_time_command",
+          0.82
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.86
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.8
+        ]
+      ]
+    },
+        {
+            "id": "deckbuilding_synergy",
+            "scope": [
+                "card_battler"
+            ],
+      "patterns": [
+        "\\bbuild your deck\\b",
+        "\\bcard synergy\\b",
+        "\\bplay powerful cards\\b",
+        "\\bdraft cards\\b"
+      ],
+            "emits": [
+                [
+                    "keyword_layer",
+                    "deckbuilding",
+                    0.9
+                ],
+                [
+                    "progression_model",
+                    "deck_growth",
+                    0.9
+                ],
+                [
+                    "mechanics_structure",
+                    "deck_construction",
+                    0.92
+                ],
+                [
+                    "rules_goals",
+                    "card_play",
+                    0.9
+                ],
+                [
+                    "entity_interaction",
+                    "card_play",
+                    0.9
+                ]
+            ]
+        },
+        {
+            "id": "rpg_build_refinement",
+            "scope": [
+                "open_world_fantasy_action_rpg",
+                "soulslike_action_rpg",
+                "western_narrative_rpg"
+            ],
+            "patterns": [
+                "\\brefine your build\\b",
+                "\\bshape your build\\b"
+            ],
+            "emits": [
+                [
+                    "progression_model",
+                    "buildcraft",
+                    0.88
+                ]
+            ]
+        },
+    {
+      "id": "totk_open_air_problem_solving",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "open_world_action_adventure"
+      ],
+      "patterns": [
+        "\\bsolve problems in multiple ways\\b",
+        "\\buse your abilities to create\\b",
+        "\\btraverse the land and skies\\b",
+        "\\bphysics[- ]driven puzzles\\b"
+      ],
+      "emits": [
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.9
+        ],
+        [
+          "rules_goals",
+          "complete_quests",
+          0.78
+        ],
+        [
+          "traversal_verbs",
+          "gliding",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "fantasy_action_rpg_foundation",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "western_narrative_rpg",
+        "soulslike_action_rpg"
+      ],
+      "patterns": [
+        "\\bfantasy action[- ]rpg\\b",
+        "\\bfantasy action rpg\\b",
+        "\\bopen[- ]world role[- ]playing game\\b",
+        "\\bopen world role[- ]playing game\\b",
+        "\\bopen world role playing game\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "high_fantasy",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.86
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.84
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "survival_crafting_sandbox_profile",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "open_world_action_adventure",
+        "mmo_action_rpg"
+      ],
+      "patterns": [
+        "\\bsurvival crafting game\\b",
+        "\\bsurvival crafting\\b",
+        "\\bbuild craft fight and explore\\b",
+        "\\bbuild, craft, fight and explore\\b",
+        "\\bbuild elaborate estates\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.9
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.84
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.86
+        ],
+        [
+          "entity_interaction",
+          "construction_placement",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "coop_survival_realm_profile",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "open_world_action_adventure",
+        "mmo_action_rpg"
+      ],
+      "patterns": [
+        "\\bpve open[- ]world\\b",
+        "\\bplayed solo or cooperatively(?: with friends)?\\b",
+        "\\bsolo or cooperatively(?: with friends)?\\b",
+        "\\bcooperatively with friends\\b"
+      ],
+      "emits": [
+        [
+          "mode_profile",
+          "drop_in_coop",
+          0.9
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "witcher_fantasy_hunt_identity",
+      "scope": [
+        "western_narrative_rpg",
+        "open_world_fantasy_action_rpg"
+      ],
+      "patterns": [
+        "\\bgeralt of rivia\\b",
+        "\\bmercenary monster slayer\\b",
+        "\\bprofessional monster hunter\\b",
+        "\\bmaster swordsman\\b",
+        "\\bmonster[- ]infested continent\\b",
+        "\\bchild of prophecy\\b",
+        "\\bfantasy universe\\b",
+        "\\bkingdoms? of the north\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "third_person",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.84
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.9
+        ],
+        [
+          "setting",
+          "dark_fantasy",
+          0.82
+        ],
+        [
+          "narrative_structure",
+          "authored_branching",
+          0.78
+        ],
+        [
+          "entity_interaction",
+          "dialogue_choice",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "elden_named_world_language",
+      "scope": [
+        "soulslike_action_rpg",
+        "open_world_fantasy_action_rpg"
+      ],
+      "patterns": [
+        "\\btarnished\\b",
+        "\\belden lord\\b",
+        "\\blands between\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "mythic",
+          0.9
+        ],
+        [
+          "setting",
+          "dark_fantasy",
+          0.86
+        ],
+        [
+          "challenge_model",
+          "soulslike",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "open_world_boss_world_language",
+      "scope": [
+        "soulslike_action_rpg",
+        "open_world_fantasy_action_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bhuge dungeons\\b",
+        "\\bopen fields\\b",
+        "\\bthree[- ]dimensional designs\\b",
+        "\\bchallenging enemies and bosses\\b",
+        "\\boverwhelming threats\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "mythic",
+          0.76
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.88
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "boss_centric",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "defeat_bosses",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "slay_and_fight_back_combat",
+      "scope": [
+        "western_narrative_rpg",
+        "open_world_fantasy_action_rpg",
+        "soulslike_action_rpg"
+      ],
+      "patterns": [
+        "\\bfight back\\b",
+        "\\bslay beasts\\b",
+        "\\bleave none of your enemies standing\\b",
+        "\\bbrandish the power\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "mythic_cinematic_action_adventure",
+      "scope": [
+        "cinematic_action_adventure",
+        "open_world_action_adventure"
+      ],
+      "patterns": [
+        "\\bcinematic action[- ]adventure\\b",
+        "\\bmythic saga\\b",
+        "\\bnorse realms?\\b",
+        "\\bjourney across the realms\\b",
+        "\\bstory of a father and son\\b",
+        "\\bsingle[- ]shot camera\\b",
+        "\\bbrutal combat and epic boss battles\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "third_person",
+          0.88
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.84
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.92
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.84
+        ],
+        [
+          "combat_structure",
+          "boss_centric",
+          0.82
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.76
+        ],
+        [
+          "rules_goals",
+          "defeat_bosses",
+          0.82
+        ],
+        [
+          "setting",
+          "mythic",
+          0.84
+        ],
+        [
+          "tone",
+          "heroic",
+          0.8
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.84
+        ]
+      ]
+    }
+  ]
+}

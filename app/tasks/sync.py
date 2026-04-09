@@ -13,7 +13,6 @@ import dramatiq
 from sqlalchemy import select, delete, or_, and_, case, func
 from sqlalchemy.dialects.postgresql import insert
 
-from app.cache import close_redis
 from app.database import async_session_maker
 from app.models.models import (
     Journalist, Outlet, Game, Review, UserScore, SyncLog,
@@ -22,6 +21,7 @@ from app.models.models import (
 from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
 from app.services.steam import SteamService
+from app.services.steam_catalog import ensure_tracked_steam_games
 from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
 from app.services.metacritic import MetacriticService
 from app.services.game_matcher import GameMatcher
@@ -33,19 +33,12 @@ from app.services.game_taxonomy import (
 )
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.post_sync_refresh import refresh_news_after_sync
-
-
-def run_async(coro):
-    """Helper to run async code in sync Dramatiq tasks."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.run_until_complete(close_redis())
-        finally:
-            loop.close()
+from app.tasks.runtime import (
+    LOCK_DB_HEAVY_BULK,
+    QUEUE_LOW_PRIORITY_ACTIVITY,
+    QUEUE_SOURCE_SYNC,
+    run_async_task,
+)
 
 
 def _should_update_release_date_from_metacritic(
@@ -93,7 +86,7 @@ def _should_update_release_date_from_metacritic(
 # OpenCritic Sync Tasks
 # =============================================================================
 
-@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=3, time_limit=3600000)  # 1 hour time limit
 def sync_opencritic_full():
     """
     Full sync of all data from OpenCritic.
@@ -101,7 +94,7 @@ def sync_opencritic_full():
     This fetches all critics, outlets, games, and reviews.
     Should be run initially and occasionally for complete refresh.
     """
-    run_async(_sync_opencritic_full())
+    run_async_task(lambda: _sync_opencritic_full(), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _sync_opencritic_full():
@@ -346,7 +339,7 @@ async def _sync_opencritic_full():
             raise
 
 
-@dramatiq.actor(max_retries=3, time_limit=1800000)  # 30 min time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=3, time_limit=1800000)  # 30 min time limit
 def sync_opencritic_incremental():
     """
     Incremental sync of recent data from OpenCritic.
@@ -354,7 +347,7 @@ def sync_opencritic_incremental():
     This fetches only recent games and reviews (last 7 days).
     Should be run frequently (every few hours).
     """
-    run_async(_sync_opencritic_incremental())
+    run_async_task(lambda: _sync_opencritic_incremental(), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _sync_opencritic_incremental():
@@ -368,7 +361,7 @@ async def _sync_opencritic_incremental():
 # Steam Sync Tasks
 # =============================================================================
 
-@dramatiq.actor(max_retries=3, time_limit=3600000)  # 1 hour time limit
+@dramatiq.actor(queue_name=QUEUE_LOW_PRIORITY_ACTIVITY, max_retries=3, time_limit=3600000)  # 1 hour time limit
 def sync_steam_scores():
     """
     Sync Steam user scores and Steam-owned activity for all games.
@@ -376,7 +369,7 @@ def sync_steam_scores():
     This fetches the latest user review scores, current players, snapshots, and
     achievement totals from Steam for all games that have a Steam app ID.
     """
-    run_async(_sync_steam_scores())
+    run_async_task(lambda: _sync_steam_scores(), blocked_by=(LOCK_DB_HEAVY_BULK,), retry_delay_ms=300_000)
 
 
 async def _sync_steam_scores():
@@ -399,17 +392,24 @@ async def _sync_steam_scores():
             records_failed = 0
             today = datetime.now(timezone.utc).date()
 
-            # Get games with Steam app IDs, excluding known future release dates.
-            query = select(Game).where(
-                Game.steam_app_id.isnot(None),
-                or_(Game.release_date.is_(None), Game.release_date <= today),
-            )
-            result = await db.execute(query)
-            games = result.scalars().all()
-
-            print(f"Syncing Steam scores and Steam-owned activity for {len(games)} games...")
-
             async with SteamService() as service, SteamActivityService() as activity_service:
+                curated_stats = await ensure_tracked_steam_games(db, service)
+                if curated_stats["created"] or curated_stats["updated"]:
+                    print(
+                        "Ensured curated Steam-only catalog entries: "
+                        f"{curated_stats['created']} created, {curated_stats['updated']} updated"
+                    )
+
+                # Get games with Steam app IDs, excluding known future release dates.
+                query = select(Game).where(
+                    Game.steam_app_id.isnot(None),
+                    or_(Game.release_date.is_(None), Game.release_date <= today),
+                )
+                result = await db.execute(query)
+                games = result.scalars().all()
+
+                print(f"Syncing Steam scores and Steam-owned activity for {len(games)} games...")
+
                 for game in games:
                     try:
                         app_details = await service.get_app_details(game.steam_app_id)
@@ -489,7 +489,7 @@ async def _sync_steam_scores():
 # Metacritic Sync Tasks
 # =============================================================================
 
-@dramatiq.actor(max_retries=2, time_limit=7200000)  # 2 hour time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=2, time_limit=7200000)  # 2 hour time limit
 def sync_metacritic_scores():
     """
     Sync user scores from Metacritic for all games.
@@ -497,7 +497,7 @@ def sync_metacritic_scores():
     This scrapes user scores from Metacritic for all games
     that have a Metacritic slug.
     """
-    run_async(_sync_metacritic_scores())
+    run_async_task(lambda: _sync_metacritic_scores(), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _sync_metacritic_scores():
@@ -652,7 +652,7 @@ async def _sync_metacritic_scores():
 # Game Matching Task
 # =============================================================================
 
-@dramatiq.actor(max_retries=2, time_limit=3600000)  # 1 hour time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=2, time_limit=3600000)  # 1 hour time limit
 def match_games_to_platforms():
     """
     Match games to Steam and Metacritic.
@@ -660,7 +660,7 @@ def match_games_to_platforms():
     This attempts to find Steam app IDs and Metacritic slugs
     for games that don't have them yet.
     """
-    run_async(_match_games_to_platforms())
+    run_async_task(lambda: _match_games_to_platforms(), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _match_games_to_platforms():
@@ -682,6 +682,7 @@ async def _match_games_to_platforms():
 
         matched_steam = 0
         assigned_slugs = 0
+        unmatched_games: list[tuple[str, int | None, str]] = []
         for game in games:
             match_result = await matcher.match_game(
                 title=game.title,
@@ -693,6 +694,9 @@ async def _match_games_to_platforms():
                 if game.steam_app_id != match_result["steam_app_id"]:
                     game.steam_app_id = match_result["steam_app_id"]
                     matched_steam += 1
+            else:
+                reason = match_result.get("steam_match_reason", "unknown")
+                unmatched_games.append((game.title, game.opencritic_id, reason))
 
             if match_result["metacritic_slug"] and not game.metacritic_slug:
                 game.metacritic_slug = match_result["metacritic_slug"]
@@ -704,13 +708,17 @@ async def _match_games_to_platforms():
             f"Matched {matched_steam} games to Steam and "
             f"assigned {assigned_slugs} Metacritic slugs"
         )
+        if unmatched_games:
+            print(f"\nUnmatched games ({len(unmatched_games)}):")
+            for title, oc_id, reason in unmatched_games:
+                print(f"  - {title} (OC {oc_id}): {reason}")
 
 
 # =============================================================================
 # News RSS Feed Sync Tasks
 # =============================================================================
 
-@dramatiq.actor(max_retries=2, time_limit=300000)  # 5 min time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=2, time_limit=300000)  # 5 min time limit
 def sync_news_feeds():
     """
     Fetch latest articles from all gaming news RSS feeds.
@@ -719,7 +727,7 @@ def sync_news_feeds():
     Polygon, Eurogamer, and The Verge, inserting new articles.
     Articles are kept permanently since they may be displayed on game pages.
     """
-    run_async(_sync_news_feeds())
+    run_async_task(lambda: _sync_news_feeds())
 
 
 async def _sync_news_feeds():
@@ -780,7 +788,7 @@ async def _sync_news_feeds():
 # Data Cleanup Tasks
 # =============================================================================
 
-@dramatiq.actor(max_retries=1, time_limit=600000)  # 10 min time limit
+@dramatiq.actor(queue_name=QUEUE_SOURCE_SYNC, max_retries=1, time_limit=600000)  # 10 min time limit
 def cleanup_unscored_reviews():
     """
     Clean up reviews that were incorrectly assigned scores.
@@ -792,7 +800,7 @@ def cleanup_unscored_reviews():
     This task re-evaluates all reviews and sets score_normalized to NULL
     for reviews that don't have valid numeric scores.
     """
-    run_async(_cleanup_unscored_reviews())
+    run_async_task(lambda: _cleanup_unscored_reviews(), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _cleanup_unscored_reviews():

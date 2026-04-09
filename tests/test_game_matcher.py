@@ -31,7 +31,7 @@ async def test_subtitle_title_does_not_match_base_game_only():
     )
     matcher = GameMatcher(steam_service=steam)
 
-    steam_app_id = await matcher.find_steam_match("God of War: Sons of Sparta")
+    steam_app_id, _reason = await matcher.find_steam_match("God of War: Sons of Sparta")
 
     assert steam_app_id is None
 
@@ -51,7 +51,7 @@ async def test_exact_title_match_still_works():
     )
     matcher = GameMatcher(steam_service=steam)
 
-    steam_app_id = await matcher.find_steam_match(
+    steam_app_id, _reason = await matcher.find_steam_match(
         "Helldivers 2",
         release_date=date(2024, 2, 8),
     )
@@ -70,7 +70,7 @@ async def test_yearly_sports_title_accepts_compact_variant():
     )
     matcher = GameMatcher(steam_service=steam)
 
-    steam_app_id = await matcher.find_steam_match("NBA2K 21 Next-Gen")
+    steam_app_id, _reason = await matcher.find_steam_match("NBA2K 21 Next-Gen")
 
     assert steam_app_id == 123456
 
@@ -86,7 +86,7 @@ async def test_yearly_sports_title_does_not_match_newer_cycle():
     )
     matcher = GameMatcher(steam_service=steam)
 
-    steam_app_id = await matcher.find_steam_match("NBA2K 21 Next-Gen")
+    steam_app_id, _reason = await matcher.find_steam_match("NBA2K 21 Next-Gen")
 
     assert steam_app_id is None
 
@@ -106,7 +106,7 @@ async def test_manual_override_steam_match_wins_for_known_lords_entries(
     steam = DummySteamService(results={})
     matcher = GameMatcher(steam_service=steam)
 
-    steam_app_id = await matcher.find_steam_match(
+    steam_app_id, _reason = await matcher.find_steam_match(
         "Lords of the Fallen",
         release_date=date(2023, 10, 13),
         opencritic_id=opencritic_id,
@@ -121,3 +121,44 @@ def test_manual_override_metacritic_slug_wins_for_edge_2011():
     slug = matcher.find_metacritic_slug("Edge", opencritic_id=1130)
 
     assert slug == "edge-2011"
+
+
+@pytest.mark.asyncio
+async def test_collection_suffix_stripped_for_search_fallback():
+    """A 'Collection' title that Steam doesn't index should still match
+    when the suffix is stripped and the base title is found."""
+    steam = DummySteamService(
+        results={
+            # Exact title returns nothing from Steam search
+            "MARVEL MaXimum Collection": [],
+            # But the stripped version finds the app
+            "MARVEL MaXimum": [
+                {"steam_app_id": 3931060, "name": "MARVEL MaXimum Collection"},
+            ],
+        }
+    )
+    matcher = GameMatcher(steam_service=steam)
+
+    steam_app_id, reason = await matcher.find_steam_match("MARVEL MaXimum Collection")
+
+    assert steam_app_id == 3931060
+    assert reason == "matched"
+
+
+@pytest.mark.parametrize(
+    "title,expected_stripped",
+    [
+        ("MARVEL MaXimum Collection", "MARVEL MaXimum"),
+        ("Halo: Master Chief Collection", "Halo: Master Chief"),
+        ("Uncharted: Legacy of Thieves Collection", "Uncharted: Legacy of Thieves"),
+        ("Kingdom Hearts HD 1.5+2.5 ReMIX", "Kingdom Hearts HD 1.5+2.5 ReMIX"),
+        ("Batman: Arkham Collection", "Batman: Arkham"),
+        ("God of War Ragnarök Complete Edition", "God of War Ragnarök"),
+        ("Elden Ring Deluxe Edition", "Elden Ring"),
+    ],
+)
+def test_edition_suffix_stripping_in_search_queries(title, expected_stripped):
+    queries = GameMatcher.build_search_queries(title)
+    assert expected_stripped in queries, (
+        f"Expected '{expected_stripped}' in search queries for '{title}', got: {queries}"
+    )

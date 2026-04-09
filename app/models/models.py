@@ -31,6 +31,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from app.public_ids import generate_public_id
+from app.models.pgvector_type import PGVector
 
 
 class Base(DeclarativeBase):
@@ -290,6 +291,27 @@ class Game(Base):
         server_default=text("false"),
     )
     taxonomy_v2_debug_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    similarity_v3_version: Mapped[Optional[str]] = mapped_column(String(64))
+    similarity_v3_status: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="hidden",
+        server_default=text("'hidden'"),
+    )
+    similarity_v3_dirty: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default=text("true"),
+    )
+    similarity_v3_dirty_reasons: Mapped[list[str]] = mapped_column(
+        ARRAY(Text),
+        nullable=False,
+        default=list,
+        server_default=text("'{}'"),
+    )
+    similarity_v3_computed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    similarity_v3_debug_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
 
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -322,9 +344,140 @@ class Game(Base):
         back_populates="game",
         cascade="all, delete-orphan",
     )
+    similarity_v3_document: Mapped[Optional["GameSimilarityV3Document"]] = relationship(
+        back_populates="game",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     __table_args__ = (
         Index("idx_games_release_date", "release_date"),
+    )
+
+
+class GameSimilarityV3Document(Base):
+    """Precomputed V3 corpus artifacts and embeddings for one game."""
+
+    __tablename__ = "game_similarity_v3_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    similarity_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding_backend: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_text_doc: Mapped[Optional[str]] = mapped_column(Text)
+    structured_label_doc: Mapped[Optional[str]] = mapped_column(Text)
+    fingerprint_doc: Mapped[Optional[str]] = mapped_column(Text)
+    synthetic_summary_doc: Mapped[Optional[str]] = mapped_column(Text)
+    fused_doc: Mapped[Optional[str]] = mapped_column(Text)
+    fused_doc_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    fingerprint_doc_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    fused_embedding: Mapped[Optional[list[float]]] = mapped_column(PGVector(384))
+    fingerprint_embedding: Mapped[Optional[list[float]]] = mapped_column(PGVector(384))
+    prototype_embedding: Mapped[Optional[list[float]]] = mapped_column(PGVector(384))
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    game: Mapped["Game"] = relationship(back_populates="similarity_v3_document")
+
+    __table_args__ = (
+        Index(
+            "idx_game_similarity_v3_documents_version_backend",
+            "similarity_version",
+            "embedding_backend",
+        ),
+    )
+
+
+class GameSimilarityV3Neighbor(Base):
+    """Published Similar Games V3 neighbors served by the live API."""
+
+    __tablename__ = "game_similarity_v3_neighbors"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    anchor_game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    candidate_game_id: Mapped[int] = mapped_column(
+        ForeignKey("games.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    final_score: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
+    taxonomy_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    text_vector_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    facet_vector_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    prototype_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    rerank_score: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    quality_prior: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 4))
+    relationship_type: Mapped[Optional[str]] = mapped_column(String(64))
+    used_vector_exception: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+    explanation_payload: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    similarity_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "anchor_game_id",
+            "candidate_game_id",
+            "similarity_version",
+            name="uq_game_similarity_v3_neighbors_anchor_candidate_version",
+        ),
+        Index(
+            "idx_game_similarity_v3_neighbors_anchor_rank",
+            "anchor_game_id",
+            "rank",
+        ),
+        Index(
+            "idx_game_similarity_v3_neighbors_anchor_version",
+            "anchor_game_id",
+            "similarity_version",
+        ),
+    )
+
+
+class GameSimilarityV3Run(Base):
+    """Metadata for a published Similar Games V3 batch."""
+
+    __tablename__ = "game_similarity_v3_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    similarity_version: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    taxonomy_version: Mapped[Optional[str]] = mapped_column(String(64))
+    embedding_backend: Mapped[Optional[str]] = mapped_column(String(64))
+    reranker_backend: Mapped[Optional[str]] = mapped_column(String(64))
+    gold_set_version: Mapped[Optional[str]] = mapped_column(String(64))
+    corpus_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    summary_metrics: Mapped[Optional[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
     )
 
 

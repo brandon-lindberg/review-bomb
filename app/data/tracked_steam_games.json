@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "steam_app_id": 578080,
+      "title": "PUBG: BATTLEGROUNDS",
+      "aliases": [
+        "PLAYERUNKNOWN'S BATTLEGROUNDS"
+      ],
+      "release_date": "2017-12-21",
+      "reason": "Steam top-player-count outlier that needs catalog coverage even without dependable OpenCritic reviews."
+    }
+  ]
+}

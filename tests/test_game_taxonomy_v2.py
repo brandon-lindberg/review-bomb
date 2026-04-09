@@ -7,7 +7,9 @@ from sqlalchemy import Text
 from app.models.models import Game, GameSourceTaxonomyLabel
 from app.services.game_taxonomy_v2 import (
     TAXONOMY_V2_STATUS_COMPUTED,
-    TAXONOMY_V2_STATUS_NEEDS_REVIEW,
+    TAXONOMY_V2_STATUS_HIDDEN,
+    ArchetypeCandidate,
+    _prefer_primary_archetype_candidate,
     analyze_taxonomy_v2_label,
     apply_taxonomy_v2_result_to_game,
     build_similarity_breakdown_v2,
@@ -89,6 +91,69 @@ def test_extract_v2_evidence_from_description_detects_hyrule_style_open_air_sign
     assert ("combat_style", "hybrid") in pairs
     assert ("traversal_verbs", "gliding") in pairs
     assert ("progression_model", "gear_chase") in pairs
+
+
+def test_extract_v2_evidence_from_description_detects_witcher_style_fantasy_narrative_signals():
+    evidence = extract_v2_evidence_from_description(
+        (
+            "The Witcher is a story-driven, next-generation open world role-playing game set in a visually stunning "
+            "fantasy universe full of meaningful choices and impactful consequences. You play as the professional "
+            "monster hunter, Geralt of Rivia, tasked with finding a child of prophecy in a vast open world."
+        )
+    )
+
+    pairs = {(record.field, record.value) for record in evidence}
+
+    assert ("world_topology", "open_world") in pairs
+    assert ("setting", "high_fantasy") in pairs
+    assert ("perspective", "third_person") in pairs
+    assert ("combat_presence", "dominant") in pairs
+    assert ("narrative_structure", "authored_branching") in pairs
+
+
+def test_extract_v2_evidence_from_description_detects_elden_ring_style_world_and_boss_signals():
+    evidence = extract_v2_evidence_from_description(
+        (
+            "The new fantasy action RPG. Rise, Tarnished, and be guided by grace to brandish the power of the Elden Ring "
+            "and become an Elden Lord in the Lands Between. A vast world where open fields and huge dungeons are seamlessly "
+            "connected. As you explore, challenging enemies and bosses await."
+        )
+    )
+
+    pairs = {(record.field, record.value) for record in evidence}
+
+    assert ("setting", "dark_fantasy") in pairs
+    assert ("setting", "mythic") in pairs
+    assert ("world_topology", "open_world") in pairs
+    assert ("combat_presence", "dominant") in pairs
+    assert ("combat_structure", "boss_centric") in pairs
+    assert ("challenge_model", "soulslike") in pairs
+
+
+def test_extract_v2_evidence_from_description_does_not_promote_open_fields_alone_into_boss_world_profile():
+    evidence = extract_v2_evidence_from_description(
+        "Gallop on horseback across cobbled streets and open fields as rival families feud across Sicily."
+    )
+
+    pairs = {(record.field, record.value) for record in evidence}
+
+    assert ("world_topology", "open_world") not in pairs
+    assert ("combat_structure", "boss_centric") not in pairs
+    assert ("rules_goals", "defeat_bosses") not in pairs
+    assert ("setting", "mythic") not in pairs
+
+
+def test_extract_v2_evidence_from_description_treats_behind_the_wheel_as_driving_not_racing():
+    evidence = extract_v2_evidence_from_description(
+        "Mafiosi patrolled their protection rackets on foot, horseback, or behind the wheel of turn-of-the-century motorcars."
+    )
+
+    pairs = {(record.field, record.value) for record in evidence}
+
+    assert ("traversal_verbs", "driving") in pairs
+    assert ("vehicular_theme", "cars") in pairs
+    assert ("mechanics_structure", "vehicular_racing") not in pairs
+    assert ("rules_goals", "win_races") not in pairs
 
 
 def test_extract_v2_evidence_from_description_detects_paraglider_as_gliding():
@@ -226,6 +291,67 @@ def test_build_game_taxonomy_v2_assigns_open_world_fantasy_action_rpg_from_crims
     assert "hybrid" in result.fingerprint["combat_style"]
 
 
+def test_build_game_taxonomy_v2_assigns_witcher_like_profile_from_text():
+    game = Game(
+        id=196,
+        title="Witcher Like",
+        description=(
+            "The Witcher is a story-driven, next-generation open world role-playing game set in a visually stunning "
+            "fantasy universe full of meaningful choices and impactful consequences. In The Witcher you play as the "
+            "professional monster hunter, Geralt of Rivia, tasked with finding a child of prophecy in a vast open world."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=196, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=196, source="steam", facet="genre", raw_label="RPG", normalized_label="rpg"),
+        GameSourceTaxonomyLabel(
+            game_id=196,
+            source="steam",
+            facet="category",
+            raw_label="Single-player",
+            normalized_label="single-player",
+        ),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype in {"western_narrative_rpg", "open_world_fantasy_action_rpg"}
+    assert "high_fantasy" in result.fingerprint["setting"]
+    assert "third_person" in result.fingerprint["perspective"]
+    assert "dominant" in result.fingerprint["combat_presence"]
+
+
+def test_build_game_taxonomy_v2_assigns_soulslike_from_elden_style_text():
+    game = Game(
+        id=197,
+        title="Elden Style",
+        description=(
+            "The new fantasy action RPG. Rise, Tarnished, and become an Elden Lord in the Lands Between. "
+            "A vast world where open fields and huge dungeons with complex and three-dimensional designs are "
+            "seamlessly connected. As you explore, challenging enemies and bosses await."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=197, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=197, source="steam", facet="genre", raw_label="RPG", normalized_label="rpg"),
+        GameSourceTaxonomyLabel(
+            game_id=197,
+            source="steam",
+            facet="category",
+            raw_label="Single-player",
+            normalized_label="single-player",
+        ),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "soulslike_action_rpg"
+    assert "dark_fantasy" in result.fingerprint["setting"]
+    assert "boss_centric" in result.fingerprint["combat_structure"]
+
+
 def test_build_game_taxonomy_v2_does_not_assign_open_world_fantasy_action_rpg_without_setting():
     game = Game(
         id=16,
@@ -334,6 +460,31 @@ def test_build_game_taxonomy_v2_rejects_cinematic_linear_profile_for_open_world_
     assert result.primary_archetype != "open_world_fantasy_action_rpg"
 
 
+def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_mythic_linear_text():
+    game = Game(
+        id=174,
+        title="Mythic Cinematic Adventure",
+        steam_detailed_description=(
+            "A cinematic action-adventure and mythic saga through the Norse realms. "
+            "Follow the story of a father and son on an authored linear journey with brutal combat and epic boss battles."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=174, source="steam", facet="tag", raw_label="Third Person", normalized_label="third person"),
+        GameSourceTaxonomyLabel(game_id=174, source="steam", facet="tag", raw_label="Cinematic", normalized_label="cinematic"),
+        GameSourceTaxonomyLabel(game_id=174, source="steam", facet="tag", raw_label="Story Rich", normalized_label="story rich"),
+        GameSourceTaxonomyLabel(game_id=174, source="steam", facet="tag", raw_label="Fantasy", normalized_label="fantasy"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cinematic_action_adventure"
+    assert "semi_open" in result.fingerprint["world_topology"]
+    assert "setpiece_driven" in result.fingerprint["world_density"]
+    assert "authored_linear" in result.fingerprint["narrative_structure"]
+
+
 def test_build_game_taxonomy_v2_assigns_mmo_action_rpg_from_sandbox_mmorpg_text():
     game = Game(
         id=18,
@@ -375,6 +526,178 @@ def test_build_game_taxonomy_v2_enriches_black_desert_style_world_identity():
     assert result.primary_archetype == "mmo_action_rpg"
     assert "open_world" in result.fingerprint["world_topology"]
     assert "high_fantasy" in result.fingerprint["setting"]
+
+
+def test_prefer_primary_archetype_candidate_promotes_open_world_soulslike_profiles():
+    candidates = [
+        ArchetypeCandidate(
+            archetype="open_world_fantasy_action_rpg",
+            family="rpg",
+            score=515,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.91,
+        ),
+        ArchetypeCandidate(
+            archetype="soulslike_action_rpg",
+            family="rpg",
+            score=502,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.9,
+        ),
+    ]
+
+    preferred = _prefer_primary_archetype_candidate(
+        candidates,
+        {
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_structure": ["boss_centric"],
+            "challenge_model": ["soulslike"],
+            "setting": ["dark_fantasy"],
+            "rules_goals": ["defeat_bosses"],
+        },
+    )
+
+    assert preferred[0].archetype == "soulslike_action_rpg"
+
+
+def test_prefer_primary_archetype_candidate_avoids_soulslike_for_mythic_linear_action_profiles():
+    candidates = [
+        ArchetypeCandidate(
+            archetype="open_world_fantasy_action_rpg",
+            family="rpg",
+            score=505,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.9,
+        ),
+        ArchetypeCandidate(
+            archetype="soulslike_action_rpg",
+            family="rpg",
+            score=498,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.89,
+        ),
+        ArchetypeCandidate(
+            archetype="open_world_action_adventure",
+            family="action_adventure",
+            score=492,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=3,
+            preferred_total=4,
+            confidence=0.88,
+        ),
+    ]
+
+    preferred = _prefer_primary_archetype_candidate(
+        candidates,
+        {
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_structure": ["boss_centric"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "mythic"],
+            "narrative_structure": ["authored_linear"],
+            "rules_goals": ["defeat_bosses"],
+        },
+    )
+
+    assert preferred[0].archetype == "open_world_action_adventure"
+
+
+def test_prefer_primary_archetype_candidate_moves_open_world_platforming_profiles_out_of_fantasy_rpg():
+    candidates = [
+        ArchetypeCandidate(
+            archetype="open_world_fantasy_action_rpg",
+            family="rpg",
+            score=505,
+            required_hits=5,
+            required_total=6,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.9,
+        ),
+        ArchetypeCandidate(
+            archetype="3d_collectathon",
+            family="platformer",
+            score=488,
+            required_hits=4,
+            required_total=5,
+            preferred_hits=2,
+            preferred_total=4,
+            confidence=0.87,
+        ),
+    ]
+
+    preferred = _prefer_primary_archetype_candidate(
+        candidates,
+        {
+            "world_topology": ["open_world", "level_based"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["platforming"],
+            "tone": ["comedic"],
+            "setting": ["high_fantasy"],
+        },
+    )
+
+    assert preferred[0].archetype == "3d_collectathon"
+
+
+def test_prefer_primary_archetype_candidate_keeps_crimson_like_profiles_in_open_world_fantasy_lane():
+    candidates = [
+        ArchetypeCandidate(
+            archetype="open_world_action_adventure",
+            family="action_adventure",
+            score=433,
+            required_hits=4,
+            required_total=4,
+            preferred_hits=1,
+            preferred_total=1,
+            confidence=0.95,
+        ),
+        ArchetypeCandidate(
+            archetype="open_world_fantasy_action_rpg",
+            family="rpg",
+            score=633,
+            required_hits=6,
+            required_total=6,
+            preferred_hits=1,
+            preferred_total=2,
+            confidence=0.91,
+        ),
+    ]
+
+    preferred = _prefer_primary_archetype_candidate(
+        candidates,
+        {
+            "world_topology": ["open_world"],
+            "world_density": ["handcrafted_discovery"],
+            "session_shape": ["campaign"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "traversal_verbs": ["gliding", "horseback"],
+            "progression_model": ["quest_driven", "buildcraft", "skill_tree"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+        },
+    )
+
+    assert preferred[0].archetype == "open_world_fantasy_action_rpg"
 
 
 def test_build_game_taxonomy_v2_assigns_jrpg_story_rpg_from_turn_based_party_language():
@@ -697,6 +1020,47 @@ def test_build_similarity_breakdown_v2_filters_generic_buildcraft_only_same_buck
     assert identity_breakdown is not None
 
 
+def test_build_similarity_breakdown_v2_filters_survival_sandbox_same_bucket_matches_for_authored_fantasy_anchor():
+    anchor = Game(
+        id=1002,
+        title="Authored Fantasy Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_style": ["hybrid"],
+            "traversal_verbs": ["horseback", "gliding"],
+            "progression_model": ["base_growth", "buildcraft", "quest_driven"],
+            "rules_goals": ["build_and_optimize", "complete_quests"],
+            "entity_interaction": ["construction_placement"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["single_player"],
+        },
+    )
+    sandbox_candidate = Game(
+        id=1003,
+        title="Sandbox Candidate",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_style": ["melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft"],
+            "session_shape": ["campaign", "sandbox_loop"],
+            "world_density": ["handcrafted_discovery", "systemic_sandbox"],
+            "mode_profile": ["drop_in_coop", "single_player"],
+            "setting": ["dark_fantasy", "high_fantasy"],
+            "rules_goals": ["defeat_bosses", "solve_mysteries"],
+            "entity_interaction": ["dialogue_choice"],
+        },
+    )
+
+    assert build_similarity_breakdown_v2(anchor, sandbox_candidate) is None
+
+
 def test_build_similarity_breakdown_v2_filters_jrpg_first_candidates_from_open_world_fantasy_matches():
     anchor = Game(
         id=106,
@@ -812,7 +1176,7 @@ def test_build_similarity_breakdown_v2_keeps_mmo_first_adjacent_candidates_eligi
     breakdown = build_similarity_breakdown_v2(anchor, mmo_candidate)
 
     assert breakdown is not None
-    assert breakdown.relationship == "adjacent"
+    assert breakdown.relationship == "adjacent_neighbor"
 
 
 def test_build_similarity_breakdown_v2_rewards_strict_studio_bridge_for_adjacent_mmo_matches():
@@ -1205,6 +1569,186 @@ def test_build_similarity_breakdown_v2_filters_generic_open_world_action_adventu
     assert build_similarity_breakdown_v2(anchor, detour) is None
 
 
+def test_build_similarity_breakdown_v2_allows_cinematic_action_adventure_bridge_for_fantasy_anchor():
+    anchor = Game(
+        id=124,
+        title="The Legend of Zelda: Tears of the Kingdom",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "world_density": ["handcrafted_discovery"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["buildcraft", "quest_driven"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "narrative_topic": ["heroic_journey"],
+            "mode_profile": ["single_player"],
+        },
+    )
+    god_of_war_like = Game(
+        id=125,
+        title="God of War",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="cinematic_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["semi_open"],
+            "world_density": ["setpiece_driven"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "narrative_structure": ["authored_linear"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "rules_goals": ["defeat_bosses"],
+            "narrative_topic": ["heroic_journey"],
+            "mode_profile": ["single_player"],
+        },
+    )
+
+    breakdown = build_similarity_breakdown_v2(anchor, god_of_war_like)
+
+    assert breakdown is not None
+    assert breakdown.relationship in {"adjacent_neighbor", "adjacent_secondary", "strong_secondary"}
+
+
+def test_build_similarity_breakdown_v2_allows_cinematic_action_anchor_to_open_world_fantasy_bridge():
+    anchor = Game(
+        id=126,
+        title="God of War",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="cinematic_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["semi_open"],
+            "world_density": ["setpiece_driven"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "narrative_structure": ["authored_linear"],
+            "setting": ["mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+        },
+    )
+    totk_like = Game(
+        id=127,
+        title="The Legend of Zelda: Tears of the Kingdom",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "rules_goals": ["defeat_bosses"],
+            "mode_profile": ["single_player"],
+        },
+    )
+
+    breakdown = build_similarity_breakdown_v2(anchor, totk_like)
+
+    assert breakdown is not None
+    assert breakdown.score >= 220
+
+
+def test_build_similarity_breakdown_v2_does_not_treat_cinematic_linear_first_as_pair_blocker():
+    anchor = Game(
+        id=128,
+        title="The Legend of Zelda: Tears of the Kingdom",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_hard_exclusions=[],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "rules_goals": ["defeat_bosses"],
+            "mode_profile": ["single_player"],
+        },
+    )
+    candidate = Game(
+        id=129,
+        title="God of War",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="cinematic_action_adventure",
+        taxonomy_v2_hard_exclusions=["cinematic_linear_first"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["semi_open"],
+            "world_density": ["setpiece_driven"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "narrative_structure": ["authored_linear"],
+            "setting": ["mythic"],
+            "tone": ["heroic"],
+            "rules_goals": ["defeat_bosses"],
+            "mode_profile": ["single_player"],
+        },
+    )
+
+    breakdown = build_similarity_breakdown_v2(anchor, candidate)
+
+    assert breakdown is not None
+
+
+def test_build_similarity_breakdown_v2_filters_beat_em_up_and_collectathon_detours_for_fantasy_rpg_anchor():
+    anchor = Game(
+        id=500,
+        title="Crimson Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "traversal_verbs": ["horseback", "climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+    )
+    detour = Game(
+        id=501,
+        title="Pathless Detour",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="beat_em_up",
+        taxonomy_v2_secondary_archetypes=["open_world_action_adventure", "3d_collectathon"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world", "level_based"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee"],
+            "combat_structure": ["boss_centric"],
+            "traversal_verbs": ["gliding", "platforming"],
+            "setting": ["high_fantasy"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+    )
+
+    assert build_similarity_breakdown_v2(anchor, detour) is None
+
+
 def test_build_similarity_breakdown_v2_penalizes_puzzle_noncombat_detours_for_combat_rpg_anchor():
     anchor = Game(
         id=119,
@@ -1262,6 +1806,167 @@ def test_build_similarity_breakdown_v2_penalizes_puzzle_noncombat_detours_for_co
     assert clean_breakdown is not None
     assert puzzle_breakdown is not None
     assert clean_breakdown.score > puzzle_breakdown.score
+
+
+def test_build_similarity_breakdown_v2_allows_sparse_open_world_fantasy_same_lane_when_traversal_and_quests_match():
+    anchor = Game(
+        id=122,
+        title="Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["horseback", "gliding"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+            "progression_model": ["quest_driven"],
+        },
+    )
+    candidate = Game(
+        id=123,
+        title="Candidate",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+            "progression_model": ["buildcraft"],
+        },
+    )
+
+    breakdown = build_similarity_breakdown_v2(anchor, candidate)
+
+    assert breakdown is not None
+
+
+def test_build_similarity_breakdown_v2_allows_sparse_zelda_like_anchor_to_soulslike_bridge():
+    anchor = Game(
+        id=124,
+        title="TOTK-like Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+        },
+    )
+    candidate = Game(
+        id=125,
+        title="Soulslike Candidate",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_style": ["melee"],
+            "combat_structure": ["boss_centric"],
+            "challenge_model": ["soulslike"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+        },
+    )
+
+    breakdown = build_similarity_breakdown_v2(anchor, candidate)
+
+    assert breakdown is not None
+
+
+def test_build_similarity_breakdown_v2_rejects_under_specified_soulslike_bridge_candidate():
+    anchor = Game(
+        id=126,
+        title="TOTK-like Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+        },
+    )
+    weak_candidate = Game(
+        id=127,
+        title="Weak Soulslike Candidate",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "setting": ["mythic"],
+        },
+    )
+
+    assert build_similarity_breakdown_v2(anchor, weak_candidate) is None
+
+
+def test_build_similarity_breakdown_v2_rejects_fake_soulslike_bridge_with_only_boss_goal_and_melee():
+    anchor = Game(
+        id=128,
+        title="TOTK-like Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+        },
+    )
+    fake_candidate = Game(
+        id=129,
+        title="Fake Soulslike Candidate",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_style": ["melee"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["high_fantasy", "mythic"],
+        },
+    )
+
+    assert build_similarity_breakdown_v2(anchor, fake_candidate) is None
+
+
+def test_build_similarity_breakdown_v2_rejects_perspective_ambiguous_soulslike_for_third_person_anchor():
+    anchor = Game(
+        id=130,
+        title="Elden-Like Anchor",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "perspective": ["third_person"],
+            "combat_structure": ["boss_centric"],
+            "challenge_model": ["soulslike"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["dark_fantasy", "mythic"],
+        },
+    )
+    candidate = Game(
+        id=131,
+        title="Perspective-Ambiguous Soulslike",
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "combat_structure": ["boss_centric"],
+            "challenge_model": ["soulslike"],
+            "rules_goals": ["defeat_bosses"],
+            "setting": ["dark_fantasy", "mythic"],
+            "visual_presentation": ["side_scrolling_2d"],
+        },
+    )
+
+    assert build_similarity_breakdown_v2(anchor, candidate) is None
 
 
 def test_build_game_taxonomy_v2_infers_defeat_bosses_from_soulslike_profile():
@@ -1358,6 +2063,8 @@ def test_build_taxonomy_v2_text_corpus_merges_source_specific_descriptions():
     assert sources == ["steam_detailed", "opencritic"]
 
 
+
+
 def test_refresh_game_taxonomy_v2_text_persists_corpus_on_game():
     game = Game(
         id=12,
@@ -1445,6 +2152,51 @@ def test_build_game_taxonomy_v2_assigns_realistic_racer_from_auto_racing_sim_lab
     assert "single_player" in result.fingerprint["mode_profile"]
 
 
+def test_build_game_taxonomy_v2_drops_open_world_when_it_only_comes_from_steam_tag():
+    game = Game(id=55, title="Tag-Only Open World")
+    rows = [
+        GameSourceTaxonomyLabel(
+            game_id=55,
+            source="steam",
+            facet="tag",
+            raw_label="Open World",
+            normalized_label="open world",
+        ),
+        GameSourceTaxonomyLabel(
+            game_id=55,
+            source="steam",
+            facet="tag",
+            raw_label="Exploration",
+            normalized_label="exploration",
+        ),
+        GameSourceTaxonomyLabel(
+            game_id=55,
+            source="steam",
+            facet="tag",
+            raw_label="Souls-like",
+            normalized_label="souls like",
+        ),
+        GameSourceTaxonomyLabel(
+            game_id=55,
+            source="steam",
+            facet="tag",
+            raw_label="Dark Fantasy",
+            normalized_label="dark fantasy",
+        ),
+        GameSourceTaxonomyLabel(
+            game_id=55,
+            source="steam",
+            facet="tag",
+            raw_label="Third Person",
+            normalized_label="third person",
+        ),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert "open_world" not in result.fingerprint["world_topology"]
+
+
 def test_build_game_taxonomy_v2_does_not_overfire_loot_action_rpg_on_generic_labels():
     game = Game(id=6, title="Generic Action RPG")
     rows = [
@@ -1474,7 +2226,7 @@ def test_build_game_taxonomy_v2_does_not_overfire_loot_action_rpg_on_generic_lab
     result = build_game_taxonomy_v2(game, rows)
 
     assert result.primary_archetype != "loot_action_rpg"
-    assert result.status == TAXONOMY_V2_STATUS_NEEDS_REVIEW
+    assert result.status == TAXONOMY_V2_STATUS_HIDDEN
 
 
 def test_build_game_taxonomy_v2_uses_source_specific_text_corpus_when_description_missing():
@@ -1517,6 +2269,28 @@ def test_build_game_taxonomy_v2_uses_source_specific_text_corpus_when_descriptio
     assert result.debug_payload["text_sources"] == ["steam_detailed"]
 
 
+def test_build_game_taxonomy_v2_assigns_hidden_with_provider_gap_audit_state():
+    game = Game(
+        id=14,
+        title="Provider Gap Anchor",
+    )
+    rows = [
+        GameSourceTaxonomyLabel(
+            game_id=14,
+            source="opencritic",
+            facet="theme",
+            raw_label="6699556a534cfd6134a078d8",
+            normalized_label="6699556a534cfd6134a078d8",
+        ),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_HIDDEN
+    assert result.primary_archetype is None
+    assert result.debug_payload["audit_state"] == "provider_gap"
+
+
 def test_analyze_taxonomy_v2_label_reports_resolved_tokens_and_emitted_signals():
     analysis = analyze_taxonomy_v2_label(
         source="metacritic",
@@ -1542,6 +2316,64 @@ def test_analyze_taxonomy_v2_label_marks_store_feature_labels_as_suppressed():
     assert analysis.suppression_reason is not None
     assert analysis.mapped is False
     assert analysis.emitted_signals == ()
+
+
+def test_analyze_taxonomy_v2_label_suppresses_platform_labels_via_wildcard_source_rules():
+    analysis = analyze_taxonomy_v2_label(
+        source="metacritic",
+        facet="platform",
+        raw_label="PC",
+    )
+
+    assert analysis.classification == "suppressed"
+    assert analysis.mapped is False
+
+
+def test_analyze_taxonomy_v2_label_marks_soft_identity_labels_as_ignored():
+    analysis = analyze_taxonomy_v2_label(
+        source="steam",
+        facet="tag",
+        raw_label="Female Protagonist",
+    )
+
+    assert analysis.classification == "ignored"
+    assert analysis.mapped is False
+    assert analysis.suppressed is False
+
+
+def test_analyze_taxonomy_v2_label_marks_unresolved_opencritic_theme_as_provider_gap():
+    analysis = analyze_taxonomy_v2_label(
+        source="opencritic",
+        facet="theme",
+        raw_label="6699556a534cfd6134a078d8",
+    )
+
+    assert analysis.classification == "provider_gap"
+    assert analysis.mapped is False
+
+
+def test_extract_v2_evidence_from_description_detects_card_battler_mechanics_and_goals():
+    evidence = extract_v2_evidence_from_description(
+        "Build your deck, draft cards, and deploy combos to outplay rivals in tactical battles."
+    )
+
+    pairs = {(record.field, record.value) for record in evidence}
+
+    assert ("keyword_layer", "deckbuilding") in pairs
+    assert ("mechanics_structure", "deck_construction") in pairs
+    assert ("rules_goals", "card_play") in pairs
+
+
+def test_analyze_taxonomy_v2_label_maps_choose_your_own_adventure_to_branching_signals():
+    analysis = analyze_taxonomy_v2_label(
+        source="steam",
+        facet="tag",
+        raw_label="Choose Your Own Adventure",
+    )
+
+    assert analysis.mapped is True
+    assert "narrative_structure=authored_branching" in analysis.emitted_signals
+    assert "entity_interaction=dialogue_choice" in analysis.emitted_signals
 
 
 def test_detect_taxonomy_v2_boilerplate_segments_flags_deluxe_and_preorder_copy():
@@ -1571,6 +2403,22 @@ def test_strip_taxonomy_v2_noise_segments_removes_boilerplate_and_low_signal_cop
     assert "About the game" not in cleaned
     assert "Digital Deluxe Edition" not in cleaned
     assert "open world fantasy kingdom" in cleaned
+
+
+def test_strip_taxonomy_v2_noise_segments_discards_bonus_item_preamble_before_about_the_game():
+    cleaned = strip_taxonomy_v2_noise_segments(
+        (
+            "COMPARE EDITIONS. Deluxe Edition includes the full base game. "
+            "Cosimo Horse and Accessories. Carozella Nero Race Car. Bonus materials. Original Score. "
+            "About the Game Uncover the origins of organized crime in Sicily and fight to survive."
+        )
+    )
+
+    assert cleaned is not None
+    assert "Cosimo Horse and Accessories" not in cleaned
+    assert "Carozella Nero Race Car" not in cleaned
+    assert "Original Score" not in cleaned
+    assert "Uncover the origins of organized crime in Sicily" in cleaned
 
 
 def test_extract_taxonomy_v2_text_phrases_skips_boilerplate_segments_by_default():
@@ -1652,6 +2500,39 @@ def test_extract_v2_evidence_from_source_labels_maps_keyword_interface_and_art_s
     assert ("interface_control", "cursor_driven") in pairs
     assert ("mechanics_structure", "environmental_puzzle_solving") in pairs
     assert ("art_style", "pixel_art") in pairs
+
+
+def test_build_game_taxonomy_v2_extracts_survival_crafting_coop_sandbox_signals():
+    game = Game(
+        id=2601,
+        title="Realmwalker Survival",
+        description=(
+            "Nightingale is a PVE open-world survival crafting game played solo or cooperatively with friends. "
+            "Build, craft, fight and explore as you venture through mystical portals into a variety of fantastical realms."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(
+            game_id=2601,
+            source="steam",
+            facet="genre",
+            raw_label="Action RPG",
+            normalized_label="action rpg",
+        ),
+        GameSourceTaxonomyLabel(
+            game_id=2601,
+            source="steam",
+            facet="perspective",
+            raw_label="Third Person",
+            normalized_label="third person",
+        ),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert "systemic_sandbox" in result.fingerprint["world_density"]
+    assert "sandbox_loop" in result.fingerprint["session_shape"]
+    assert "drop_in_coop" in result.fingerprint["mode_profile"]
 
 
 def test_rank_taxonomy_v2_near_misses_reports_missing_axes_for_open_world_rpg():

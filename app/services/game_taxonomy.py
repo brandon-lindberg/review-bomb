@@ -402,7 +402,34 @@ async def sync_game_source_taxonomy(
         for facet, labels in (source_labels or {}).items()
         if labels
     }
-    if not cleaned_labels:
+    existing_result = await db.execute(
+        select(GameSourceTaxonomyLabel).where(
+            GameSourceTaxonomyLabel.game_id == game.id,
+            GameSourceTaxonomyLabel.source == source,
+        )
+    )
+    existing_rows = existing_result.scalars().all()
+
+    existing_by_facet: dict[str, list[str]] = {}
+    for row in existing_rows:
+        existing_by_facet.setdefault(row.facet, []).append(row.normalized_label)
+    existing_by_facet = {
+        facet: sorted(values)
+        for facet, values in existing_by_facet.items()
+        if values
+    }
+    incoming_by_facet = {
+        facet: sorted(
+            {
+                normalize_taxonomy_label(label)
+                for label in labels
+                if normalize_taxonomy_label(label)
+            }
+        )
+        for facet, labels in cleaned_labels.items()
+        if labels
+    }
+    if incoming_by_facet == existing_by_facet:
         return False
 
     await db.execute(
@@ -411,6 +438,13 @@ async def sync_game_source_taxonomy(
             GameSourceTaxonomyLabel.source == source,
         )
     )
+
+    if not cleaned_labels:
+        await rebuild_game_taxonomy(db, game)
+        from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+
+        mark_game_similarity_v3_dirty(game, f"source_labels_{source}")
+        return True
 
     seen_normalized_by_facet: dict[str, set[str]] = {}
     for facet, labels in cleaned_labels.items():
@@ -438,6 +472,9 @@ async def sync_game_source_taxonomy(
             )
 
     await rebuild_game_taxonomy(db, game)
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+
+    mark_game_similarity_v3_dirty(game, f"source_labels_{source}")
     return True
 
 

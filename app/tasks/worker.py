@@ -43,3 +43,4 @@ dramatiq.set_broker(broker)
 from app.tasks import sync  # noqa: F401, E402
 from app.tasks import disparity  # noqa: F401, E402
 from app.tasks import performance  # noqa: F401, E402
+from app.tasks import similarity  # noqa: F401, E402

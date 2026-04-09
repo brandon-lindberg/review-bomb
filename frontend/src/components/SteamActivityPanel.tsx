@@ -54,7 +54,7 @@ const getThemeColors = (isDark: boolean) => ({
   } satisfies Record<SteamPlayerMarkerType, string>,
 });
 
-type SteamActivityWindow = "24h" | "48h" | "1w" | "1m" | "3m" | "6m" | "1y";
+type SteamActivityWindow = "24h" | "48h" | "1w" | "1m" | "3m" | "6m" | "1y" | "max";
 
 const STEAM_ACTIVITY_WINDOW_OPTIONS: Array<{ value: SteamActivityWindow; label: string; description: string }> = [
   { value: "24h", label: "24H", description: "last 24 hours" },
@@ -64,10 +64,13 @@ const STEAM_ACTIVITY_WINDOW_OPTIONS: Array<{ value: SteamActivityWindow; label: 
   { value: "3m", label: "3M", description: "last 3 months" },
   { value: "6m", label: "6M", description: "last 6 months" },
   { value: "1y", label: "1Y", description: "last year" },
+  { value: "max", label: "MAX", description: "full history" },
 ];
 
 interface SteamActivityPanelProps {
   activity: SteamActivityResponse;
+  onRequestMax?: () => void;
+  maxLoading?: boolean;
 }
 
 interface SteamActivityTimelinePoint {
@@ -154,6 +157,8 @@ function getSteamActivityWindowStart(latestTimestamp: number, window: SteamActiv
     case "1y":
       start.setFullYear(start.getFullYear() - 1);
       break;
+    case "max":
+      return 0;
   }
 
   return start.getTime();
@@ -165,7 +170,7 @@ function isSteamActivityWindowAvailable(
   window: SteamActivityWindow
 ): boolean {
   if (earliestTimestamp == null || latestTimestamp == null) return false;
-  if (window === "24h") return true;
+  if (window === "24h" || window === "max") return true;
   return earliestTimestamp <= getSteamActivityWindowStart(latestTimestamp, window);
 }
 
@@ -205,7 +210,7 @@ function formatSteamActivityTick(value: number, window: SteamActivityWindow, tim
     });
   }
 
-  if (window === "1y") {
+  if (window === "1y" || window === "max") {
     return date.toLocaleDateString("en-US", {
       month: "short",
       year: "numeric",
@@ -227,7 +232,7 @@ function isDateBeforeTrackingStart(value: string | null | undefined): boolean {
   return parsed.getTime() < new Date(`${STEAM_ACTIVITY_TRACKING_START}T00:00:00Z`).getTime();
 }
 
-export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
+export function SteamActivityPanel({ activity, onRequestMax, maxLoading }: SteamActivityPanelProps) {
   const isDark = useIsDarkMode();
   const colors = getThemeColors(isDark);
   const summary = activity.summary;
@@ -436,13 +441,19 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
           {STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => {
             const isEnabled = availableWindows[option.value];
             const isActive = effectiveSelectedWindow === option.value;
+            const isMaxLoading = option.value === "max" && maxLoading;
 
             return (
               <button
                 key={option.value}
                 type="button"
-                disabled={!isEnabled}
-                onClick={() => setSelectedWindow(option.value)}
+                disabled={!isEnabled || isMaxLoading}
+                onClick={() => {
+                  setSelectedWindow(option.value);
+                  if (option.value === "max" && onRequestMax) {
+                    onRequestMax();
+                  }
+                }}
                 className="shrink-0 rounded-xl border px-3 py-2 font-semibold tracking-[0.04em] transition-colors"
                 style={{
                   borderColor: isActive ? colors.rust : colors.border,
@@ -461,7 +472,7 @@ export function SteamActivityPanel({ activity }: SteamActivityPanelProps) {
                     : "none",
                 }}
               >
-                {option.label}
+                {isMaxLoading ? "..." : option.label}
               </button>
             );
           })}

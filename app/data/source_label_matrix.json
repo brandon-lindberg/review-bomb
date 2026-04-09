@@ -1,0 +1,372 @@
+{
+  "version": "source_label_matrix_v4",
+  "ignored": {
+    "global": [
+      "female protagonist",
+      "difficult",
+      "physics",
+      "old school",
+      "replay value"
+    ],
+    "steam": {
+      "category": [
+        "steam workshop",
+        "stats",
+        "camera comfort",
+        "cross platform multiplayer",
+        "downloadable content",
+        "keyboard only option",
+        "includes level editor",
+        "color alternatives",
+        "in app purchases",
+        "adjustable text size",
+        "subtitle options",
+        "hdr available"
+      ]
+    },
+    "*": {
+      "platform": [
+        "pc",
+        "mac",
+        "linux",
+        "windows",
+        "ios",
+        "android",
+        "switch",
+        "nintendo switch",
+        "nintendo switch 2",
+        "playstation 4",
+        "playstation 5",
+        "playstation 3",
+        "playstation vita",
+        "xbox one",
+        "xbox 360",
+        "xbox series x",
+        "xbox series s",
+        "xbox series x s",
+        "xbox series xs",
+        "steam deck",
+        "ios iphone",
+        "ipad",
+        "wii u"
+      ]
+    }
+  },
+  "provider_gaps": {
+    "opencritic": {
+      "theme": {
+        "6699556a534cfd6134a078d8": {
+          "status": "provider_gap"
+        },
+        "6699556a534cfd6134a078dc": {
+          "status": "provider_gap"
+        },
+        "6699556b534cfd6134a078e0": {
+          "status": "provider_gap"
+        },
+        "6699556b534cfd6134a078e4": {
+          "status": "provider_gap"
+        },
+        "6699556c534cfd6134a078f8": {
+          "status": "provider_gap"
+        },
+        "6699556c534cfd6134a078fc": {
+          "status": "provider_gap"
+        },
+        "6699556b534cfd6134a078e8": {
+          "status": "provider_gap"
+        },
+        "6699556b534cfd6134a078f0": {
+          "status": "provider_gap"
+        },
+        "6699556b534cfd6134a078f4": {
+          "status": "provider_gap"
+        },
+        "6699556c534cfd6134a07900": {
+          "status": "provider_gap"
+        },
+        "6699556c534cfd6134a07908": {
+          "status": "provider_gap"
+        },
+        "6699556c534cfd6134a0790c": {
+          "status": "provider_gap"
+        },
+        "6699556e534cfd6134a0792c": {
+          "status": "provider_gap"
+        },
+        "6699556e534cfd6134a07934": {
+          "status": "provider_gap"
+        },
+        "6699556f534cfd6134a07948": {
+          "status": "provider_gap"
+        },
+        "66995570534cfd6134a07960": {
+          "status": "provider_gap"
+        },
+        "66995570534cfd6134a07964": {
+          "status": "provider_gap"
+        },
+        "6699556d534cfd6134a07914": {
+          "status": "provider_gap"
+        }
+      }
+    }
+  },
+  "aliases": {
+    "global": {
+      "female protagonist": [
+        "female_protagonist"
+      ],
+      "interactive fiction": [
+        "interactive_fiction"
+      ],
+      "old school": [
+        "old_school"
+      ],
+      "shoot 'em up": [
+        "shoot_em_up"
+      ],
+      "shoot em up": [
+        "shoot_em_up"
+      ],
+      "turn based": [
+        "turn_based",
+        "turn_based_strategy"
+      ],
+      "turn based strategy": [
+        "turn_based_strategy",
+        "strategy"
+      ],
+      "turn-based": [
+        "turn_based",
+        "turn_based_strategy"
+      ],
+      "turn-based strategy": [
+        "turn_based_strategy",
+        "strategy"
+      ]
+    }
+  },
+  "tag_rules": {
+    "interactive_fiction": [
+      [
+        "combat_presence",
+        "none",
+        0.9
+      ],
+      [
+        "narrative_structure",
+        "authored_linear",
+        0.84
+      ],
+      [
+        "interface_control",
+        "cursor_driven",
+        0.76
+      ]
+    ],
+    "old_school": [
+      [
+        "art_style",
+        "retro",
+        0.82
+      ]
+    ],
+    "shoot_em_up": [
+      [
+        "combat_style",
+        "shooter",
+        0.88
+      ],
+      [
+        "perspective",
+        "side_scrolling",
+        0.76
+      ],
+      [
+        "session_shape",
+        "match_session",
+        0.78
+      ]
+    ],
+    "turn_based": [
+      [
+        "combat_tempo",
+        "tactical",
+        0.82
+      ]
+    ],
+    "turn_based_strategy": [
+      [
+        "combat_tempo",
+        "tactical",
+        0.9
+      ],
+      [
+        "challenge_model",
+        "tactical_optimization",
+        0.86
+      ],
+      [
+        "session_shape",
+        "campaign",
+        0.72
+      ]
+    ],
+    "hidden object": [
+      [
+        "combat_presence",
+        "none",
+        0.9
+      ],
+      [
+        "challenge_model",
+        "puzzle_gating",
+        0.92
+      ],
+      [
+        "interface_control",
+        "cursor_driven",
+        0.82
+      ]
+    ],
+    "procedural generation": [
+      [
+        "keyword_layer",
+        "procedural_generation",
+        0.82
+      ],
+      [
+        "mechanics_structure",
+        "systemic_emergent",
+        0.76
+      ]
+    ],
+    "minimalist": [
+      [
+        "art_style",
+        "minimalist",
+        0.84
+      ]
+    ],
+    "drama": [
+      [
+        "narrative_topic",
+        "interpersonal_drama",
+        0.82
+      ],
+      [
+        "tone",
+        "melancholic",
+        0.72
+      ]
+    ],
+    "surreal": [
+      [
+        "art_style",
+        "surreal",
+        0.84
+      ]
+    ],
+    "choose your own adventure": [
+      [
+        "narrative_structure",
+        "authored_branching",
+        0.9
+      ],
+      [
+        "entity_interaction",
+        "dialogue_choice",
+        0.86
+      ]
+    ],
+    "resource management": [
+      [
+        "rules_goals",
+        "build_and_optimize",
+        0.86
+      ],
+      [
+        "progression_model",
+        "base_growth",
+        0.74
+      ]
+    ],
+    "bullet hell": [
+      [
+        "combat_style",
+        "shooter",
+        0.88
+      ],
+      [
+        "combat_tempo",
+        "twitch",
+        0.84
+      ],
+      [
+        "perspective",
+        "top_down",
+        0.74
+      ]
+    ],
+    "cinematic": [
+      [
+        "world_density",
+        "setpiece_driven",
+        0.9
+      ],
+      [
+        "narrative_structure",
+        "authored_linear",
+        0.82
+      ],
+      [
+        "tone",
+        "serious",
+        0.74
+      ]
+    ],
+    "story rich": [
+      [
+        "session_shape",
+        "campaign",
+        0.82
+      ],
+      [
+        "narrative_structure",
+        "authored_linear",
+        0.78
+      ],
+      [
+        "rules_goals",
+        "complete_quests",
+        0.72
+      ]
+    ]
+  },
+  "rarity_buckets": {
+    "global": {
+      "action": "ubiquitous",
+      "adventure": "ubiquitous",
+      "single_player": "ubiquitous",
+      "singleplayer": "ubiquitous",
+      "open_world": "common",
+      "racing": "common",
+      "sports": "common",
+      "soulslike": "rare",
+      "metroidvania": "rare",
+      "immersive_sim": "rare",
+      "real_time_tactics": "rare",
+      "pinball": "rare",
+      "rhythm": "rare",
+      "hero_shooter": "uncommon",
+      "city_builder": "uncommon",
+      "deckbuilding": "uncommon",
+      "monster_taming": "uncommon",
+      "point_and_click": "uncommon",
+      "shoot_em_up": "uncommon",
+      "turn_based_strategy": "uncommon",
+      "interactive_fiction": "uncommon"
+    }
+  }
+}

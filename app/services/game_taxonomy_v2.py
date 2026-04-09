@@ -19,13 +19,15 @@ from app.models.models import Game, GameSourceTaxonomyLabel, GameTaxonomyV2Evide
 from app.services.game_taxonomy import normalize_taxonomy_label
 
 
-TAXONOMY_V2_VERSION = "taxonomy_v2_draft_7"
+TAXONOMY_V2_VERSION = "taxonomy_v3_matrix_5"
 TAXONOMY_V2_STATUS_PENDING = "pending"
 TAXONOMY_V2_STATUS_COMPUTED = "computed"
 TAXONOMY_V2_STATUS_CURATED = "curated"
+TAXONOMY_V2_STATUS_HIDDEN = "hidden"
 TAXONOMY_V2_STATUS_FAILED = "failed"
 TAXONOMY_V2_STATUS_NEEDS_REVIEW = "needs_review"
 TAXONOMY_V2_READY_STATUSES = frozenset({TAXONOMY_V2_STATUS_COMPUTED, TAXONOMY_V2_STATUS_CURATED})
+TAXONOMY_V2_LEGACY_HIDDEN_STATUSES = frozenset({TAXONOMY_V2_STATUS_FAILED, TAXONOMY_V2_STATUS_NEEDS_REVIEW})
 
 FINGERPRINT_AXES = (
     "world_topology",
@@ -916,7 +918,6 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
     (
         (
             re.compile(r"\bstreet racing\b"),
-            re.compile(r"\bbehind the wheel\b"),
             re.compile(r"\brealistic handling\b"),
             re.compile(r"\bopen[- ]world racer\b"),
         ),
@@ -928,6 +929,18 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             ("interface_control", "vehicle_control", 0.84),
             ("mechanics_structure", "vehicular_racing", 0.88),
             ("rules_goals", "win_races", 0.88),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bbehind the wheel\b"),
+            re.compile(r"\bturn[- ]of[- ]the[- ]century motorcars\b"),
+            re.compile(r"\bspeed down dirt roads\b"),
+            re.compile(r"\bspeed down roads\b"),
+        ),
+        (
+            ("traversal_verbs", "driving", 0.82),
+            ("vehicular_theme", "cars", 0.76),
         ),
     ),
 )
@@ -1367,13 +1380,12 @@ _ADDITIONAL_NODE_HARD_EXCLUSIONS: dict[str, set[str]] = {
         "historical_first",
         "isometric_first",
         "overhead_strategy_first",
-        "cinematic_linear_first",
     },
     "arena_fps": {"campaign_only"},
     "hero_shooter": {"campaign_only"},
 }
 _ASSIGNMENT_ONLY_NODE_HARD_EXCLUSIONS: dict[str, set[str]] = {
-    "open_world_fantasy_action_rpg": {"mmo_first"},
+    "open_world_fantasy_action_rpg": {"mmo_first", "cinematic_linear_first"},
 }
 _PROGRESSION_MATCH_WEIGHTS: dict[str, int] = {
     "buildcraft": 6,
@@ -1597,6 +1609,8 @@ class SimilarityBreakdownV2:
     shared_interface_control: list[str]
     shared_sports_theme: list[str]
     shared_vehicular_theme: list[str]
+    shared_challenge_model: list[str]
+    shared_studios: list[str]
 
 
 @dataclass(frozen=True)
@@ -1607,8 +1621,11 @@ class TaxonomyV2LabelAnalysis:
     normalized_label: str
     resolved_tokens: tuple[str, ...]
     emitted_signals: tuple[str, ...]
+    classification: str
     mapped: bool
     suppressed: bool
+    role_tier: str | None = None
+    rarity_bucket: str | None = None
     suppression_reason: str | None = None
 
 
@@ -1655,6 +1672,19 @@ def _canonical_token(value: str | None) -> str:
     return normalized.replace(" ", "_")
 
 
+def _canonical_provenance_token(value: str | None) -> str:
+    if not value:
+        return ""
+    if "/" not in value:
+        return _canonical_token(value)
+    source, source_field = value.split("/", 1)
+    canonical_source = _canonical_token(source)
+    canonical_source_field = _canonical_token(source_field)
+    if not canonical_source or not canonical_source_field:
+        return ""
+    return f"{canonical_source}/{canonical_source_field}"
+
+
 def display_taxonomy_v2_token(value: str) -> str:
     specials = {"rpg": "RPG", "mmo": "MMO", "pvp": "PvP", "pvpve": "PvPvE"}
     if value in specials:
@@ -1667,32 +1697,80 @@ def _render_signal(field: str, value: str) -> str:
 
 
 def classify_taxonomy_v2_signal_tier(field: str, value: str) -> str:
+    facet_matrix = load_facet_matrix()
     canonical_field = _canonical_token(field)
     canonical_value = _canonical_token(value)
-    if canonical_field in {"hard_exclusions", "soft_penalties"}:
-        return "filter_only"
-    if canonical_value in _SUPPORTING_VALUES:
-        return "supporting"
-    if canonical_field in {
-        "keyword_layer",
-        "mechanics_structure",
-        "rules_goals",
-        "entity_interaction",
-        "narrative_topic",
-        "sports_theme",
-        "vehicular_theme",
-    }:
+    if canonical_field == "hard_exclusions":
         return "identity_driving"
-    if canonical_field in {
-        "setting",
-        "combat_style",
-        "combat_structure",
-        "progression_model",
-        "world_topology",
-        "perspective",
-    }:
+    if canonical_field == "soft_penalties":
+        return "supporting"
+    supporting_values = {
+        _canonical_token(item)
+        for item in facet_matrix.get("supporting_values", [])
+        if _canonical_token(item)
+    }
+    if canonical_value in supporting_values:
+        return "supporting"
+    field_role_defaults = {
+        _canonical_token(key): value
+        for key, value in (facet_matrix.get("field_role_defaults") or {}).items()
+        if _canonical_token(key)
+    }
+    if canonical_field in field_role_defaults:
+        return str(field_role_defaults[canonical_field])
+    if canonical_field in {"setting", "combat_style", "combat_structure", "progression_model", "world_topology", "perspective"}:
         return "identity_driving"
     return "supporting"
+
+
+def get_taxonomy_v2_source_weight(source: str, source_field: str | None = None) -> float:
+    matrix = load_facet_matrix()
+    source_weights = matrix.get("source_weights") or {}
+    if source_field:
+        source_field_key = _canonical_token(source_field)
+        if source_field_key and source_field_key in source_weights:
+            return float(source_weights[source_field_key])
+    source_key = _canonical_token(source)
+    if source_key and source_key in source_weights:
+        return float(source_weights[source_key])
+    return 1.0
+
+
+def get_taxonomy_v2_role_weight(role_tier: str) -> float:
+    matrix = load_facet_matrix()
+    role_weights = matrix.get("role_weights") or {}
+    return float(role_weights.get(role_tier, 1.0))
+
+
+def get_taxonomy_v2_rarity_bucket(value: str) -> str | None:
+    normalized = _canonical_token(value)
+    if not normalized:
+        return None
+    source_matrix = load_source_label_matrix()
+    global_buckets = (
+        source_matrix.get("rarity_buckets", {}).get("global", {})
+        if isinstance(source_matrix.get("rarity_buckets"), dict)
+        else {}
+    )
+    if normalized in global_buckets:
+        return str(global_buckets[normalized])
+    facet_matrix = load_facet_matrix()
+    value_overrides = {
+        _canonical_token(key): value
+        for key, value in (facet_matrix.get("value_rarity_overrides") or {}).items()
+        if _canonical_token(key)
+    }
+    if normalized in value_overrides:
+        return str(value_overrides[normalized])
+    return None
+
+
+def get_taxonomy_v2_rarity_weight(value: str) -> float:
+    bucket = get_taxonomy_v2_rarity_bucket(value)
+    if not bucket:
+        return 0.0
+    matrix = load_facet_matrix()
+    return float((matrix.get("rarity_weights") or {}).get(bucket, 0.0))
 
 
 def game_has_sufficient_taxonomy_v2_support(game: Game) -> bool:
@@ -1742,7 +1820,10 @@ def _prefer_primary_archetype_candidate(
     rules_goals = fingerprint_sets["rules_goals"]
     challenge_model = fingerprint_sets["challenge_model"]
     combat_structure = fingerprint_sets["combat_structure"]
+    combat_presence = fingerprint_sets["combat_presence"]
     perspective = fingerprint_sets["perspective"]
+    world_topology = fingerprint_sets["world_topology"]
+    session_shape = fingerprint_sets["session_shape"]
     setting = fingerprint_sets["setting"]
     tone = fingerprint_sets["tone"]
     narrative_topic = fingerprint_sets["narrative_topic"]
@@ -1754,15 +1835,13 @@ def _prefer_primary_archetype_candidate(
         soulslike_candidate is not None
         and "boss_centric" in combat_structure
         and "third_person" in perspective
-        and "quest_driven" not in progression_model
-        and not (traversal_verbs & {"horseback", "climbing", "gliding"})
-        and (
-            "soulslike" in challenge_model
-            or (
-                "defeat_bosses" in rules_goals
-                and bool(setting & {"dark_fantasy", "mythic"})
-                and bool(tone & {"bleak", "melancholic"})
-            )
+        and "soulslike" in challenge_model
+        and "defeat_bosses" in rules_goals
+        and bool(setting & {"dark_fantasy"})
+        and not (
+            narrative_structure & {"authored_branching", "quest_web"}
+            or entity_interaction & {"dialogue_choice"}
+            or narrative_topic & {"branching_choices"}
         )
     )
     if soulslike_profile:
@@ -1784,6 +1863,72 @@ def _prefer_primary_archetype_candidate(
     if western_narrative_profile:
         preferred_archetype = "western_narrative_rpg"
 
+    open_world_fantasy_profile = (
+        "open_world" in world_topology
+        and bool(setting & {"high_fantasy", "dark_fantasy", "mythic"})
+        and ("third_person" in perspective or bool(traversal_verbs & {"horseback", "climbing", "gliding"}))
+        and (
+            "dominant" in combat_presence
+            or bool(combat_structure & {"boss_centric", "encounter_driven"})
+            or bool(rules_goals & {"complete_quests", "defeat_bosses"})
+        )
+        and (
+            bool(traversal_verbs & {"horseback", "climbing", "gliding"})
+            or "quest_driven" in progression_model
+            or "complete_quests" in rules_goals
+        )
+        and "historical" not in setting
+    )
+    if open_world_fantasy_profile and preferred_archetype is None:
+        preferred_archetype = "open_world_fantasy_action_rpg"
+
+    three_d_collectathon_candidate = candidates_by_archetype.get("3d_collectathon")
+    three_d_collectathon_profile = (
+        three_d_collectathon_candidate is not None
+        and "open_world" in world_topology
+        and "platforming" in traversal_verbs
+        and "third_person" in perspective
+        and "quest_driven" not in progression_model
+        and "dark_fantasy" not in setting
+        and "dialogue_choice" not in entity_interaction
+        and "match_session" not in session_shape
+    )
+    if three_d_collectathon_profile:
+        preferred_archetype = "3d_collectathon"
+
+    open_world_action_candidate = candidates_by_archetype.get("open_world_action_adventure")
+    open_world_action_profile = (
+        open_world_action_candidate is not None
+        and not open_world_fantasy_profile
+        and "open_world" in world_topology
+        and "third_person" in perspective
+        and "party_management" not in combat_structure
+        and "dialogue_choice" not in entity_interaction
+        and not (setting & {"dark_fantasy"} and "soulslike" in challenge_model)
+        and not (traversal_verbs & {"horseback", "climbing", "gliding"})
+        and (
+            "authored_linear" in narrative_structure
+            or (
+                "quest_driven" not in progression_model
+                and "complete_quests" not in rules_goals
+            )
+        )
+    )
+    if open_world_action_profile:
+        preferred_archetype = "open_world_action_adventure"
+
+    beat_em_up_candidate = candidates_by_archetype.get("beat_em_up")
+    if (
+        beat_em_up_candidate is not None
+        and "open_world" in world_topology
+        and traversal_verbs & {"gliding", "platforming"}
+        and "match_session" not in session_shape
+    ):
+        if open_world_action_candidate is not None:
+            preferred_archetype = "open_world_action_adventure"
+        elif three_d_collectathon_candidate is not None:
+            preferred_archetype = "3d_collectathon"
+
     if not preferred_archetype:
         return candidates
 
@@ -1800,13 +1945,186 @@ def get_taxonomy_v2_allowed_archetypes(game: Game) -> set[str]:
     primary = _canonical_token(getattr(game, "taxonomy_v2_primary_archetype", None))
     if not primary:
         return set()
-    graph = load_archetype_graph_v2()
+    graph = load_connection_matrix()
     node = graph.get("nodes", {}).get(primary, {})
     allowed = {primary}
     allowed.update(_canonical_token(value) for value in node.get("strong_neighbors", []) if _canonical_token(value))
     allowed.update(_canonical_token(value) for value in node.get("adjacent_neighbors", []) if _canonical_token(value))
+    for bridge in node.get("bridge_neighbors", []) or []:
+        target = _canonical_token(bridge.get("target"))
+        if target:
+            allowed.add(target)
     allowed.update(_canonical_token(value) for value in getattr(game, "taxonomy_v2_secondary_archetypes", None) or [] if _canonical_token(value))
     return allowed
+
+
+def _build_bridge_context(
+    *,
+    anchor_fingerprint: dict[str, set[str]],
+    candidate_fingerprint: dict[str, set[str]],
+    shared_world_topology: list[str],
+    shared_combat_style: list[str],
+    shared_combat_structure: list[str],
+    shared_progression_model: list[str],
+    shared_traversal_verbs: list[str],
+    shared_setting: list[str],
+    shared_tone: list[str],
+    shared_perspective: list[str],
+    shared_keyword_layer: list[str],
+    shared_mechanics_structure: list[str],
+    shared_rules_goals: list[str],
+    shared_entity_interaction: list[str],
+    shared_narrative_topic: list[str],
+) -> dict[str, bool]:
+    return {
+        "shared_world_topology": bool(shared_world_topology),
+        "shared_combat_style": bool(shared_combat_style),
+        "shared_combat_structure": bool(shared_combat_structure),
+        "shared_combat_style_or_structure": bool(shared_combat_style or shared_combat_structure),
+        "shared_progression_model": bool(shared_progression_model),
+        "shared_traversal_verbs": bool(shared_traversal_verbs),
+        "shared_setting": bool(shared_setting),
+        "shared_tone": bool(shared_tone),
+        "shared_perspective": bool(shared_perspective),
+        "shared_keyword_layer": bool(shared_keyword_layer),
+        "shared_mechanics_structure": bool(shared_mechanics_structure),
+        "shared_rules_goals": bool(shared_rules_goals),
+        "shared_entity_interaction": bool(shared_entity_interaction),
+        "shared_narrative_topic": bool(shared_narrative_topic),
+        "candidate_persistent_shared_world": "persistent_shared_world" in candidate_fingerprint["world_topology"],
+        "candidate_mmo": "mmo" in candidate_fingerprint["mode_profile"],
+        "anchor_persistent_shared_world": "persistent_shared_world" in anchor_fingerprint["world_topology"],
+    }
+
+
+def _bridge_condition_matches(
+    condition: str,
+    context: dict[str, bool],
+    *,
+    shared_progression_model: list[str],
+    shared_rules_goals: list[str],
+    shared_entity_interaction: list[str],
+    shared_narrative_topic: list[str],
+    shared_combat_structure: list[str],
+    shared_challenge_model: list[str],
+) -> bool:
+    normalized = _canonical_token(condition)
+    if not normalized:
+        return False
+    if ":" not in normalized:
+        return bool(context.get(normalized))
+    scope, value = normalized.split(":", 1)
+    token = _canonical_token(value)
+    mapping = {
+        "shared_progression_model": set(shared_progression_model),
+        "shared_rules_goals": set(shared_rules_goals),
+        "shared_entity_interaction": set(shared_entity_interaction),
+        "shared_narrative_topic": set(shared_narrative_topic),
+        "shared_combat_structure": set(shared_combat_structure),
+        "shared_challenge_model": set(shared_challenge_model),
+    }
+    return token in mapping.get(scope, set())
+
+
+def _resolve_connection_relationship(
+    *,
+    anchor_archetype: str,
+    candidate_archetype: str,
+    candidate_secondaries: set[str],
+    anchor_fingerprint: dict[str, set[str]],
+    candidate_fingerprint: dict[str, set[str]],
+    shared_world_topology: list[str],
+    shared_combat_style: list[str],
+    shared_combat_structure: list[str],
+    shared_progression_model: list[str],
+    shared_traversal_verbs: list[str],
+    shared_setting: list[str],
+    shared_tone: list[str],
+    shared_perspective: list[str],
+    shared_keyword_layer: list[str],
+    shared_mechanics_structure: list[str],
+    shared_rules_goals: list[str],
+    shared_entity_interaction: list[str],
+    shared_narrative_topic: list[str],
+    shared_challenge_model: list[str],
+) -> str | None:
+    connection_matrix = load_connection_matrix()
+    anchor_node = connection_matrix.get("nodes", {}).get(anchor_archetype, {})
+    strong_neighbors = {_canonical_token(value) for value in anchor_node.get("strong_neighbors", []) if _canonical_token(value)}
+    adjacent_neighbors = {_canonical_token(value) for value in anchor_node.get("adjacent_neighbors", []) if _canonical_token(value)}
+    if candidate_archetype == anchor_archetype:
+        return "same"
+    if candidate_archetype in strong_neighbors:
+        return "strong_neighbor"
+    if candidate_archetype in adjacent_neighbors:
+        return "adjacent_neighbor"
+    if candidate_secondaries & strong_neighbors:
+        return "strong_secondary"
+    if candidate_secondaries & adjacent_neighbors:
+        return "adjacent_secondary"
+
+    context = _build_bridge_context(
+        anchor_fingerprint=anchor_fingerprint,
+        candidate_fingerprint=candidate_fingerprint,
+        shared_world_topology=shared_world_topology,
+        shared_combat_style=shared_combat_style,
+        shared_combat_structure=shared_combat_structure,
+        shared_progression_model=shared_progression_model,
+        shared_traversal_verbs=shared_traversal_verbs,
+        shared_setting=shared_setting,
+        shared_tone=shared_tone,
+        shared_perspective=shared_perspective,
+        shared_keyword_layer=shared_keyword_layer,
+        shared_mechanics_structure=shared_mechanics_structure,
+        shared_rules_goals=shared_rules_goals,
+        shared_entity_interaction=shared_entity_interaction,
+        shared_narrative_topic=shared_narrative_topic,
+    )
+
+    for bridge in anchor_node.get("bridge_neighbors", []) or []:
+        target = _canonical_token(bridge.get("target"))
+        if target not in {candidate_archetype, *candidate_secondaries}:
+            continue
+        required_all = [
+            item
+            for item in bridge.get("required_all", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        required_any = [
+            item
+            for item in bridge.get("required_any", [])
+            if isinstance(item, str) and item.strip()
+        ]
+        if required_all and not all(
+            _bridge_condition_matches(
+                item,
+                context,
+                shared_progression_model=shared_progression_model,
+                shared_rules_goals=shared_rules_goals,
+                shared_entity_interaction=shared_entity_interaction,
+                shared_narrative_topic=shared_narrative_topic,
+                shared_combat_structure=shared_combat_structure,
+                shared_challenge_model=shared_challenge_model,
+            )
+            for item in required_all
+        ):
+            continue
+        if required_any and not any(
+            _bridge_condition_matches(
+                item,
+                context,
+                shared_progression_model=shared_progression_model,
+                shared_rules_goals=shared_rules_goals,
+                shared_entity_interaction=shared_entity_interaction,
+                shared_narrative_topic=shared_narrative_topic,
+                shared_combat_structure=shared_combat_structure,
+                shared_challenge_model=shared_challenge_model,
+            )
+            for item in required_any
+        ):
+            continue
+        return "bridge_secondary" if target in candidate_secondaries and target != candidate_archetype else "bridge_neighbor"
+    return None
 
 
 def _quantize_decimal(value: float | None) -> Decimal | None:
@@ -1843,16 +2161,17 @@ def split_taxonomy_v2_text_segments(text: str | None) -> list[str]:
 
 
 def _detect_taxonomy_v2_low_signal_segments(text: str | None) -> list[TaxonomyV2SuppressedTextSegment]:
+    _, low_signal_patterns, high_signal_patterns = _compiled_noise_patterns()
     hits: list[TaxonomyV2SuppressedTextSegment] = []
     seen: set[tuple[str, str]] = set()
     for segment in split_taxonomy_v2_text_segments(text):
         normalized_segment = normalize_taxonomy_label(segment)
         if not normalized_segment:
             continue
-        has_high_signal = any(pattern.search(normalized_segment) for pattern in _HIGH_SIGNAL_SEGMENT_PATTERNS)
+        has_high_signal = any(pattern.search(normalized_segment) for pattern in high_signal_patterns)
         if has_high_signal:
             continue
-        for category, pattern in _LOW_SIGNAL_SEGMENT_PATTERNS:
+        for category, pattern in low_signal_patterns:
             if not pattern.search(normalized_segment):
                 continue
             marker = (category, normalized_segment)
@@ -1871,13 +2190,14 @@ def _detect_taxonomy_v2_low_signal_segments(text: str | None) -> list[TaxonomyV2
 
 
 def detect_taxonomy_v2_boilerplate_segments(text: str | None) -> list[TaxonomyV2BoilerplateHit]:
+    boilerplate_patterns, _, _ = _compiled_noise_patterns()
     hits: list[TaxonomyV2BoilerplateHit] = []
     seen: set[tuple[str, str]] = set()
     for segment in split_taxonomy_v2_text_segments(text):
         normalized_segment = normalize_taxonomy_label(segment)
         if not normalized_segment:
             continue
-        for category, pattern in _BOILERPLATE_PATTERNS:
+        for category, pattern in boilerplate_patterns:
             if not pattern.search(normalized_segment):
                 continue
             marker = (category, normalized_segment)
@@ -1910,13 +2230,21 @@ def strip_taxonomy_v2_noise_segments(text: str | None) -> str | None:
     kept_segments: list[str] = []
     seen: set[str] = set()
     for segment in split_taxonomy_v2_text_segments(text):
-        normalized_segment = normalize_taxonomy_label(segment)
+        raw_segment = segment.strip()
+        normalized_segment = normalize_taxonomy_label(raw_segment)
+        if re.search(r"\babout the game\b", normalized_segment):
+            # Steam store pages often lead with Deluxe/bonus-item boilerplate and
+            # only begin the actual description after "About the Game".
+            kept_segments.clear()
+            seen.clear()
+            raw_segment = re.sub(r"(?i)\babout the game\b[:\s-]*", "", raw_segment).strip()
+            normalized_segment = normalize_taxonomy_label(raw_segment)
         if not normalized_segment or normalized_segment in blocked_segments:
             continue
         if normalized_segment in seen:
             continue
         seen.add(normalized_segment)
-        kept_segments.append(segment.strip())
+        kept_segments.append(raw_segment)
 
     if not kept_segments:
         return clean_taxonomy_v2_text(text)
@@ -1929,17 +2257,14 @@ def get_taxonomy_v2_source_label_suppression(
     facet: str,
     normalized_label: str,
 ) -> str | None:
-    source_key = _canonical_token(source)
-    facet_key = _canonical_token(facet)
-    label_key = normalize_taxonomy_label(normalized_label)
-    if not label_key:
-        return None
-    for key in ((source_key, facet_key), ("*", facet_key)):
-        suppressed = _IGNORED_SOURCE_LABELS.get(key)
-        if not suppressed:
-            continue
-        if label_key in suppressed:
-            return f"suppressed:{key[0]}/{key[1]}"
+    _label, classification = classify_taxonomy_v2_source_label(
+        source=source,
+        facet=facet,
+        raw_label=normalized_label,
+        normalized_label=normalized_label,
+    )
+    if classification == "suppressed":
+        return f"suppressed:{_canonical_token(source)}/{_canonical_token(facet)}"
     return None
 
 
@@ -2106,7 +2431,7 @@ def _override_keys_for_game(game: Game) -> list[str]:
 
 
 @lru_cache(maxsize=1)
-def load_archetype_graph_v2() -> dict[str, Any]:
+def _load_legacy_archetype_graph_v2() -> dict[str, Any]:
     preferred = _data_path("archetype_graph_v2.json")
     fallback = _docs_path("archetype-graph-v2.json")
     base_graph: dict[str, Any] | None = None
@@ -2143,6 +2468,252 @@ def load_taxonomy_v2_label_crosswalk() -> dict[str, Any]:
         return {"aliases": {"global": {}}, "tag_rules": {}}
     with path.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+@lru_cache(maxsize=1)
+def load_opencritic_theme_catalog() -> dict[str, Any]:
+    path = _data_path("opencritic_theme_catalog.json")
+    if not path.exists():
+        return {"themes": {}}
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _json_deep_merge(base: Any, override: Any) -> Any:
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = dict(base)
+        for key, value in override.items():
+            if key in merged:
+                merged[key] = _json_deep_merge(merged[key], value)
+            else:
+                merged[key] = value
+        return merged
+    if isinstance(base, list) and isinstance(override, list):
+        merged = list(base)
+        seen = {json.dumps(item, sort_keys=True, default=str) for item in merged}
+        for item in override:
+            marker = json.dumps(item, sort_keys=True, default=str)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(item)
+        return merged
+    return override
+
+
+def _serialize_rule_tuples(mapping: dict[str, tuple[tuple[str, str, float], ...]]) -> dict[str, list[list[Any]]]:
+    return {
+        key: [[field, value, confidence] for field, value, confidence in values]
+        for key, values in mapping.items()
+    }
+
+
+def _serialize_nested_rule_tuples(
+    mapping: dict[str, dict[str, tuple[tuple[str, str, float], ...]]]
+) -> dict[str, dict[str, list[list[Any]]]]:
+    return {
+        facet: _serialize_rule_tuples(values)
+        for facet, values in mapping.items()
+    }
+
+
+def _build_default_source_label_matrix() -> dict[str, Any]:
+    crosswalk = load_taxonomy_v2_label_crosswalk()
+    suppressions: dict[str, dict[str, list[str]]] = {}
+    for (source, facet), values in _IGNORED_SOURCE_LABELS.items():
+        suppressions.setdefault(source, {})[facet] = sorted(values)
+    return {
+        "version": "source_label_matrix_default",
+        "aliases": crosswalk.get("aliases", {"global": {}}),
+        "tag_rules": crosswalk.get("tag_rules", {}),
+        "global_rules": _serialize_rule_tuples(_GLOBAL_LABEL_RULES),
+        "facet_rules": _serialize_nested_rule_tuples(_FACET_LABEL_RULES),
+        "suppressions": suppressions,
+        "ignored": {"global": []},
+        "provider_gaps": {},
+        "rarity_buckets": {"global": {}},
+    }
+
+
+@lru_cache(maxsize=1)
+def load_source_label_matrix() -> dict[str, Any]:
+    base = _build_default_source_label_matrix()
+    path = _data_path("source_label_matrix.json")
+    if not path.exists():
+        return base
+    with path.open("r", encoding="utf-8") as handle:
+        override = json.load(handle)
+    return _json_deep_merge(base, override)
+
+
+def _build_default_phrase_matrix() -> dict[str, Any]:
+    rules: list[dict[str, Any]] = []
+    for index, (patterns, outputs) in enumerate(_DESCRIPTION_RULES, start=1):
+        rules.append(
+            {
+                "id": f"default_phrase_rule_{index}",
+                "scope": ["global"],
+                "patterns": [pattern.pattern for pattern in patterns],
+                "emits": [[field, value, confidence] for field, value, confidence in outputs],
+            }
+        )
+    return {"version": "phrase_matrix_default", "rules": rules}
+
+
+@lru_cache(maxsize=1)
+def load_phrase_matrix() -> dict[str, Any]:
+    base = _build_default_phrase_matrix()
+    path = _data_path("phrase_matrix.json")
+    if not path.exists():
+        return base
+    with path.open("r", encoding="utf-8") as handle:
+        override = json.load(handle)
+    return _json_deep_merge(base, override)
+
+
+def _build_default_noise_matrix() -> dict[str, Any]:
+    return {
+        "version": "noise_matrix_default",
+        "boilerplate_patterns": [
+            {"category": category, "pattern": pattern.pattern}
+            for category, pattern in _BOILERPLATE_PATTERNS
+        ],
+        "low_signal_patterns": [
+            {"category": category, "pattern": pattern.pattern}
+            for category, pattern in _LOW_SIGNAL_SEGMENT_PATTERNS
+        ],
+        "high_signal_patterns": [pattern.pattern for pattern in _HIGH_SIGNAL_SEGMENT_PATTERNS],
+    }
+
+
+@lru_cache(maxsize=1)
+def load_noise_matrix() -> dict[str, Any]:
+    base = _build_default_noise_matrix()
+    path = _data_path("noise_matrix.json")
+    if not path.exists():
+        return base
+    with path.open("r", encoding="utf-8") as handle:
+        override = json.load(handle)
+    return _json_deep_merge(base, override)
+
+
+def _build_default_facet_matrix() -> dict[str, Any]:
+    return {
+        "version": "facet_matrix_default",
+        "source_weights": {
+            "description": 1.0,
+            "steam": 0.95,
+            "opencritic": 0.9,
+            "metacritic": 0.88,
+            "inference": 0.92,
+        },
+        "role_weights": {
+            "identity_driving": 1.0,
+            "supporting": 0.8,
+            "filter_only": 0.0,
+        },
+        "rarity_weights": {
+            "ubiquitous": 0.0,
+            "common": 0.02,
+            "uncommon": 0.05,
+            "rare": 0.08,
+        },
+        "supporting_values": sorted(_SUPPORTING_VALUES),
+        "field_role_defaults": {
+            "keyword_layer": "identity_driving",
+            "mechanics_structure": "identity_driving",
+            "rules_goals": "identity_driving",
+            "entity_interaction": "identity_driving",
+            "narrative_topic": "identity_driving",
+            "sports_theme": "identity_driving",
+            "vehicular_theme": "identity_driving",
+            "setting": "identity_driving",
+            "combat_style": "identity_driving",
+            "combat_structure": "identity_driving",
+            "progression_model": "identity_driving",
+            "world_topology": "identity_driving",
+            "perspective": "identity_driving",
+            "session_shape": "identity_driving",
+            "narrative_structure": "identity_driving",
+            "mode_profile": "identity_driving",
+            "challenge_model": "identity_driving",
+        },
+        "assignment": {
+            "strict_min_required_hits": _STRICT_MIN_REQUIRED_HITS,
+            "mandatory_required_axes": {
+                key: sorted(values)
+                for key, values in _MANDATORY_REQUIRED_AXES.items()
+            },
+        },
+        "match_weights": {
+            "progression_model": _PROGRESSION_MATCH_WEIGHTS,
+            "traversal_verbs": _TRAVERSAL_MATCH_WEIGHTS,
+            "keyword_layer": _KEYWORD_MATCH_WEIGHTS,
+            "mechanics_structure": _MECHANICS_MATCH_WEIGHTS,
+            "rules_goals": _RULES_GOALS_MATCH_WEIGHTS,
+            "entity_interaction": _ENTITY_INTERACTION_MATCH_WEIGHTS,
+            "narrative_topic": _NARRATIVE_TOPIC_MATCH_WEIGHTS,
+            "art_style": _ART_STYLE_MATCH_WEIGHTS,
+            "visual_presentation": _VISUAL_PRESENTATION_MATCH_WEIGHTS,
+            "pacing": _PACING_MATCH_WEIGHTS,
+            "interface_control": _INTERFACE_CONTROL_MATCH_WEIGHTS,
+            "sports_theme": _SPORTS_THEME_MATCH_WEIGHTS,
+            "vehicular_theme": _VEHICULAR_THEME_MATCH_WEIGHTS,
+            "setting": _SETTING_MATCH_WEIGHTS,
+            "tone": _TONE_MATCH_WEIGHTS,
+        },
+        "co_signal_gates": [],
+        "value_rarity_overrides": {},
+    }
+
+
+@lru_cache(maxsize=1)
+def load_facet_matrix() -> dict[str, Any]:
+    base = _build_default_facet_matrix()
+    path = _data_path("facet_matrix.json")
+    if not path.exists():
+        return base
+    with path.open("r", encoding="utf-8") as handle:
+        override = json.load(handle)
+    return _json_deep_merge(base, override)
+
+
+def _build_default_connection_matrix() -> dict[str, Any]:
+    legacy_graph = _load_legacy_archetype_graph_v2()
+    return {
+        "version": legacy_graph.get("version", "connection_matrix_default"),
+        "relation_weights": {
+            "same": 220,
+            "strong_neighbor": 175,
+            "adjacent_neighbor": 140,
+            "bridge_neighbor": 150,
+            "strong_secondary": 155,
+            "adjacent_secondary": 125,
+            "bridge_secondary": 135,
+        },
+        "nodes": legacy_graph.get("nodes", {}),
+    }
+
+
+@lru_cache(maxsize=1)
+def load_connection_matrix() -> dict[str, Any]:
+    base = _build_default_connection_matrix()
+    path = _data_path("connection_matrix.json")
+    if not path.exists():
+        return base
+    with path.open("r", encoding="utf-8") as handle:
+        override = json.load(handle)
+    return _json_deep_merge(base, override)
+
+
+@lru_cache(maxsize=1)
+def load_archetype_graph_v2() -> dict[str, Any]:
+    matrix = load_connection_matrix()
+    return {
+        "version": matrix.get("version", "connection_matrix"),
+        "description": matrix.get("description", "Matrix-backed archetype graph"),
+        "nodes": matrix.get("nodes", {}),
+    }
 
 
 @lru_cache(maxsize=1)
@@ -2231,6 +2802,164 @@ def game_has_taxonomy_v2_override(game: Game) -> bool:
     )
 
 
+@lru_cache(maxsize=1)
+def _compiled_phrase_rules() -> tuple[
+    tuple[str, int, tuple[str, ...], tuple[tuple[str, str, float], ...]],
+    ...,
+]:
+    compiled: list[tuple[str, int, tuple[str, ...], tuple[tuple[str, str, float], ...]]] = []
+    for rule in load_phrase_matrix().get("rules", []):
+        patterns: list[str] = []
+        for pattern in rule.get("patterns", []):
+            if not isinstance(pattern, str):
+                continue
+            patterns.append(pattern)
+        emits = _crosswalk_rule_tuples(rule.get("emits"))
+        if not patterns or not emits:
+            continue
+        min_matches = int(rule.get("min_matches") or 1)
+        if min_matches < 1:
+            min_matches = 1
+        compiled.append((str(rule.get("id") or "matrix_rule"), min_matches, tuple(patterns), emits))
+    return tuple(compiled)
+
+
+@lru_cache(maxsize=1)
+def _compiled_noise_patterns() -> tuple[
+    tuple[tuple[str, re.Pattern[str]], ...],
+    tuple[tuple[str, re.Pattern[str]], ...],
+    tuple[re.Pattern[str], ...],
+]:
+    matrix = load_noise_matrix()
+    boilerplate: list[tuple[str, re.Pattern[str]]] = []
+    for item in matrix.get("boilerplate_patterns", []):
+        category = str(item.get("category") or "").strip()
+        pattern = str(item.get("pattern") or "").strip()
+        if not category or not pattern:
+            continue
+        boilerplate.append((category, re.compile(pattern)))
+
+    low_signal: list[tuple[str, re.Pattern[str]]] = []
+    for item in matrix.get("low_signal_patterns", []):
+        category = str(item.get("category") or "").strip()
+        pattern = str(item.get("pattern") or "").strip()
+        if not category or not pattern:
+            continue
+        low_signal.append((category, re.compile(pattern)))
+
+    high_signal: list[re.Pattern[str]] = []
+    for pattern in matrix.get("high_signal_patterns", []):
+        if not isinstance(pattern, str) or not pattern.strip():
+            continue
+        high_signal.append(re.compile(pattern))
+
+    return tuple(boilerplate), tuple(low_signal), tuple(high_signal)
+
+
+def _normalize_source_label_rules(
+    rules: Iterable[Any],
+) -> tuple[tuple[str, str, float], ...]:
+    return _crosswalk_rule_tuples(list(rules))
+
+
+def _resolve_source_label(
+    *,
+    source: str,
+    facet: str,
+    raw_label: str,
+    normalized_label: str | None = None,
+) -> tuple[str, str | None]:
+    normalized = normalize_taxonomy_label(normalized_label or raw_label)
+    if not normalized:
+        return "", None
+    if _canonical_token(source) == "opencritic" and _canonical_token(facet) == "theme":
+        theme_entry = (load_opencritic_theme_catalog().get("themes") or {}).get(normalized)
+        if isinstance(theme_entry, dict):
+            label = normalize_taxonomy_label(theme_entry.get("label"))
+            status = _canonical_token(theme_entry.get("status"))
+            if label:
+                return label, status or None
+            if status:
+                return normalized, status
+    provider_theme = (
+        load_source_label_matrix()
+        .get("provider_gaps", {})
+        .get(_canonical_token(source), {})
+        .get(_canonical_token(facet), {})
+    )
+    if isinstance(provider_theme, dict) and normalized in provider_theme:
+        status = _canonical_token(provider_theme[normalized].get("status"))
+        if status:
+            return normalized, status
+    return normalized, None
+
+
+def _source_label_list_values(container: Any) -> set[str]:
+    if isinstance(container, list):
+        return {normalize_taxonomy_label(value) for value in container if normalize_taxonomy_label(value)}
+    return set()
+
+
+def _source_label_nested_values(container: Any, source: str, facet: str) -> set[str]:
+    if not isinstance(container, dict):
+        return set()
+    source_key = _canonical_token(source)
+    source_bucket = container.get(source_key, {})
+    if source == "*" and not source_bucket:
+        source_bucket = container.get("*", {})
+    if not isinstance(source_bucket, dict):
+        return set()
+    return _source_label_list_values(source_bucket.get(_canonical_token(facet), []))
+
+
+def classify_taxonomy_v2_source_label(
+    *,
+    source: str,
+    facet: str,
+    raw_label: str,
+    normalized_label: str | None = None,
+) -> tuple[str, str]:
+    resolved_label, resolved_status = _resolve_source_label(
+        source=source,
+        facet=facet,
+        raw_label=raw_label,
+        normalized_label=normalized_label,
+    )
+    if not resolved_label:
+        return "", "unmapped"
+    if resolved_status == "provider_gap":
+        return resolved_label, "provider_gap"
+    matrix = load_source_label_matrix()
+    normalized_source = _canonical_token(source)
+    normalized_facet = _canonical_token(facet)
+
+    suppressions = matrix.get("suppressions", {})
+    suppressed = _source_label_nested_values(suppressions, source, facet)
+    suppressed.update(_source_label_nested_values(suppressions, "*", facet))
+    if resolved_label in suppressed:
+        return resolved_label, "suppressed"
+
+    ignored = _source_label_list_values((matrix.get("ignored") or {}).get("global", []))
+    ignored.update(_source_label_nested_values(matrix.get("ignored", {}), source, facet))
+    if resolved_label in ignored:
+        return resolved_label, "ignored"
+
+    global_rules = matrix.get("global_rules", {}) or {}
+    facet_rules = (matrix.get("facet_rules", {}) or {}).get(normalized_facet, {}) if normalized_facet else {}
+    tag_rules = matrix.get("tag_rules", {}) or {}
+    aliases = (matrix.get("aliases", {}) or {}).get("global", {}) if isinstance(matrix.get("aliases"), dict) else {}
+    resolved_tokens = [resolved_label]
+    resolved_tokens.extend(
+        _canonical_token(value).replace("_", " ")
+        for value in aliases.get(resolved_label, [])
+        if _canonical_token(value)
+    )
+    for token in resolved_tokens:
+        if token in global_rules or token in facet_rules or token in tag_rules:
+            return resolved_label, "mapped"
+    return resolved_label, "unmapped"
+
+
 def analyze_taxonomy_v2_label(
     *,
     source: str,
@@ -2239,12 +2968,15 @@ def analyze_taxonomy_v2_label(
     normalized_label: str | None = None,
 ) -> TaxonomyV2LabelAnalysis:
     normalized = normalize_taxonomy_label(normalized_label or raw_label)
-    suppression_reason = get_taxonomy_v2_source_label_suppression(
+    resolved_label, classification = classify_taxonomy_v2_source_label(
         source=source,
         facet=facet,
+        raw_label=raw_label,
         normalized_label=normalized,
     )
-    if suppression_reason:
+    suppression_reason = None
+    if classification == "suppressed":
+        suppression_reason = f"suppressed:{_canonical_token(source)}/{_canonical_token(facet)}"
         return TaxonomyV2LabelAnalysis(
             source=source,
             facet=facet,
@@ -2252,16 +2984,34 @@ def analyze_taxonomy_v2_label(
             normalized_label=normalized,
             resolved_tokens=(),
             emitted_signals=(),
+            classification=classification,
             mapped=False,
             suppressed=True,
+            role_tier="filter_only",
+            rarity_bucket=get_taxonomy_v2_rarity_bucket(resolved_label),
             suppression_reason=suppression_reason,
+        )
+    if classification in {"ignored", "provider_gap"}:
+        return TaxonomyV2LabelAnalysis(
+            source=source,
+            facet=facet,
+            raw_label=raw_label,
+            normalized_label=normalized,
+            resolved_tokens=tuple(_resolve_crosswalk_tokens(resolved_label or normalized)),
+            emitted_signals=(),
+            classification=classification,
+            mapped=False,
+            suppressed=False,
+            role_tier="filter_only" if classification == "ignored" else None,
+            rarity_bucket=get_taxonomy_v2_rarity_bucket(resolved_label),
+            suppression_reason=None,
         )
     synthetic_row = GameSourceTaxonomyLabel(
         game_id=0,
         source=source,
         facet=facet,
-        raw_label=raw_label,
-        normalized_label=normalized,
+        raw_label=resolved_label or raw_label,
+        normalized_label=resolved_label or normalized,
     )
     emitted = extract_v2_evidence_from_source_labels([synthetic_row])
     emitted_signals = tuple(
@@ -2277,10 +3027,19 @@ def analyze_taxonomy_v2_label(
         facet=facet,
         raw_label=raw_label,
         normalized_label=normalized,
-        resolved_tokens=_resolve_crosswalk_tokens(raw_label or normalized),
+        resolved_tokens=_resolve_crosswalk_tokens(resolved_label or raw_label or normalized),
         emitted_signals=emitted_signals,
+        classification="mapped" if emitted_signals else classification,
         mapped=bool(emitted_signals),
         suppressed=False,
+        role_tier=(
+            "identity_driving"
+            if any(classify_taxonomy_v2_signal_tier(record.field, record.value) == "identity_driving" for record in emitted)
+            else "supporting"
+            if emitted
+            else None
+        ),
+        rarity_bucket=get_taxonomy_v2_rarity_bucket(resolved_label),
         suppression_reason=None,
     )
 
@@ -2338,7 +3097,7 @@ def _resolve_crosswalk_tokens(raw_label: str) -> tuple[str, ...]:
     if not normalized:
         return ()
 
-    aliases = load_taxonomy_v2_label_crosswalk().get("aliases", {}).get("global", {})
+    aliases = load_source_label_matrix().get("aliases", {}).get("global", {})
     resolved: list[str] = []
     seen: set[str] = set()
 
@@ -2360,26 +3119,41 @@ def extract_v2_evidence_from_source_labels(
 ) -> list[TaxonomyV2EvidenceRecord]:
     evidence: list[TaxonomyV2EvidenceRecord] = []
     seen: set[tuple[str, str, str, str]] = set()
-    crosswalk = load_taxonomy_v2_label_crosswalk()
+    matrix = load_source_label_matrix()
+    global_rules = {
+        normalize_taxonomy_label(key): _normalize_source_label_rules(value)
+        for key, value in (matrix.get("global_rules") or {}).items()
+        if normalize_taxonomy_label(key)
+    }
+    facet_rules = {
+        _canonical_token(facet): {
+            normalize_taxonomy_label(key): _normalize_source_label_rules(value)
+            for key, value in (rules or {}).items()
+            if normalize_taxonomy_label(key)
+        }
+        for facet, rules in (matrix.get("facet_rules") or {}).items()
+        if _canonical_token(facet)
+    }
     tag_rules = {
         _canonical_token(key): _crosswalk_rule_tuples(value)
-        for key, value in (crosswalk.get("tag_rules") or {}).items()
+        for key, value in (matrix.get("tag_rules") or {}).items()
         if _canonical_token(key)
     }
     for row in rows:
-        normalized_label = normalize_taxonomy_label(row.raw_label or row.normalized_label)
-        if not normalized_label:
-            continue
-        if get_taxonomy_v2_source_label_suppression(
+        normalized_label, classification = classify_taxonomy_v2_source_label(
             source=row.source,
             facet=row.facet,
-            normalized_label=normalized_label,
-        ):
+            raw_label=row.raw_label or row.normalized_label or "",
+            normalized_label=row.normalized_label,
+        )
+        if not normalized_label:
             continue
-        rules = list(_GLOBAL_LABEL_RULES.get(normalized_label, ()))
-        rules.extend(_FACET_LABEL_RULES.get(row.facet, {}).get(normalized_label, ()))
+        if classification in {"suppressed", "ignored", "provider_gap"}:
+            continue
+        rules = list(global_rules.get(normalized_label, ()))
+        rules.extend(facet_rules.get(_canonical_token(row.facet), {}).get(normalized_label, ()))
         for token in _resolve_crosswalk_tokens(row.raw_label or row.normalized_label):
-            rules.extend(_GLOBAL_LABEL_RULES.get(token.replace("_", " "), ()))
+            rules.extend(global_rules.get(token.replace("_", " "), ()))
             rules.extend(tag_rules.get(token, ()))
         for field, value, confidence in rules:
             record = _make_evidence(
@@ -2407,30 +3181,91 @@ def extract_v2_evidence_from_description(description: str | None) -> list[Taxono
     if not normalized_description:
         return []
     evidence: list[TaxonomyV2EvidenceRecord] = []
-    for patterns, outputs in _DESCRIPTION_RULES:
-        for pattern in patterns:
+    for _rule_id, min_matches, patterns, outputs in _compiled_phrase_rules():
+        matches: list[str] = []
+        for pattern_text in patterns:
+            pattern = re.compile(pattern_text)
             match = pattern.search(normalized_description)
             if not match:
                 continue
             matched_text = match.group(0)
-            for field, value, confidence in outputs:
-                record = _make_evidence(
-                    field,
-                    value,
-                    source="description",
-                    source_field="description",
-                    confidence=confidence,
-                    evidence_text=matched_text,
-                )
-                if record is not None:
-                    evidence.append(record)
-            break
+            if matched_text not in matches:
+                matches.append(matched_text)
+        if len(matches) < min_matches:
+            continue
+        evidence_text = ", ".join(matches[:min_matches])
+        for field, value, confidence in outputs:
+            record = _make_evidence(
+                field,
+                value,
+                source="description",
+                source_field="description",
+                confidence=confidence,
+                evidence_text=evidence_text,
+            )
+            if record is not None:
+                evidence.append(record)
     return evidence
+
+
+def _apply_taxonomy_v2_co_signal_gates(
+    fingerprint: dict[str, list[str]],
+    confidence_by_field_value: dict[str, dict[str, float]],
+    source_count_by_field_value: dict[str, dict[str, int]],
+    provenance_by_field_value: dict[str, dict[str, set[str]]],
+) -> None:
+    gates = load_facet_matrix().get("co_signal_gates") or []
+    for gate in gates:
+        field = _canonical_token(gate.get("field"))
+        value = _canonical_token(gate.get("value"))
+        required_fields = {
+            _canonical_token(item)
+            for item in gate.get("requires_any_fields", [])
+            if _canonical_token(item)
+        }
+        if not field or not value or value not in fingerprint.get(field, []):
+            continue
+        required_provenance = {
+            _canonical_provenance_token(item)
+            for item in gate.get("requires_any_provenance", [])
+            if _canonical_provenance_token(item)
+        }
+        disallowed_only_provenance = {
+            _canonical_provenance_token(item)
+            for item in gate.get("disallow_only_provenance", [])
+            if _canonical_provenance_token(item)
+        }
+        provenances = provenance_by_field_value.get(field, {}).get(value, set())
+        if any(fingerprint.get(required_field, []) for required_field in required_fields):
+            if not required_provenance or provenances & required_provenance:
+                if not disallowed_only_provenance or not provenances.issubset(disallowed_only_provenance):
+                    continue
+        elif required_provenance and not (provenances & required_provenance):
+            fingerprint[field] = [item for item in fingerprint.get(field, []) if item != value]
+            confidence_by_field_value.get(field, {}).pop(value, None)
+            source_count_by_field_value.get(field, {}).pop(value, None)
+            provenance_by_field_value.get(field, {}).pop(value, None)
+            continue
+        elif not required_fields and not required_provenance and (
+            not disallowed_only_provenance or not provenances.issubset(disallowed_only_provenance)
+        ):
+            continue
+        if disallowed_only_provenance and provenances and not provenances.issubset(disallowed_only_provenance):
+            continue
+        fingerprint[field] = [item for item in fingerprint.get(field, []) if item != value]
+        confidence_by_field_value.get(field, {}).pop(value, None)
+        source_count_by_field_value.get(field, {}).pop(value, None)
+        provenance_by_field_value.get(field, {}).pop(value, None)
 
 
 def _aggregate_evidence(
     evidence: Iterable[TaxonomyV2EvidenceRecord],
-) -> tuple[dict[str, list[str]], dict[str, dict[str, float]], dict[str, dict[str, int]]]:
+) -> tuple[
+    dict[str, list[str]],
+    dict[str, dict[str, float]],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, set[str]]],
+]:
     grouped: dict[tuple[str, str], list[TaxonomyV2EvidenceRecord]] = defaultdict(list)
     for record in evidence:
         grouped[(record.field, record.value)].append(record)
@@ -2438,22 +3273,44 @@ def _aggregate_evidence(
     fingerprint: dict[str, list[str]] = {field: [] for field in FINGERPRINT_AXES}
     confidence_by_field_value: dict[str, dict[str, float]] = {field: {} for field in FINGERPRINT_AXES}
     source_count_by_field_value: dict[str, dict[str, int]] = {field: {} for field in FINGERPRINT_AXES}
+    provenance_by_field_value: dict[str, dict[str, set[str]]] = {field: {} for field in FINGERPRINT_AXES}
 
     for (field, value), records in grouped.items():
         distinct_sources = {record.source for record in records}
-        combined_confidence = max(record.confidence for record in records)
+        distinct_provenance = {
+            f"{_canonical_token(record.source)}/{_canonical_token(record.source_field)}"
+            for record in records
+            if _canonical_token(record.source) and _canonical_token(record.source_field)
+        }
+        effective_confidences = []
+        for record in records:
+            role = classify_taxonomy_v2_signal_tier(record.field, record.value)
+            effective_confidence = record.confidence
+            effective_confidence *= get_taxonomy_v2_source_weight(record.source, record.source_field)
+            effective_confidence *= get_taxonomy_v2_role_weight(role)
+            effective_confidence += get_taxonomy_v2_rarity_weight(record.value)
+            effective_confidences.append(min(0.99, effective_confidence))
+        combined_confidence = max(effective_confidences or [0.0])
         combined_confidence = min(0.99, combined_confidence + 0.04 * (len(distinct_sources) - 1))
         threshold = 0.8 if field == "hard_exclusions" else 0.6
         if combined_confidence < threshold:
             continue
         confidence_by_field_value[field][value] = combined_confidence
         source_count_by_field_value[field][value] = len(distinct_sources)
+        provenance_by_field_value[field][value] = distinct_provenance
         fingerprint[field].append(value)
 
     for field in FINGERPRINT_AXES:
         fingerprint[field] = sorted(set(fingerprint[field]))
 
-    return fingerprint, confidence_by_field_value, source_count_by_field_value
+    _apply_taxonomy_v2_co_signal_gates(
+        fingerprint,
+        confidence_by_field_value,
+        source_count_by_field_value,
+        provenance_by_field_value,
+    )
+
+    return fingerprint, confidence_by_field_value, source_count_by_field_value, provenance_by_field_value
 
 
 def infer_derived_v2_evidence(
@@ -2466,6 +3323,7 @@ def infer_derived_v2_evidence(
     world_topology = set(fingerprint.get("world_topology", []))
     traversal_verbs = set(fingerprint.get("traversal_verbs", []))
     settings = set(fingerprint.get("setting", []))
+    world_density = set(fingerprint.get("world_density", []))
     art_style = set(fingerprint.get("art_style", []))
     combat_structure = set(fingerprint.get("combat_structure", []))
     challenge_model = set(fingerprint.get("challenge_model", []))
@@ -2553,7 +3411,16 @@ def infer_derived_v2_evidence(
         not combat_styles
         and "open_world" in world_topology
         and settings & {"high_fantasy", "dark_fantasy", "mythic"}
-        and has_dominant_profile
+        and (
+            has_dominant_profile
+            or (
+                "third_person" in fingerprint.get("perspective", [])
+                and (
+                    "quest_driven" in fingerprint.get("progression_model", [])
+                    or traversal_verbs & {"horseback", "climbing", "gliding"}
+                )
+            )
+        )
         and "party_management" not in combat_structure
         and ("third_person" in fingerprint.get("perspective", []) or traversal_verbs & {"horseback", "climbing", "gliding"})
     ):
@@ -2615,8 +3482,73 @@ def infer_derived_v2_evidence(
             "campaign_only",
             source="inference",
             source_field="session_shape",
-            confidence=0.86,
+            confidence=0.9,
             evidence_text="derived from shooter campaign profile without competitive modes",
+        )
+        if record is not None:
+            evidence.append(record)
+
+    if (
+        "campaign" not in session_shapes
+        and "quest_driven" in fingerprint.get("progression_model", [])
+        and (
+            narrative_structure & {"authored_branching", "quest_web", "authored_linear"}
+            or rules_goals & {"complete_quests"}
+        )
+    ):
+        record = _make_evidence(
+            "session_shape",
+            "campaign",
+            source="inference",
+            source_field="progression_model",
+            confidence=0.84,
+            evidence_text="derived from quest-driven narrative progression",
+        )
+        if record is not None:
+            evidence.append(record)
+
+    if (
+        "third_person" in fingerprint.get("perspective", [])
+        and "authored_linear" in narrative_structure
+        and settings & {"high_fantasy", "dark_fantasy", "mythic"}
+        and (
+            "dominant" in fingerprint.get("combat_presence", [])
+            or "boss_centric" in combat_structure
+            or "defeat_bosses" in rules_goals
+        )
+        and "open_world" not in world_topology
+        and "setpiece_driven" not in world_density
+    ):
+        record = _make_evidence(
+            "world_density",
+            "setpiece_driven",
+            source="inference",
+            source_field="narrative_structure",
+            confidence=0.88,
+            evidence_text="derived from authored-linear third-person mythic action profile",
+        )
+        if record is not None:
+            evidence.append(record)
+
+    if (
+        "third_person" in fingerprint.get("perspective", [])
+        and "authored_linear" in narrative_structure
+        and settings & {"high_fantasy", "dark_fantasy", "mythic"}
+        and (
+            "dominant" in fingerprint.get("combat_presence", [])
+            or "boss_centric" in combat_structure
+            or "defeat_bosses" in rules_goals
+        )
+        and "open_world" not in world_topology
+        and not (world_topology & {"linear", "semi_open"})
+    ):
+        record = _make_evidence(
+            "world_topology",
+            "semi_open",
+            source="inference",
+            source_field="narrative_structure",
+            confidence=0.82,
+            evidence_text="derived from authored-linear third-person mythic action structure",
         )
         if record is not None:
             evidence.append(record)
@@ -2645,15 +3577,15 @@ def infer_derived_v2_evidence(
         "authored_linear" in narrative_structure
         and ("boss_centric" in combat_structure or "defeat_bosses" in rules_goals)
         and "third_person" in fingerprint.get("perspective", [])
+        and "open_world" not in world_topology
         and not traversal_verbs
-        and "quest_driven" not in fingerprint.get("progression_model", [])
     ):
         record = _make_evidence(
             "hard_exclusions",
             "cinematic_linear_first",
             source="inference",
             source_field="narrative_structure",
-            confidence=0.86,
+            confidence=0.9,
             evidence_text="derived from authored-linear third-person boss-driven action profile",
         )
         if record is not None:
@@ -2866,6 +3798,22 @@ def assign_taxonomy_v2_archetypes(
     confidence_by_field_value: dict[str, dict[str, float]],
 ) -> list[ArchetypeCandidate]:
     graph = load_archetype_graph_v2()
+    facet_matrix = load_facet_matrix()
+    assignment_rules = facet_matrix.get("assignment") or {}
+    strict_min_required_hits = {
+        _canonical_token(key): int(value)
+        for key, value in (assignment_rules.get("strict_min_required_hits") or {}).items()
+        if _canonical_token(key)
+    }
+    mandatory_required_axes = {
+        _canonical_token(key): {
+            _canonical_token(axis)
+            for axis in value
+            if _canonical_token(axis)
+        }
+        for key, value in (assignment_rules.get("mandatory_required_axes") or {}).items()
+        if _canonical_token(key)
+    }
     excluded = set(fingerprint.get("hard_exclusions", []))
     candidates: list[ArchetypeCandidate] = []
 
@@ -2902,12 +3850,12 @@ def assign_taxonomy_v2_archetypes(
             minimum_required_hits = max(2, math.ceil(required_total * 0.6))
         minimum_required_hits = max(
             minimum_required_hits,
-            _STRICT_MIN_REQUIRED_HITS.get(archetype, 0),
+            strict_min_required_hits.get(archetype, _STRICT_MIN_REQUIRED_HITS.get(archetype, 0)),
         )
         if required_hits < minimum_required_hits:
             continue
         mandatory_axes = set(node.get("mandatory_axes", []) or [])
-        mandatory_axes.update(_MANDATORY_REQUIRED_AXES.get(archetype, set()))
+        mandatory_axes.update(mandatory_required_axes.get(archetype, _MANDATORY_REQUIRED_AXES.get(archetype, set())))
         if mandatory_axes and any(axis not in matched_required_axes for axis in mandatory_axes):
             continue
 
@@ -3031,13 +3979,30 @@ def _format_v2_match_reason(prefix: str, values: list[str], *, limit: int = 2) -
     return f"{prefix}: {rendered}"
 
 
+def get_taxonomy_v2_match_weights(axis: str) -> dict[str, int]:
+    matrix = load_facet_matrix()
+    match_weights = matrix.get("match_weights") or {}
+    weights = match_weights.get(_canonical_token(axis), {})
+    if isinstance(weights, dict):
+        return {_canonical_token(key): int(value) for key, value in weights.items() if _canonical_token(key)}
+    return {}
+
+
 def _weighted_token_score(
     values: list[str],
     weights: dict[str, int],
     *,
     default: int,
 ) -> int:
-    return sum(weights.get(value, default) for value in values)
+    score = 0
+    for value in values:
+        score += weights.get(value, default)
+        rarity = get_taxonomy_v2_rarity_bucket(value)
+        if rarity == "uncommon":
+            score += 2
+        elif rarity == "rare":
+            score += 4
+    return score
 
 
 def build_similarity_breakdown_v2(
@@ -3047,7 +4012,7 @@ def build_similarity_breakdown_v2(
     if not game_has_sufficient_taxonomy_v2_support(anchor) or not game_has_sufficient_taxonomy_v2_support(candidate):
         return None
 
-    graph = load_archetype_graph_v2()
+    graph = load_connection_matrix()
     anchor_archetype = _canonical_token(getattr(anchor, "taxonomy_v2_primary_archetype", None))
     candidate_archetype = _canonical_token(getattr(candidate, "taxonomy_v2_primary_archetype", None))
     if not anchor_archetype or not candidate_archetype:
@@ -3074,27 +4039,11 @@ def build_similarity_breakdown_v2(
     if anchor_hard_exclusions & candidate_node_exclusions:
         return None
 
-    strong_neighbors = {_canonical_token(value) for value in anchor_node.get("strong_neighbors", []) if _canonical_token(value)}
-    adjacent_neighbors = {_canonical_token(value) for value in anchor_node.get("adjacent_neighbors", []) if _canonical_token(value)}
     candidate_secondaries = {
         _canonical_token(value)
         for value in getattr(candidate, "taxonomy_v2_secondary_archetypes", None) or []
         if _canonical_token(value)
     }
-
-    relationship: str | None = None
-    if candidate_archetype == anchor_archetype:
-        relationship = "same"
-    elif candidate_archetype in strong_neighbors:
-        relationship = "strong"
-    elif candidate_archetype in adjacent_neighbors:
-        relationship = "adjacent"
-    elif candidate_secondaries & strong_neighbors:
-        relationship = "strong_secondary"
-    elif candidate_secondaries & adjacent_neighbors:
-        relationship = "adjacent_secondary"
-    if relationship is None:
-        return None
 
     anchor_fingerprint = build_taxonomy_v2_fingerprint_sets(anchor)
     candidate_fingerprint = build_taxonomy_v2_fingerprint_sets(candidate)
@@ -3118,10 +4067,117 @@ def build_similarity_breakdown_v2(
     shared_interface_control = sorted(anchor_fingerprint["interface_control"] & candidate_fingerprint["interface_control"])
     shared_sports_theme = sorted(anchor_fingerprint["sports_theme"] & candidate_fingerprint["sports_theme"])
     shared_vehicular_theme = sorted(anchor_fingerprint["vehicular_theme"] & candidate_fingerprint["vehicular_theme"])
+    shared_challenge_model = sorted(anchor_fingerprint["challenge_model"] & candidate_fingerprint["challenge_model"])
     shared_studios = sorted(set(getattr(anchor, "taxonomy_studios", None) or []) & set(getattr(candidate, "taxonomy_studios", None) or []))
+    anchor_challenge = anchor_fingerprint["challenge_model"]
+    candidate_challenge = candidate_fingerprint["challenge_model"]
+    candidate_soulslike_core_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["challenge_model"] & {"soulslike"},
+            candidate_fingerprint["combat_structure"] & {"boss_centric"},
+        )
+        if values
+    )
+    candidate_soulslike_identity_hits = candidate_soulslike_core_hits + sum(
+        1
+        for values in (
+            candidate_fingerprint["rules_goals"] & {"defeat_bosses"},
+            candidate_fingerprint["combat_style"] & {"melee", "magic", "hybrid"},
+            candidate_fingerprint["world_topology"] & {"open_world"},
+        )
+        if values
+    )
+    candidate_open_world_fantasy_identity_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["combat_style"] & {"melee", "magic", "hybrid"},
+            candidate_fingerprint["rules_goals"] & {"complete_quests", "defeat_bosses", "build_and_optimize"},
+            candidate_fingerprint["progression_model"] & {"quest_driven", "buildcraft", "skill_tree", "base_growth"},
+            candidate_fingerprint["traversal_verbs"] & {"horseback", "climbing", "gliding"},
+            candidate_fingerprint["entity_interaction"] & {"dialogue_choice", "construction_placement"},
+        )
+        if values
+    )
+    candidate_open_world_fantasy_frontier_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["traversal_verbs"] & {"horseback", "climbing", "gliding"},
+            candidate_fingerprint["rules_goals"] & {"complete_quests"},
+            candidate_fingerprint["progression_model"] & {"quest_driven", "gear_chase"},
+        )
+        if values
+    )
+    candidate_open_world_fantasy_sandbox_signals = bool(
+        candidate_fingerprint["world_density"] & {"systemic_sandbox"}
+        or candidate_fingerprint["session_shape"] & {"sandbox_loop"}
+        or candidate_fingerprint["mode_profile"] & {"drop_in_coop", "party_coop", "mmo", "pvpve"}
+    )
+    anchor_open_world_fantasy_sandbox_signals = bool(
+        anchor_fingerprint["world_density"] & {"systemic_sandbox"}
+        or anchor_fingerprint["session_shape"] & {"sandbox_loop"}
+        or anchor_fingerprint["mode_profile"] & {"drop_in_coop", "party_coop", "mmo", "pvpve"}
+    )
+    candidate_western_identity_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["world_topology"] & {"open_world"},
+            candidate_fingerprint["rules_goals"] & {"complete_quests"},
+            candidate_fingerprint["entity_interaction"] & {"dialogue_choice"},
+            candidate_fingerprint["progression_model"] & {"quest_driven"},
+        )
+        if values
+    )
+    candidate_mmo_identity_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["world_topology"] & {"persistent_shared_world"},
+            candidate_fingerprint["traversal_verbs"] & {"horseback"},
+            candidate_fingerprint["rules_goals"] & {"build_and_optimize"},
+            candidate_fingerprint["entity_interaction"] & {"construction_placement"},
+            candidate_fingerprint["progression_model"] & {"base_growth"},
+            candidate_fingerprint["combat_style"] & {"melee", "magic", "hybrid"},
+        )
+        if values
+    )
+    candidate_cinematic_identity_hits = sum(
+        1
+        for values in (
+            candidate_fingerprint["rules_goals"] & {"defeat_bosses", "complete_quests"},
+            candidate_fingerprint["progression_model"] & {"buildcraft", "skill_tree"},
+            candidate_fingerprint["combat_style"] & {"melee", "magic", "hybrid"},
+            candidate_fingerprint["world_topology"] & {"semi_open", "linear"},
+            candidate_fingerprint["narrative_structure"] & {"authored_linear"},
+        )
+        if values
+    )
+
+    relationship = _resolve_connection_relationship(
+        anchor_archetype=anchor_archetype,
+        candidate_archetype=candidate_archetype,
+        candidate_secondaries=candidate_secondaries,
+        anchor_fingerprint=anchor_fingerprint,
+        candidate_fingerprint=candidate_fingerprint,
+        shared_world_topology=shared_world_topology,
+        shared_combat_style=shared_combat_style,
+        shared_combat_structure=shared_combat_structure,
+        shared_progression_model=shared_progression_model,
+        shared_traversal_verbs=shared_traversal_verbs,
+        shared_setting=shared_setting,
+        shared_tone=shared_tone,
+        shared_perspective=shared_perspective,
+        shared_keyword_layer=shared_keyword_layer,
+        shared_mechanics_structure=shared_mechanics_structure,
+        shared_rules_goals=shared_rules_goals,
+        shared_entity_interaction=shared_entity_interaction,
+        shared_narrative_topic=shared_narrative_topic,
+        shared_challenge_model=shared_challenge_model,
+    )
+    if relationship is None:
+        return None
 
     studio_bridge = (
-        relationship in {"adjacent", "adjacent_secondary"}
+        relationship in {"adjacent_neighbor", "adjacent_secondary", "bridge_neighbor", "bridge_secondary"}
         and bool(shared_studios)
         and bool(shared_setting)
         and bool(shared_perspective)
@@ -3129,7 +4185,7 @@ def build_similarity_breakdown_v2(
         and bool(shared_combat_style or shared_combat_structure)
     )
     adjacent_persistent_world_bridge = (
-        relationship in {"adjacent", "adjacent_secondary"}
+        relationship in {"adjacent_neighbor", "adjacent_secondary", "bridge_neighbor", "bridge_secondary"}
         and "persistent_shared_world" in candidate_fingerprint["world_topology"]
         and bool(shared_world_topology)
         and bool(shared_setting)
@@ -3147,11 +4203,115 @@ def build_similarity_breakdown_v2(
         or (shared_keyword_layer and shared_rules_goals)
         or (shared_keyword_layer and shared_entity_interaction)
     )
+    thematic_action_bridge = bool(
+        shared_setting
+        and shared_perspective
+        and (shared_rules_goals or shared_narrative_topic)
+    )
+    cinematic_fantasy_bridge = (
+        {anchor_archetype, candidate_archetype} == {"open_world_fantasy_action_rpg", "cinematic_action_adventure"}
+        and bool(shared_setting)
+        and bool(shared_perspective)
+        and bool(shared_combat_style or shared_combat_structure or shared_progression_model)
+    )
+    same_soulslike_lane = (
+        anchor_archetype == "soulslike_action_rpg"
+        and (candidate_archetype == "soulslike_action_rpg" or "soulslike_action_rpg" in candidate_secondaries)
+    )
+    soulslike_conflicting_perspectives = {"isometric", "tactical_overhead", "top_down", "side_scrolling", "first_person"}
+    anchor_prefers_third_person_soulslike = bool(
+        anchor_fingerprint["perspective"] & {"third_person"}
+        or anchor_fingerprint["visual_presentation"] & {"third_person_3d"}
+    )
+    candidate_supports_third_person_soulslike = bool(
+        candidate_fingerprint["perspective"] & {"third_person"}
+        or candidate_fingerprint["visual_presentation"] & {"third_person_3d"}
+    )
+    candidate_conflicting_soulslike_view = bool(
+        candidate_fingerprint["perspective"] & soulslike_conflicting_perspectives
+        or candidate_fingerprint["visual_presentation"] & {"side_scrolling_2d"}
+    )
+    open_world_fantasy_identity_bridge = False
+    if anchor_archetype == "open_world_fantasy_action_rpg":
+        if candidate_archetype == "open_world_fantasy_action_rpg":
+            open_world_fantasy_identity_bridge = (
+                bool(shared_setting)
+                and bool(shared_perspective)
+                and bool(
+                    shared_traversal_verbs
+                    or shared_rules_goals
+                    or shared_entity_interaction
+                    or shared_progression_model
+                    or traversal_identity_bridge
+                )
+                and candidate_open_world_fantasy_identity_hits >= (1 if shared_traversal_verbs else 2)
+                and not (
+                    candidate_open_world_fantasy_sandbox_signals
+                    and not anchor_open_world_fantasy_sandbox_signals
+                    and candidate_open_world_fantasy_frontier_hits < 1
+                )
+            )
+        elif candidate_archetype == "western_narrative_rpg":
+            open_world_fantasy_identity_bridge = (
+                bool(shared_setting)
+                and bool(shared_perspective)
+                and candidate_western_identity_hits >= 2
+                and bool(
+                    set(shared_rules_goals) & {"complete_quests"}
+                    or set(shared_entity_interaction) & {"dialogue_choice"}
+                    or set(shared_progression_model) & {"quest_driven"}
+                )
+            )
+        elif candidate_archetype == "soulslike_action_rpg":
+            open_world_fantasy_identity_bridge = (
+                bool(shared_perspective)
+                and bool(
+                    set(shared_setting) & {"high_fantasy", "dark_fantasy"}
+                    or set(shared_challenge_model) & {"soulslike"}
+                    or set(shared_rules_goals) & {"defeat_bosses"}
+                )
+                and candidate_soulslike_core_hits >= 1
+                and candidate_soulslike_identity_hits >= 3
+                and bool(
+                    set(shared_rules_goals) & {"defeat_bosses"}
+                    or set(shared_combat_structure) & {"boss_centric"}
+                    or set(shared_challenge_model) & {"soulslike"}
+                )
+            )
+        elif candidate_archetype == "mmo_action_rpg":
+            open_world_fantasy_identity_bridge = (
+                bool(shared_world_topology)
+                and bool(shared_setting)
+                and bool(shared_perspective)
+                and candidate_mmo_identity_hits >= 2
+                and bool(shared_traversal_verbs or shared_progression_model or shared_entity_interaction or shared_combat_style)
+            )
+        elif candidate_archetype == "cinematic_action_adventure":
+            open_world_fantasy_identity_bridge = (
+                bool(shared_setting)
+                and bool(shared_perspective)
+                and candidate_cinematic_identity_hits >= 2
+                and bool(
+                    set(shared_rules_goals) & {"defeat_bosses", "complete_quests"}
+                    or shared_progression_model
+                    or shared_combat_style
+                    or shared_combat_structure
+                )
+            )
 
-    if not shared_world_topology and not studio_bridge and not derived_identity_bridge:
+    if (
+        not shared_world_topology
+        and not studio_bridge
+        and not derived_identity_bridge
+        and not thematic_action_bridge
+        and not cinematic_fantasy_bridge
+        and not same_soulslike_lane
+        and not open_world_fantasy_identity_bridge
+    ):
         return None
     if not (shared_combat_style or shared_combat_structure or shared_mechanics_structure):
-        return None
+        if not open_world_fantasy_identity_bridge:
+            return None
     if not (
         shared_progression_model
         or shared_traversal_verbs
@@ -3159,7 +4319,8 @@ def build_similarity_breakdown_v2(
         or shared_mechanics_structure
         or shared_keyword_layer
     ):
-        return None
+        if not open_world_fantasy_identity_bridge:
+            return None
     if (
         anchor_archetype == "open_world_fantasy_action_rpg"
         and relationship == "same"
@@ -3185,24 +4346,32 @@ def build_similarity_breakdown_v2(
         )
     ):
         return None
+    if (
+        anchor_archetype == "open_world_fantasy_action_rpg"
+        and candidate_archetype in {"beat_em_up", "3d_collectathon"}
+    ):
+        return None
 
-    relationship_scores = {
-        "same": 220,
-        "strong": 175,
-        "adjacent": 140,
-        "strong_secondary": 155,
-        "adjacent_secondary": 125,
+    relation_weights = {
+        _canonical_token(key): int(value)
+        for key, value in (graph.get("relation_weights") or {}).items()
+        if _canonical_token(key)
     }
-    score = relationship_scores[relationship]
+    anchor_secondaries = {
+        _canonical_token(value)
+        for value in getattr(anchor, "taxonomy_v2_secondary_archetypes", None) or []
+        if _canonical_token(value)
+    }
+    score = relation_weights.get(relationship, 120)
     score += len(shared_world_topology) * 45
     if shared_combat_style:
         score += 35
         score += max(0, len(shared_combat_style) - 1) * 12
     score += len(shared_combat_structure) * 24
-    score += _weighted_token_score(shared_progression_model, _PROGRESSION_MATCH_WEIGHTS, default=10)
-    score += _weighted_token_score(shared_traversal_verbs, _TRAVERSAL_MATCH_WEIGHTS, default=12)
-    score += _weighted_token_score(shared_setting, _SETTING_MATCH_WEIGHTS, default=12)
-    score += _weighted_token_score(shared_tone, _TONE_MATCH_WEIGHTS, default=6)
+    score += _weighted_token_score(shared_progression_model, get_taxonomy_v2_match_weights("progression_model"), default=10)
+    score += _weighted_token_score(shared_traversal_verbs, get_taxonomy_v2_match_weights("traversal_verbs"), default=12)
+    score += _weighted_token_score(shared_setting, get_taxonomy_v2_match_weights("setting"), default=12)
+    score += _weighted_token_score(shared_tone, get_taxonomy_v2_match_weights("tone"), default=6)
     if studio_bridge:
         score += 100
     if adjacent_persistent_world_bridge:
@@ -3212,26 +4381,52 @@ def build_similarity_breakdown_v2(
     if shared_traversal_verbs and shared_setting:
         score += 18
     derived_similarity_score = 0
-    derived_similarity_score += _weighted_token_score(shared_keyword_layer, _KEYWORD_MATCH_WEIGHTS, default=8)
-    derived_similarity_score += _weighted_token_score(shared_mechanics_structure, _MECHANICS_MATCH_WEIGHTS, default=10)
-    derived_similarity_score += _weighted_token_score(shared_rules_goals, _RULES_GOALS_MATCH_WEIGHTS, default=8)
-    derived_similarity_score += _weighted_token_score(shared_entity_interaction, _ENTITY_INTERACTION_MATCH_WEIGHTS, default=8)
-    derived_similarity_score += _weighted_token_score(shared_narrative_topic, _NARRATIVE_TOPIC_MATCH_WEIGHTS, default=8)
-    derived_similarity_score += _weighted_token_score(shared_visual_presentation, _VISUAL_PRESENTATION_MATCH_WEIGHTS, default=6)
-    derived_similarity_score += _weighted_token_score(shared_art_style, _ART_STYLE_MATCH_WEIGHTS, default=6)
-    derived_similarity_score += _weighted_token_score(shared_pacing, _PACING_MATCH_WEIGHTS, default=6)
-    derived_similarity_score += _weighted_token_score(shared_interface_control, _INTERFACE_CONTROL_MATCH_WEIGHTS, default=8)
-    derived_similarity_score += _weighted_token_score(shared_sports_theme, _SPORTS_THEME_MATCH_WEIGHTS, default=10)
-    derived_similarity_score += _weighted_token_score(shared_vehicular_theme, _VEHICULAR_THEME_MATCH_WEIGHTS, default=10)
+    derived_similarity_score += _weighted_token_score(shared_keyword_layer, get_taxonomy_v2_match_weights("keyword_layer"), default=8)
+    derived_similarity_score += _weighted_token_score(shared_mechanics_structure, get_taxonomy_v2_match_weights("mechanics_structure"), default=10)
+    derived_similarity_score += _weighted_token_score(shared_rules_goals, get_taxonomy_v2_match_weights("rules_goals"), default=8)
+    derived_similarity_score += _weighted_token_score(shared_entity_interaction, get_taxonomy_v2_match_weights("entity_interaction"), default=8)
+    derived_similarity_score += _weighted_token_score(shared_narrative_topic, get_taxonomy_v2_match_weights("narrative_topic"), default=8)
+    derived_similarity_score += _weighted_token_score(shared_visual_presentation, get_taxonomy_v2_match_weights("visual_presentation"), default=6)
+    derived_similarity_score += _weighted_token_score(shared_art_style, get_taxonomy_v2_match_weights("art_style"), default=6)
+    derived_similarity_score += _weighted_token_score(shared_pacing, get_taxonomy_v2_match_weights("pacing"), default=6)
+    derived_similarity_score += _weighted_token_score(shared_interface_control, get_taxonomy_v2_match_weights("interface_control"), default=8)
+    derived_similarity_score += _weighted_token_score(shared_sports_theme, get_taxonomy_v2_match_weights("sports_theme"), default=10)
+    derived_similarity_score += _weighted_token_score(shared_vehicular_theme, get_taxonomy_v2_match_weights("vehicular_theme"), default=10)
     score += derived_similarity_score
     score += len(shared_perspective) * 12
     score += len(shared_studios) * 8
+    score += _weighted_token_score(shared_challenge_model, get_taxonomy_v2_match_weights("challenge_model"), default=12)
+    if candidate_archetype in anchor_secondaries and relationship.startswith(("bridge", "adjacent", "strong")):
+        score += 36
 
     anchor_art_style = anchor_fingerprint["art_style"]
     candidate_art_style = candidate_fingerprint["art_style"]
     if anchor_archetype == "open_world_fantasy_action_rpg":
         conflicting_perspectives = {"isometric", "tactical_overhead", "top_down", "side_scrolling"}
         if candidate_fingerprint["perspective"] & conflicting_perspectives:
+            return None
+        if candidate_archetype == "open_world_fantasy_action_rpg" and candidate_open_world_fantasy_identity_hits < (1 if shared_traversal_verbs else 2):
+            return None
+        if (
+            candidate_archetype == "open_world_fantasy_action_rpg"
+            and candidate_open_world_fantasy_sandbox_signals
+            and not anchor_open_world_fantasy_sandbox_signals
+            and candidate_open_world_fantasy_frontier_hits < 1
+        ):
+            return None
+        if candidate_archetype == "western_narrative_rpg" and candidate_western_identity_hits < 2:
+            return None
+        if candidate_archetype == "soulslike_action_rpg" and (
+            candidate_soulslike_core_hits < 1 or candidate_soulslike_identity_hits < 3
+        ):
+            return None
+        if candidate_archetype == "mmo_action_rpg" and candidate_mmo_identity_hits < 2:
+            return None
+        if candidate_archetype == "cinematic_action_adventure" and candidate_cinematic_identity_hits < 2:
+            return None
+        if "historical_first" in candidate_hard_exclusions and not shared_setting:
+            return None
+        if candidate_archetype == "open_world_action_adventure" and (not shared_setting or not shared_perspective):
             return None
         if "party_management" not in anchor_fingerprint["combat_structure"] and "party_management" in candidate_fingerprint["combat_structure"]:
             score -= 28
@@ -3251,15 +4446,94 @@ def build_similarity_breakdown_v2(
             or shared_narrative_topic
         ):
             score -= 80
+        if not shared_setting:
+            score -= 72
+        if not shared_perspective and candidate_archetype != "mmo_action_rpg":
+            score -= 42
         shared_traversal_verbs_set = set(shared_traversal_verbs)
         shared_rules_goals_set = set(shared_rules_goals)
         shared_entity_interaction_set = set(shared_entity_interaction)
+        if (
+            "puzzle_gating" in candidate_challenge
+            and "puzzle_gating" not in anchor_challenge
+            and "dominant" not in candidate_fingerprint["combat_presence"]
+            and not (shared_rules_goals_set & {"complete_quests", "defeat_bosses"})
+        ):
+            return None
         if shared_rules_goals_set & {"complete_quests", "defeat_bosses"}:
             score += 14
         if shared_entity_interaction_set & {"dialogue_choice", "construction_placement"}:
             score += 12
         if shared_traversal_verbs_set & {"horseback", "climbing"}:
             score += 12
+        if candidate_archetype == "western_narrative_rpg":
+            if shared_rules_goals_set & {"complete_quests"}:
+                score += 34
+            if shared_entity_interaction_set & {"dialogue_choice"}:
+                score += 22
+        if candidate_archetype == "soulslike_action_rpg":
+            if "soulslike" in shared_challenge_model:
+                score += 28
+            if "boss_centric" in shared_combat_structure:
+                score += 24
+        if candidate_archetype == "mmo_action_rpg":
+            if adjacent_persistent_world_bridge:
+                score += 24
+            if shared_traversal_verbs:
+                score += 14
+        if candidate_archetype == "cinematic_action_adventure":
+            if cinematic_fantasy_bridge:
+                score += 54
+            if shared_setting:
+                score += 18
+            if shared_perspective:
+                score += 12
+        if (
+            "platforming" in candidate_fingerprint["traversal_verbs"]
+            and "platforming" not in shared_traversal_verbs
+            and "quest_driven" not in shared_progression_model
+            and "complete_quests" not in shared_rules_goals_set
+        ):
+            return None
+        if "comedic" in candidate_fingerprint["tone"] and "comedic" not in anchor_fingerprint["tone"]:
+            score -= 32
+
+    if anchor_archetype == "soulslike_action_rpg":
+        shared_rules_goals_set = set(shared_rules_goals)
+        if candidate_conflicting_soulslike_view:
+            return None
+        if same_soulslike_lane and anchor_prefers_third_person_soulslike and not candidate_supports_third_person_soulslike:
+            return None
+        if same_soulslike_lane:
+            score += 46
+        if shared_perspective:
+            score += 28
+        elif same_soulslike_lane and anchor_prefers_third_person_soulslike:
+            score -= 120
+        if "soulslike" in shared_challenge_model:
+            score += 96
+        if "boss_centric" in shared_combat_structure:
+            score += 52
+        if shared_rules_goals_set & {"defeat_bosses"}:
+            score += 24
+        if shared_studios:
+            score += 90
+        if not same_soulslike_lane:
+            score -= 60
+        if "soulslike" not in shared_challenge_model and "boss_centric" not in shared_combat_structure:
+            score -= 96
+        if "dark_fantasy" not in candidate_fingerprint["setting"] and "dark_fantasy" in anchor_fingerprint["setting"]:
+            score -= 40
+        if "comedic" in candidate_fingerprint["tone"]:
+            return None
+
+    if anchor_archetype == "cinematic_action_adventure":
+        if candidate_archetype == "open_world_fantasy_action_rpg" and cinematic_fantasy_bridge:
+            score += 54
+            if shared_setting:
+                score += 18
+            if shared_perspective:
+                score += 12
 
     anchor_modes = anchor_fingerprint["mode_profile"]
     candidate_modes = candidate_fingerprint["mode_profile"]
@@ -3270,8 +4544,6 @@ def build_similarity_breakdown_v2(
             score -= 10
         if "comedic" in candidate_fingerprint["tone"] and "comedic" not in anchor_fingerprint["tone"]:
             score -= 12
-    anchor_challenge = anchor_fingerprint["challenge_model"]
-    candidate_challenge = candidate_fingerprint["challenge_model"]
     if "puzzle_gating" in candidate_challenge and "puzzle_gating" not in anchor_challenge:
         score -= 18
     if "none" in candidate_fingerprint["combat_presence"] and "none" not in anchor_fingerprint["combat_presence"]:
@@ -3282,6 +4554,8 @@ def build_similarity_breakdown_v2(
         reasons.append(f"Same archetype: {display_taxonomy_v2_token(anchor_archetype)}")
     elif relationship.startswith("strong"):
         reasons.append(f"Neighbor archetype: {display_taxonomy_v2_token(candidate_archetype)}")
+    elif relationship.startswith("bridge"):
+        reasons.append(f"Bridge archetype: {display_taxonomy_v2_token(candidate_archetype)}")
     else:
         reasons.append(f"Adjacent archetype: {display_taxonomy_v2_token(candidate_archetype)}")
 
@@ -3336,7 +4610,53 @@ def build_similarity_breakdown_v2(
         shared_interface_control=shared_interface_control,
         shared_sports_theme=shared_sports_theme,
         shared_vehicular_theme=shared_vehicular_theme,
+        shared_challenge_model=shared_challenge_model,
+        shared_studios=shared_studios,
     )
+
+
+def _summarize_source_label_classifications(
+    rows: Iterable[GameSourceTaxonomyLabel],
+) -> dict[str, int]:
+    counts: Counter[str] = Counter()
+    for row in rows:
+        _resolved, classification = classify_taxonomy_v2_source_label(
+            source=row.source,
+            facet=row.facet,
+            raw_label=row.raw_label or row.normalized_label or "",
+            normalized_label=row.normalized_label,
+        )
+        counts[classification] += 1
+    return dict(counts)
+
+
+def _derive_hidden_audit_state(
+    *,
+    evidence: list[TaxonomyV2EvidenceRecord],
+    candidates: list[ArchetypeCandidate],
+    near_misses: list[TaxonomyV2NearMiss],
+    source_label_summary: dict[str, int],
+) -> str:
+    provider_gap = int(source_label_summary.get("provider_gap", 0))
+    mapping_gap = int(source_label_summary.get("unmapped", 0))
+    if not evidence:
+        if provider_gap:
+            return "provider_gap"
+        if mapping_gap:
+            return "mapping_gap"
+        return "insufficient_signal"
+    if candidates:
+        return "computed"
+    if provider_gap:
+        return "provider_gap"
+    if mapping_gap:
+        return "mapping_gap"
+    if near_misses:
+        top = near_misses[0]
+        if top.required_total and top.required_hits >= max(2, top.required_total - 1):
+            return "curation_required"
+        return "conflict_ambiguous"
+    return "insufficient_signal"
 
 
 def build_game_taxonomy_v2(
@@ -3348,20 +4668,49 @@ def build_game_taxonomy_v2(
     if not text_corpus:
         text_corpus, text_sources = build_taxonomy_v2_text_corpus(game)
 
-    evidence = extract_v2_evidence_from_source_labels(source_labels)
+    source_label_rows = list(source_labels)
+    source_label_summary = _summarize_source_label_classifications(source_label_rows)
+
+    evidence = extract_v2_evidence_from_source_labels(source_label_rows)
     evidence.extend(extract_v2_evidence_from_description(text_corpus))
 
-    preliminary_fingerprint, _, _ = _aggregate_evidence(evidence)
+    preliminary_fingerprint, _, _, _ = _aggregate_evidence(evidence)
     evidence.extend(infer_derived_v2_evidence(preliminary_fingerprint))
 
-    fingerprint, confidence_by_field_value, source_count_by_field_value = _aggregate_evidence(evidence)
+    fingerprint, confidence_by_field_value, source_count_by_field_value, provenance_by_field_value = _aggregate_evidence(evidence)
     fingerprint, override_evidence, curated = _apply_override_to_fingerprint(game, fingerprint)
     if override_evidence:
         evidence.extend(override_evidence)
-        fingerprint, confidence_by_field_value, source_count_by_field_value = _aggregate_evidence(evidence)
+        fingerprint, confidence_by_field_value, source_count_by_field_value, provenance_by_field_value = _aggregate_evidence(evidence)
 
     candidates = assign_taxonomy_v2_archetypes(fingerprint, confidence_by_field_value)
     candidates = _prefer_primary_archetype_candidate(candidates, fingerprint)
+    if candidates and candidates[0].archetype == "open_world_action_adventure":
+        fantasy_index = next(
+            (index for index, candidate in enumerate(candidates) if candidate.archetype == "open_world_fantasy_action_rpg"),
+            None,
+        )
+        if fantasy_index is not None:
+            fingerprint_sets = build_taxonomy_v2_fingerprint_sets_from_mapping(fingerprint)
+            if (
+                "open_world" in fingerprint_sets["world_topology"]
+                and bool(fingerprint_sets["setting"] & {"high_fantasy", "dark_fantasy", "mythic"})
+                and (
+                    "third_person" in fingerprint_sets["perspective"]
+                    or bool(fingerprint_sets["traversal_verbs"] & {"horseback", "climbing", "gliding"})
+                )
+                and "dominant" in fingerprint_sets["combat_presence"]
+                and (
+                    "quest_driven" in fingerprint_sets["progression_model"]
+                    or "complete_quests" in fingerprint_sets["rules_goals"]
+                    or bool(fingerprint_sets["traversal_verbs"] & {"horseback", "climbing", "gliding"})
+                )
+                and "historical" not in fingerprint_sets["setting"]
+            ):
+                fantasy_candidate = candidates[fantasy_index]
+                candidates = [fantasy_candidate] + [
+                    candidate for index, candidate in enumerate(candidates) if index != fantasy_index
+                ]
     override = get_taxonomy_v2_override(game)
 
     primary_family = None
@@ -3390,12 +4739,22 @@ def build_game_taxonomy_v2(
         secondary_archetypes = override["secondary_archetypes"]
         curated = True
 
-    if not evidence and not curated:
-        status = TAXONOMY_V2_STATUS_FAILED
-    elif primary_archetype:
+    near_misses = rank_taxonomy_v2_near_misses(
+        fingerprint,
+        hard_exclusions=fingerprint.get("hard_exclusions", []),
+        limit=3,
+    )
+    audit_state = _derive_hidden_audit_state(
+        evidence=evidence,
+        candidates=candidates,
+        near_misses=near_misses,
+        source_label_summary=source_label_summary,
+    )
+
+    if primary_archetype:
         status = TAXONOMY_V2_STATUS_CURATED if curated else TAXONOMY_V2_STATUS_COMPUTED
     else:
-        status = TAXONOMY_V2_STATUS_NEEDS_REVIEW
+        status = TAXONOMY_V2_STATUS_HIDDEN
 
     debug_payload = {
         "candidate_archetypes": [
@@ -3421,6 +4780,11 @@ def build_game_taxonomy_v2(
             for field, values in source_count_by_field_value.items()
             if values
         },
+        "provenance_by_field_value": {
+            field: {value: sorted(values) for value, values in field_values.items()}
+            for field, field_values in provenance_by_field_value.items()
+            if field_values
+        },
         "evidence_count": len(evidence),
         "text_sources": text_sources,
         "text_length": len(text_corpus or ""),
@@ -3431,6 +4795,26 @@ def build_game_taxonomy_v2(
             }
             for field, values in confidence_by_field_value.items()
             if values
+        },
+        "audit_state": audit_state,
+        "source_label_summary": source_label_summary,
+        "near_misses": [
+            {
+                "archetype": near_miss.archetype,
+                "family": near_miss.family,
+                "required_hits": near_miss.required_hits,
+                "required_total": near_miss.required_total,
+                "missing_required_axes": list(near_miss.missing_required_axes),
+            }
+            for near_miss in near_misses
+        ],
+        "matrix_versions": {
+            "source_label_matrix": load_source_label_matrix().get("version"),
+            "phrase_matrix": load_phrase_matrix().get("version"),
+            "noise_matrix": load_noise_matrix().get("version"),
+            "facet_matrix": load_facet_matrix().get("version"),
+            "connection_matrix": load_connection_matrix().get("version"),
+            "opencritic_theme_catalog": load_opencritic_theme_catalog().get("version"),
         },
     }
     return TaxonomyV2Result(
@@ -3507,4 +4891,7 @@ async def store_game_taxonomy_v2(
 async def compute_and_store_game_taxonomy_v2(db: AsyncSession, game: Game) -> TaxonomyV2Result:
     result = await compute_game_taxonomy_v2(db, game)
     await store_game_taxonomy_v2(db, game, result)
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+
+    mark_game_similarity_v3_dirty(game, "taxonomy_v2")
     return result

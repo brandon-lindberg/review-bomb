@@ -59,6 +59,15 @@ class GameMatcher:
         r"(?i)\s*[:\-]?\s*episode\s+\d+.*$",
     ]
 
+    # Edition/collection/bundle suffixes that can prevent Steam search from finding
+    # the correct app.  Stripping these produces a simpler query as a fallback.
+    EDITION_SUFFIX_PATTERN = re.compile(
+        r"(?i)\s*[:\-]?\s*(?:collection|bundle|pack|anthology|compilation"
+        r"|complete\s+edition|definitive\s+edition|deluxe\s+edition"
+        r"|ultimate\s+edition|gold\s+edition|goty\s+edition"
+        r"|game\s+of\s+the\s+year\s+edition)\s*$"
+    )
+
     @classmethod
     def build_search_queries(cls, title: str) -> List[str]:
         """
@@ -97,6 +106,10 @@ class GameMatcher:
             stripped = re.sub(pattern, "", stripped).strip()
         add(stripped)
 
+        # Strip edition/collection/bundle suffixes.
+        edition_stripped = cls.EDITION_SUFFIX_PATTERN.sub("", title).strip()
+        add(edition_stripped)
+
         return candidates
 
     @classmethod
@@ -130,6 +143,10 @@ class GameMatcher:
         for pattern in cls.SEARCH_SUFFIX_PATTERNS:
             stripped = re.sub(pattern, "", stripped).strip()
         add(stripped)
+
+        # Strip edition/collection/bundle suffixes.
+        edition_stripped = cls.EDITION_SUFFIX_PATTERN.sub("", title).strip()
+        add(edition_stripped)
 
         return candidates
 
@@ -221,7 +238,7 @@ class GameMatcher:
         title: str,
         release_date: Optional[date] = None,
         opencritic_id: Optional[int] = None,
-    ) -> Optional[int]:
+    ) -> Tuple[Optional[int], str]:
         """
         Find matching Steam app ID for a game.
 
@@ -231,13 +248,13 @@ class GameMatcher:
             opencritic_id: Optional OpenCritic ID for manual override lookup
 
         Returns:
-            Steam app ID if found, None otherwise
+            Tuple of (Steam app ID or None, diagnostic reason string)
         """
         # Check manual overrides first
         if opencritic_id and opencritic_id in self.MANUAL_OVERRIDES:
             override = self.MANUAL_OVERRIDES[opencritic_id]
             if "steam_app_id" in override:
-                return override["steam_app_id"]
+                return override["steam_app_id"], "manual_override"
 
         # Search Steam with fallbacks for known store-search quirks.
         search_results: List[Dict[str, Any]] = []
@@ -246,13 +263,14 @@ class GameMatcher:
             if search_results:
                 break
         if not search_results:
-            return None
+            return None, "no_search_results"
 
         comparison_titles = self.build_similarity_titles(title)
 
         # Find best match
         best_match: Optional[int] = None
         best_score = 0.0
+        best_match_title: str = ""
 
         # First pass: title similarity only (cheap).
         scored: List[Tuple[float, Dict[str, Any]]] = []
@@ -268,6 +286,10 @@ class GameMatcher:
                 for candidate in comparison_titles
             )
             scored.append((similarity, result))
+
+        if not scored:
+            candidate_names = [r.get("name", "?") for r in search_results[:5]]
+            return None, f"title_filter_rejected_all ({len(search_results)} results, top: {candidate_names})"
 
         # Evaluate strongest candidates first; limit app-details requests.
         scored.sort(key=lambda item: item[0], reverse=True)
@@ -290,12 +312,13 @@ class GameMatcher:
             if adjusted > best_score:
                 best_score = adjusted
                 best_match = result["steam_app_id"]
+                best_match_title = result.get("name", "")
 
         # Only return if confidence is high enough
         if best_score >= 0.85:
-            return best_match
+            return best_match, "matched"
 
-        return None
+        return None, f"below_threshold (best={best_score:.2f}, candidate=\"{best_match_title}\" app_id={best_match})"
 
     def find_metacritic_slug(
         self,
@@ -338,7 +361,7 @@ class GameMatcher:
         Returns:
             Dictionary with steam_app_id and metacritic_slug
         """
-        steam_app_id = await self.find_steam_match(
+        steam_app_id, steam_match_reason = await self.find_steam_match(
             title, release_date, opencritic_id
         )
 
@@ -346,6 +369,7 @@ class GameMatcher:
 
         return {
             "steam_app_id": steam_app_id,
+            "steam_match_reason": steam_match_reason,
             "metacritic_slug": metacritic_slug,
         }
 

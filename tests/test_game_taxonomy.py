@@ -259,6 +259,36 @@ async def test_sync_game_source_taxonomy_dedupes_colliding_normalized_labels():
     assert db._items[0].normalized_label == "steam"
 
 
+@pytest.mark.asyncio
+async def test_sync_game_source_taxonomy_returns_false_when_labels_are_unchanged():
+    game = Game(
+        id=3,
+        title="Existing Labels",
+        release_date=date(2026, 1, 1),
+    )
+    db = _FakeSession(
+        [
+            GameSourceTaxonomyLabel(
+                game_id=3,
+                source="steam",
+                facet="tag",
+                raw_label="Open World",
+                normalized_label="open world",
+            )
+        ]
+    )
+
+    changed = await sync_game_source_taxonomy(
+        db,
+        game,
+        source="steam",
+        source_labels={"tag": ["Open World"]},
+    )
+
+    assert changed is False
+    assert game.similarity_v3_dirty is None
+
+
 def test_build_similarity_breakdown_requires_secondary_gameplay_overlap():
     anchor = Game(
         id=1,

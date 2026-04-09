@@ -272,10 +272,15 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const [newsResponse, history, similarGamesResponse] = await Promise.all([
+  const [newsResponse, history, similarGamesResult] = await Promise.all([
     getCachedGameNews(game.public_id, 1, 5).catch(() => null),
     getCachedGameHistory(game.public_id, 180).catch(() => null),
-    getCachedGameSimilarGames(game.public_id, 4).catch(() => []),
+    getCachedGameSimilarGames(game.public_id, 4)
+      .then((items) => ({ items, error: null as Error | null }))
+      .catch((error: unknown) => ({
+        items: null,
+        error: error instanceof Error ? error : new Error(String(error)),
+      })),
   ]);
 
   if (newsResponse) {
@@ -286,7 +291,13 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   }
-  similarGames = similarGamesResponse;
+  if (similarGamesResult.error) {
+    console.error(
+      `Error fetching similar games for ${game.title} (${game.public_id}):`,
+      similarGamesResult.error,
+    );
+  }
+  similarGames = similarGamesResult.items ?? [];
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",

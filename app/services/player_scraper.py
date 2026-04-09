@@ -104,10 +104,15 @@ def build_scraper_activity(payload: dict[str, Any], *, limit: int) -> ScraperSte
     elif visible_points:
         summary_updates["steam_player_24h_peak"] = visible_points[-1].observed_24h_high
 
+    # Skip zero lows when the corresponding high is healthy — this indicates a
+    # transient server blip rather than a genuine sustained drop to zero players.
     if latest_24h_low is not None:
-        summary_updates["steam_player_24h_low_observed"] = latest_24h_low
+        if latest_24h_low > 0 or not latest_24h_high:
+            summary_updates["steam_player_24h_low_observed"] = latest_24h_low
     elif visible_points:
-        summary_updates["steam_player_24h_low_observed"] = visible_points[-1].observed_24h_low
+        last_point = visible_points[-1]
+        if last_point.observed_24h_low > 0 or last_point.observed_24h_high == 0:
+            summary_updates["steam_player_24h_low_observed"] = last_point.observed_24h_low
 
     if all_time_peak is not None:
         summary_updates["steam_player_all_time_peak"] = all_time_peak
@@ -244,7 +249,13 @@ class PlayerScraperClient:
             )
         return self._client
 
-    async def get_steam_activity(self, steam_app_id: int, *, limit: int) -> ScraperSteamActivity | None:
+    async def get_steam_activity(
+        self,
+        steam_app_id: int,
+        *,
+        limit: int,
+        window: str = DEFAULT_HISTORY_WINDOW,
+    ) -> ScraperSteamActivity | None:
         if not self.is_configured:
             return None
 
@@ -255,7 +266,7 @@ class PlayerScraperClient:
         )
 
         try:
-            response = await client.get(url, params={"window": DEFAULT_HISTORY_WINDOW})
+            response = await client.get(url, params={"window": window})
             if response.status_code == 404:
                 return None
             response.raise_for_status()

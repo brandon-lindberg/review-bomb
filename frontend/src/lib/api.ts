@@ -191,8 +191,9 @@ export async function getGameReviews(
 export async function getGameSimilarGames(
   id: string | number,
   limit = 4,
+  options?: NextFetchOptions,
 ): Promise<SimilarGame[]> {
-  return fetchAPI<SimilarGame[]>(`/games/${id}/similar?limit=${limit}`);
+  return fetchAPI<SimilarGame[]>(`/games/${id}/similar?limit=${limit}`, options);
 }
 
 // Leaderboards
@@ -255,9 +256,10 @@ export async function getGameHistory(
 
 export async function getGameSteamActivity(
   id: string | number,
-  limit = 10000
+  limit = 10000,
+  window: "1y" | "max" = "1y"
 ): Promise<SteamActivityResponse> {
-  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}`);
+  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}&window=${window}`);
 }
 
 // All reviews for charts - fetches ALL reviews by paginating through all pages
