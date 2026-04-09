@@ -5,7 +5,6 @@ These tasks handle computing and storing disparity snapshots
 for journalists, outlets, and games.
 """
 
-import asyncio
 from datetime import date
 from typing import Optional
 
@@ -13,19 +12,10 @@ import dramatiq
 
 from app.database import async_session_maker
 from app.services.disparity import DisparityCalculator
+from app.tasks.runtime import LOCK_DB_HEAVY_BULK, QUEUE_DISPARITY, run_async_task
 
 
-def run_async(coro):
-    """Helper to run async code in sync Dramatiq tasks."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        loop.close()
-
-
-@dramatiq.actor(max_retries=3, time_limit=1800000)  # 30 min time limit
+@dramatiq.actor(queue_name=QUEUE_DISPARITY, max_retries=3, time_limit=1800000)  # 30 min time limit
 def calculate_daily_snapshots(snapshot_date: Optional[str] = None):
     """
     Calculate and store daily disparity snapshots for all entities.
@@ -37,7 +27,7 @@ def calculate_daily_snapshots(snapshot_date: Optional[str] = None):
         snapshot_date: Optional date string (YYYY-MM-DD) for the snapshot.
                       Defaults to today's date.
     """
-    run_async(_calculate_daily_snapshots(snapshot_date))
+    run_async_task(lambda: _calculate_daily_snapshots(snapshot_date), blocked_by=(LOCK_DB_HEAVY_BULK,))
 
 
 async def _calculate_daily_snapshots(snapshot_date_str: Optional[str] = None):
@@ -61,7 +51,7 @@ async def _calculate_daily_snapshots(snapshot_date_str: Optional[str] = None):
         print(f"  - Games: {results['games']}")
 
 
-@dramatiq.actor(max_retries=3, time_limit=600000)  # 10 min time limit
+@dramatiq.actor(queue_name=QUEUE_DISPARITY, max_retries=3, time_limit=600000)  # 10 min time limit
 def calculate_journalist_snapshot(journalist_id: int, snapshot_date: Optional[str] = None):
     """
     Calculate disparity snapshot for a single journalist.
@@ -70,7 +60,10 @@ def calculate_journalist_snapshot(journalist_id: int, snapshot_date: Optional[st
         journalist_id: ID of the journalist
         snapshot_date: Optional date string (YYYY-MM-DD)
     """
-    run_async(_calculate_journalist_snapshot(journalist_id, snapshot_date))
+    run_async_task(
+        lambda: _calculate_journalist_snapshot(journalist_id, snapshot_date),
+        blocked_by=(LOCK_DB_HEAVY_BULK,),
+    )
 
 
 async def _calculate_journalist_snapshot(
@@ -107,7 +100,7 @@ async def _calculate_journalist_snapshot(
             print(f"Created snapshot for journalist {journalist_id}")
 
 
-@dramatiq.actor(max_retries=3, time_limit=600000)  # 10 min time limit
+@dramatiq.actor(queue_name=QUEUE_DISPARITY, max_retries=3, time_limit=600000)  # 10 min time limit
 def calculate_outlet_snapshot(outlet_id: int, snapshot_date: Optional[str] = None):
     """
     Calculate disparity snapshot for a single outlet.
@@ -116,7 +109,10 @@ def calculate_outlet_snapshot(outlet_id: int, snapshot_date: Optional[str] = Non
         outlet_id: ID of the outlet
         snapshot_date: Optional date string (YYYY-MM-DD)
     """
-    run_async(_calculate_outlet_snapshot(outlet_id, snapshot_date))
+    run_async_task(
+        lambda: _calculate_outlet_snapshot(outlet_id, snapshot_date),
+        blocked_by=(LOCK_DB_HEAVY_BULK,),
+    )
 
 
 async def _calculate_outlet_snapshot(
@@ -153,7 +149,7 @@ async def _calculate_outlet_snapshot(
             print(f"Created snapshot for outlet {outlet_id}")
 
 
-@dramatiq.actor(max_retries=3, time_limit=600000)  # 10 min time limit
+@dramatiq.actor(queue_name=QUEUE_DISPARITY, max_retries=3, time_limit=600000)  # 10 min time limit
 def calculate_game_snapshot(game_id: int, snapshot_date: Optional[str] = None):
     """
     Calculate disparity snapshot for a single game.
@@ -162,7 +158,10 @@ def calculate_game_snapshot(game_id: int, snapshot_date: Optional[str] = None):
         game_id: ID of the game
         snapshot_date: Optional date string (YYYY-MM-DD)
     """
-    run_async(_calculate_game_snapshot(game_id, snapshot_date))
+    run_async_task(
+        lambda: _calculate_game_snapshot(game_id, snapshot_date),
+        blocked_by=(LOCK_DB_HEAVY_BULK,),
+    )
 
 
 async def _calculate_game_snapshot(

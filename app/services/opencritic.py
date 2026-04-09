@@ -395,6 +395,7 @@ class OpenCriticService:
             "opencritic_id": data.get("id"),
             "title": data.get("name", "Unknown"),
             "description": data.get("description"),
+            "opencritic_description": data.get("description"),
             "release_date": release_date,
             "top_critic_score": top_critic_score,
             "percent_recommended": percent_recommended,

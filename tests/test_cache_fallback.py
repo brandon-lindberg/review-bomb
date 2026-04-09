@@ -1,3 +1,5 @@
+import asyncio
+
 import app.cache as cache
 
 
@@ -51,3 +53,18 @@ def test_memory_fallback_skips_values_that_are_too_large(monkeypatch):
     assert cache._memory_set("oversized", "12345", expire_seconds=60) is False
     assert cache._memory_get("oversized") is None
     assert cache._memory_cache_bytes == 0
+
+
+def test_set_cached_accepts_ttl_alias_for_backward_compatibility(monkeypatch):
+    _reset_memory_cache()
+    monkeypatch.setattr(cache, "MEMORY_CACHE_MAX_ENTRIES", 8)
+    monkeypatch.setattr(cache, "MEMORY_CACHE_MAX_BYTES", 1024)
+    monkeypatch.setattr(cache, "MEMORY_CACHE_MAX_VALUE_BYTES", 1024)
+
+    async def _boom():
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(cache, "get_redis", _boom)
+
+    assert asyncio.run(cache.set_cached("ttl-key", "ttl-value", ttl=60)) is True
+    assert cache._memory_get("ttl-key") == "ttl-value"

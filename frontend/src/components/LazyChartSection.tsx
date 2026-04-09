@@ -7,14 +7,17 @@ import {
   getOutletAllReviews,
   getGameAllReviews,
   getGameNews,
+  getGameSimilarGames,
   getGameSteamActivity,
 } from "@/lib/api";
 import type { AlignmentJournalist } from "./JournalistAlignmentSection";
 import { ShareButtons } from "./ShareButtons";
+import { SimilarGamesSection } from "./SimilarGamesSection";
 import type {
   ReviewWithDisparity,
   ReviewWithJournalist,
   NewsArticle,
+  SimilarGame,
   SteamActivityResponse,
 } from "@/types";
 import { withTrendSnapshot } from "@/lib/share-url";
@@ -143,6 +146,7 @@ interface LazyChartSectionProps {
   releaseDate?: string | null;
   steamUserScore?: number | null;
   metacriticUserScore?: number | null;
+  similarGames?: SimilarGame[];
 }
 
 function dedupeNewsArticles(articles: NewsArticle[]): NewsArticle[] {
@@ -170,13 +174,14 @@ export function LazyChartSection({
   releaseDate,
   steamUserScore,
   metacriticUserScore,
+  similarGames = [],
 }: LazyChartSectionProps) {
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const fetchedRef = useRef(false);
-  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity">(
+  const [chartTab, setChartTab] = useState<"disparity" | "timing" | "timeline" | "activity" | "similar">(
     entityType === "game"
       ? (hasSteamApp ? "activity" : "timeline")
       : "disparity"
@@ -185,7 +190,11 @@ export function LazyChartSection({
   const [steamActivityLoading, setSteamActivityLoading] = useState(false);
   const [steamActivityError, setSteamActivityError] = useState(false);
   const steamActivityFetchedRef = useRef(false);
+  const [steamMaxLoading, setSteamMaxLoading] = useState(false);
+  const steamMaxFetchedRef = useRef(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [resolvedSimilarGames, setResolvedSimilarGames] = useState<SimilarGame[]>(similarGames);
+  const similarGamesFetchedRef = useRef(false);
 
   // News pagination state
   const [allNews, setAllNews] = useState<NewsArticle[]>(() => dedupeNewsArticles(newsArticles || []));
@@ -209,6 +218,11 @@ export function LazyChartSection({
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  useEffect(() => {
+    setResolvedSimilarGames(similarGames);
+    similarGamesFetchedRef.current = false;
+  }, [entityId, similarGames]);
 
   // Intersection Observer: trigger fetch when section scrolls into view
   useEffect(() => {
@@ -305,6 +319,32 @@ export function LazyChartSection({
       .finally(() => setSteamActivityLoading(false));
   }, [chartTab, entityId, entityType, hasSteamApp, steamActivityLoading]);
 
+  useEffect(() => {
+    if (entityType !== "game") return;
+    if (similarGamesFetchedRef.current) return;
+
+    let cancelled = false;
+    similarGamesFetchedRef.current = true;
+
+    getGameSimilarGames(entityId, 4)
+      .then((data) => {
+        if (cancelled) return;
+        setResolvedSimilarGames((current) => {
+          const currentIds = current.map((item) => item.id).join(",");
+          const nextIds = data.map((item) => item.id).join(",");
+          return currentIds === nextIds ? current : data;
+        });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        similarGamesFetchedRef.current = false;
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [entityId, entityType]);
+
   const loadMoreNews = async () => {
     if (newsLoading || !newsHasMore) return;
     setNewsLoading(true);
@@ -394,6 +434,7 @@ export function LazyChartSection({
       )}
     </div>
   ) : null;
+  const hasSimilarGames = entityType === "game" && resolvedSimilarGames.length >= 2;
 
   return (
     <div ref={sentinelRef} className="space-y-8">
@@ -473,6 +514,18 @@ export function LazyChartSection({
                       >
                         Disparity Trend
                       </button>
+                      {hasSimilarGames && (
+                        <button
+                          onClick={() => setChartTab("similar")}
+                          className="min-w-0 border-b-2 px-2 py-3 text-center text-sm font-medium leading-tight transition-colors cursor-pointer whitespace-normal sm:px-1 sm:whitespace-nowrap"
+                          style={chartTab === "similar"
+                            ? { borderColor: "var(--color-rust)", color: "var(--color-rust)" }
+                            : { borderColor: "transparent", color: "var(--foreground-muted)" }
+                          }
+                        >
+                          Similar Games
+                        </button>
+                      )}
                     </>
                   ) : (
                     <>
@@ -565,12 +618,30 @@ export function LazyChartSection({
                     Steam activity is unavailable right now.
                   </div>
                 ) : steamActivity ? (
-                  <SteamActivityPanel activity={steamActivity} />
+                  <SteamActivityPanel
+                    activity={steamActivity}
+                    maxLoading={steamMaxLoading}
+                    onRequestMax={() => {
+                      if (steamMaxFetchedRef.current || steamMaxLoading) return;
+                      steamMaxFetchedRef.current = true;
+                      setSteamMaxLoading(true);
+                      getGameSteamActivity(entityId, 1000, "max")
+                        .then((data) => setSteamActivity(data))
+                        .catch(() => {
+                          steamMaxFetchedRef.current = false;
+                        })
+                        .finally(() => setSteamMaxLoading(false));
+                    }}
+                  />
                 ) : (
                   <div className="flex items-center justify-center h-[240px]" style={{ color: "var(--foreground-muted)" }}>
                     No Steam activity data available yet.
                   </div>
                 )
+              )}
+
+              {chartTab === "similar" && entityType === "game" && hasSimilarGames && (
+                <SimilarGamesSection games={resolvedSimilarGames} />
               )}
 
               {chartTab === "timeline" && entityType === "journalist" && (

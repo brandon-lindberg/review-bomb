@@ -1,0 +1,83 @@
+{
+  "version": "facet_matrix_v4",
+  "source_weights": {
+    "description": 1.0,
+    "steam": 0.95,
+    "opencritic": 0.9,
+    "metacritic": 0.88,
+    "inference": 0.92
+  },
+  "role_weights": {
+    "identity_driving": 1.0,
+    "supporting": 0.78,
+    "filter_only": 0.0
+  },
+  "field_role_defaults": {
+    "combat_presence": "identity_driving"
+  },
+  "rarity_weights": {
+    "ubiquitous": 0.0,
+    "common": 0.02,
+    "uncommon": 0.05,
+    "rare": 0.08
+  },
+  "co_signal_gates": [
+    {
+      "field": "combat_presence",
+      "value": "dominant",
+      "requires_any_fields": [
+        "combat_style",
+        "combat_structure",
+        "mechanics_structure"
+      ]
+    },
+    {
+      "field": "world_topology",
+      "value": "open_world",
+      "requires_any_fields": [
+        "traversal_verbs",
+        "progression_model",
+        "setting",
+        "mechanics_structure"
+      ],
+      "disallow_only_provenance": [
+        "steam/tag"
+      ]
+    },
+    {
+      "field": "session_shape",
+      "value": "campaign",
+      "requires_any_fields": [
+        "narrative_structure",
+        "progression_model",
+        "rules_goals"
+      ]
+    },
+    {
+      "field": "progression_model",
+      "value": "buildcraft",
+      "requires_any_fields": [
+        "combat_style",
+        "combat_structure",
+        "entity_interaction",
+        "mechanics_structure"
+      ]
+    }
+  ],
+  "value_rarity_overrides": {
+    "metroidvania": "rare",
+    "immersive_sim": "rare",
+    "soulslike": "rare",
+    "hero_shooter": "uncommon",
+    "city_builder": "uncommon",
+    "deckbuilding": "uncommon",
+    "monster_taming": "uncommon",
+    "point_and_click": "uncommon",
+    "pinball": "rare",
+    "rhythm": "rare",
+    "open_world": "common",
+    "action": "ubiquitous",
+    "adventure": "ubiquitous",
+    "single_player": "ubiquitous"
+  }
+}

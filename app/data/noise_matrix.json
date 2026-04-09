@@ -1,0 +1,31 @@
+{
+  "version": "noise_matrix_v2",
+  "boilerplate_patterns": [
+    {
+      "category": "demo_marketing",
+      "pattern": "\\bdemo available\\b|\\badd to your wishlist\\b|\\bcoming soon\\b"
+    },
+    {
+      "category": "bundle_marketing",
+      "pattern": "\\bcollection includes\\b|\\bcontains the following items\\b|\\bincludes the full game\\b"
+    },
+    {
+      "category": "edition_compare",
+      "pattern": "\\bcompare editions\\b|\\bbonus materials\\b|\\bdigital art book\\b|\\boriginal score\\b"
+    }
+  ],
+  "low_signal_patterns": [
+    {
+      "category": "generic_promo",
+      "pattern": "\\bexperience the ultimate\\b|\\btake control of\\b|\\bdive into a world\\b"
+    }
+  ],
+  "high_signal_patterns": [
+    "\\bparty members\\b",
+    "\\bturn[- ]based battles?\\b",
+    "\\bbuild your deck\\b",
+    "\\bhead[- ]to[- ]head\\b",
+    "\\bwin matches\\b",
+    "\\bmanage resources\\b"
+  ]
+}

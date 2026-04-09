@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Image from "@/components/AppImage";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -18,11 +18,15 @@ const navigation = [
   { name: "About", href: "/about" },
 ];
 
+const subscribe = () => () => {};
+
 export function Header() {
   const pathname = usePathname();
+  const hydrated = useSyncExternalStore(subscribe, () => true, () => false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
-  const showHeaderSearch = pathname === "/";
+  const stablePathname = hydrated ? pathname : "";
+  const showHeaderSearch = stablePathname === "/";
   const hasBlockingOverlay = mobileMenuOpen || (showHeaderSearch && searchOpen);
 
   useEffect(() => {
@@ -130,8 +134,8 @@ export function Header() {
 	            <div className="hidden min-w-0 items-center gap-3 lg:flex">
 	              <nav className="site-tab-nav" aria-label="Primary navigation">
                 {navigation.map((item) => {
-                  const isActive = pathname === item.href
-                    || (item.href !== "/" && pathname.startsWith(item.href));
+                  const isActive = stablePathname === item.href
+                    || (item.href !== "/" && stablePathname.startsWith(item.href));
 
                   return (
                     <Link
@@ -257,8 +261,8 @@ export function Header() {
               <div className="flex-1 overflow-y-auto px-4 py-5">
                 <nav className="grid grid-cols-1 gap-2">
                   {navigation.map((item) => {
-                    const isActive = pathname === item.href
-                      || (item.href !== "/" && pathname.startsWith(item.href));
+                    const isActive = stablePathname === item.href
+                      || (item.href !== "/" && stablePathname.startsWith(item.href));
 
                     return (
                       <Link

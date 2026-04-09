@@ -29,7 +29,12 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
-import { getCachedGame, getCachedGameHistory, getCachedGameNews } from "@/lib/server-entity-loaders";
+import {
+  getCachedGame,
+  getCachedGameHistory,
+  getCachedGameNews,
+  getCachedGameSimilarGames,
+} from "@/lib/server-entity-loaders";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -248,6 +253,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   let newsArticles: Awaited<ReturnType<typeof getCachedGameNews>>["items"] = [];
   let newsTotalPages = 0;
   let chartTrendEncoded = "";
+  let similarGames: Awaited<ReturnType<typeof getCachedGameSimilarGames>> = [];
 
   try {
     game = await getCachedGame(requestedSegment.identifier);
@@ -266,9 +272,15 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const [newsResponse, history] = await Promise.all([
+  const [newsResponse, history, similarGamesResult] = await Promise.all([
     getCachedGameNews(game.public_id, 1, 5).catch(() => null),
     getCachedGameHistory(game.public_id, 180).catch(() => null),
+    getCachedGameSimilarGames(game.public_id, 4)
+      .then((items) => ({ items, error: null as Error | null }))
+      .catch((error: unknown) => ({
+        items: null,
+        error: error instanceof Error ? error : new Error(String(error)),
+      })),
   ]);
 
   if (newsResponse) {
@@ -279,6 +291,13 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   }
+  if (similarGamesResult.error) {
+    console.error(
+      `Error fetching similar games for ${game.title} (${game.public_id}):`,
+      similarGamesResult.error,
+    );
+  }
+  similarGames = similarGamesResult.items ?? [];
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -542,6 +561,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         releaseDate={game.release_date}
         steamUserScore={game.steam_user_score}
         metacriticUserScore={game.metacritic_user_score}
+        similarGames={similarGames}
       />
     </div>
   );

@@ -15,6 +15,7 @@ import type {
   NewsArticle,
   TrendingGamesResponse,
   SteamActivityResponse,
+  SimilarGame,
 } from "@/types";
 import { getApiUrl } from "@/lib/api-base-url";
 
@@ -187,6 +188,14 @@ export async function getGameReviews(
   return fetchAPI<PaginatedResponse<ReviewWithJournalist>>(url);
 }
 
+export async function getGameSimilarGames(
+  id: string | number,
+  limit = 4,
+  options?: NextFetchOptions,
+): Promise<SimilarGame[]> {
+  return fetchAPI<SimilarGame[]>(`/games/${id}/similar?limit=${limit}`, options);
+}
+
 // Leaderboards
 export async function getJournalistLeaderboard(
   page = 1,
@@ -247,9 +256,10 @@ export async function getGameHistory(
 
 export async function getGameSteamActivity(
   id: string | number,
-  limit = 10000
+  limit = 10000,
+  window: "1y" | "max" = "1y"
 ): Promise<SteamActivityResponse> {
-  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}`);
+  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}&window=${window}`);
 }
 
 // All reviews for charts - fetches ALL reviews by paginating through all pages

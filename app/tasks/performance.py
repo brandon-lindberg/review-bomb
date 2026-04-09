@@ -1,32 +1,15 @@
-"""
-Performance-oriented maintenance tasks (cache prewarming, snapshot refreshes).
-"""
-
-import asyncio
+"""Performance-oriented maintenance tasks (cache prewarming, snapshot refreshes)."""
 
 import dramatiq
 
-from app.cache import close_redis
 from app.services.cache_prewarm import prewarm_core_caches
+from app.tasks.runtime import QUEUE_PERFORMANCE, run_async_task
 
 
-def run_async(coro):
-    """Helper to run async code in sync Dramatiq tasks."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        return loop.run_until_complete(coro)
-    finally:
-        try:
-            loop.run_until_complete(close_redis())
-        finally:
-            loop.close()
-
-
-@dramatiq.actor(max_retries=2, time_limit=900000)  # 15 minutes
+@dramatiq.actor(queue_name=QUEUE_PERFORMANCE, max_retries=2, time_limit=900000)  # 15 minutes
 def prewarm_core_api_caches(top_journalist_details: int = 10):
     """Prewarm caches for user-facing routes after deploys/data syncs."""
-    run_async(_prewarm_core_api_caches(top_journalist_details))
+    run_async_task(lambda: _prewarm_core_api_caches(top_journalist_details))
 
 
 async def _prewarm_core_api_caches(top_journalist_details: int = 10):

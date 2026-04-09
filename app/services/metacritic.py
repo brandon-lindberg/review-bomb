@@ -151,6 +151,49 @@ class MetacriticService:
         return f"https://www.metacritic.com/game/{slug}"
 
     @staticmethod
+    def _clean_metadata_values(values: Any) -> List[str]:
+        if not values:
+            return []
+        if isinstance(values, str):
+            values = re.split(r"[•,/]|\s+\|\s+", values)
+        cleaned: List[str] = []
+        seen: set[str] = set()
+        for value in values if isinstance(values, list) else []:
+            text = str(value or "").replace("\xa0", " ").strip()
+            text = re.sub(r"\s+", " ", text)
+            if not text:
+                continue
+            lowered = text.casefold()
+            if len(text) > 120:
+                continue
+            if lowered.startswith(("released on", "release date", "available on", "wishlist", "add to")):
+                continue
+            if re.fullmatch(r"\d{4}", text):
+                continue
+            if len(text) == 1 and text.casefold() not in {"x"}:
+                continue
+            marker = text.casefold()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            cleaned.append(text)
+        return cleaned
+
+    @staticmethod
+    def _clean_description_text(value: Any) -> Optional[str]:
+        if not isinstance(value, str):
+            return None
+        text = value.replace("\xa0", " ").strip()
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+        if len(text) < 40:
+            return None
+        lowered = text.casefold()
+        if lowered.startswith(("read more", "wishlist", "available on")):
+            return None
+        return text[:4000]
+
+    @staticmethod
     def normalize_slug(value: str) -> str:
         """
         Normalize a title/slug into a Metacritic-safe slug.
@@ -512,6 +555,12 @@ class MetacriticService:
                         "metascore": None,
                         "critic_count": None,
                         "release_date": None,
+                        "description": None,
+                        "genres": [],
+                        "platforms": [],
+                        "developers": [],
+                        "publishers": [],
+                        "themes": [],
                         "scraped_at": datetime.now(timezone.utc),
                     }
 
@@ -814,11 +863,162 @@ class MetacriticService:
                         except ValueError:
                             pass
 
-                    # Return result if we got at least one score
+                    taxonomy_js = await page.evaluate('''() => {
+                        function splitValues(input) {
+                            if (!input || typeof input !== 'string') return [];
+                            return input
+                                .split(/,|\\u2022|\\||\\//g)
+                                .map((item) => item.trim())
+                                .filter(Boolean);
+                        }
+
+                        function addValues(bucket, key, values) {
+                            if (!bucket[key]) bucket[key] = [];
+                            for (const value of values || []) {
+                                const cleaned = String(value || '').trim();
+                                if (!cleaned) continue;
+                                if (!bucket[key].some((item) => item.toLowerCase() === cleaned.toLowerCase())) {
+                                    bucket[key].push(cleaned);
+                                }
+                            }
+                        }
+
+                        function fromLdValue(value) {
+                            if (!value) return [];
+                            if (Array.isArray(value)) {
+                                return value.flatMap((entry) => fromLdValue(entry));
+                            }
+                            if (typeof value === 'string') return splitValues(value);
+                            if (typeof value === 'object') {
+                                return fromLdValue(
+                                    value.name ||
+                                    value.title ||
+                                    value.description ||
+                                    value['@id']
+                                );
+                            }
+                            return [];
+                        }
+
+                        const payload = {
+                            genres: [],
+                            platforms: [],
+                            developers: [],
+                            publishers: [],
+                            themes: [],
+                        };
+
+                        const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+                        for (const script of ldScripts) {
+                            try {
+                                const raw = script.textContent || '';
+                                const parsed = JSON.parse(raw);
+                                const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
+                                while (queue.length > 0) {
+                                    const entry = queue.shift();
+                                    if (!entry) continue;
+                                    if (Array.isArray(entry)) {
+                                        queue.push(...entry);
+                                        continue;
+                                    }
+                                    if (typeof entry !== 'object') continue;
+                                    if (Array.isArray(entry['@graph'])) {
+                                        queue.push(...entry['@graph']);
+                                    }
+                                    addValues(payload, 'genres', fromLdValue(entry.genre || entry.genres));
+                                    addValues(payload, 'platforms', fromLdValue(entry.gamePlatform || entry.platform || entry.operatingSystem));
+                                    addValues(payload, 'developers', fromLdValue(entry.author || entry.creator || entry.developer));
+                                    addValues(payload, 'publishers', fromLdValue(entry.publisher || entry.provider));
+                                    addValues(payload, 'themes', fromLdValue(entry.applicationCategory || entry.keywords));
+                                }
+                            } catch (_err) {
+                                // Ignore malformed JSON-LD blocks.
+                            }
+                        }
+
+                        const bodyText = document.body?.innerText || '';
+                        const labelPatterns = [
+                            ['genres', /(?:Genres?)\\s*:?\\s*([^\\n]+)/i],
+                            ['genres', /(?:Genres?)\\s*\\n\\s*([^\\n]+)/i],
+                            ['developers', /(?:Developer|Developers)\\s*:?\\s*([^\\n]+)/i],
+                            ['developers', /(?:Developer|Developers)\\s*\\n\\s*([^\\n]+)/i],
+                            ['publishers', /(?:Publisher|Publishers)\\s*:?\\s*([^\\n]+)/i],
+                            ['publishers', /(?:Publisher|Publishers)\\s*\\n\\s*([^\\n]+)/i],
+                            ['platforms', /(?:Platform|Platforms)\\s*:?\\s*([^\\n]+)/i],
+                            ['platforms', /(?:Platform|Platforms)\\s*\\n\\s*([^\\n]+)/i]
+                        ];
+
+                        for (const [key, pattern] of labelPatterns) {
+                            if ((payload[key] || []).length > 0) continue;
+                            const match = bodyText.match(pattern);
+                            if (match && match[1]) {
+                                addValues(payload, key, splitValues(match[1]));
+                            }
+                        }
+
+                        return payload;
+                    }''')
+
+                    if taxonomy_js:
+                        result["genres"] = self._clean_metadata_values(taxonomy_js.get("genres"))
+                        result["platforms"] = self._clean_metadata_values(taxonomy_js.get("platforms"))
+                        result["developers"] = self._clean_metadata_values(taxonomy_js.get("developers"))
+                        result["publishers"] = self._clean_metadata_values(taxonomy_js.get("publishers"))
+                        result["themes"] = self._clean_metadata_values(taxonomy_js.get("themes"))
+
+                    description_js = await page.evaluate('''() => {
+                        function clean(value) {
+                            if (!value || typeof value !== 'string') return null;
+                            const normalized = value.replace(/\\s+/g, ' ').trim();
+                            return normalized || null;
+                        }
+
+                        const metaDescription = clean(
+                            document.querySelector('meta[name="description"]')?.getAttribute('content')
+                            || document.querySelector('meta[property="og:description"]')?.getAttribute('content')
+                        );
+                        if (metaDescription) return metaDescription;
+
+                        const ldScripts = document.querySelectorAll('script[type="application/ld+json"]');
+                        for (const script of ldScripts) {
+                            try {
+                                const raw = script.textContent || '';
+                                const parsed = JSON.parse(raw);
+                                const queue = Array.isArray(parsed) ? [...parsed] : [parsed];
+                                while (queue.length > 0) {
+                                    const entry = queue.shift();
+                                    if (!entry) continue;
+                                    if (Array.isArray(entry)) {
+                                        queue.push(...entry);
+                                        continue;
+                                    }
+                                    if (typeof entry !== 'object') continue;
+                                    if (Array.isArray(entry['@graph'])) {
+                                        queue.push(...entry['@graph']);
+                                    }
+                                    const description = clean(entry.description || entry.abstract);
+                                    if (description) return description;
+                                }
+                            } catch (_err) {
+                                // Ignore malformed JSON-LD blocks.
+                            }
+                        }
+
+                        return null;
+                    }''')
+                    result["description"] = self._clean_description_text(description_js)
+
+                    # Return result if we got at least one score or metadata signal.
                     if (
                         result["user_score"] is not None
                         or result["metascore"] is not None
                         or result["release_date"] is not None
+                        or result["description"] is not None
+                        or result["genres"]
+                        or result["platforms"]
+                        or result["developers"]
+                        or result["publishers"]
+                        or result["themes"]
                     ):
                         return result
 

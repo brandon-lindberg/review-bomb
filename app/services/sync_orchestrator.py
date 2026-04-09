@@ -31,6 +31,15 @@ from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
 from app.services.score_normalizer import ScoreNormalizer
 from app.services.game_matcher import GameMatcher
+from app.services.game_taxonomy import (
+    extract_opencritic_source_labels,
+    sync_game_source_taxonomy,
+)
+from app.services.game_taxonomy_v2 import (
+    apply_opencritic_description,
+    refresh_game_taxonomy_v2_text,
+)
+from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
 from app.services.steam import SteamService
 
 
@@ -319,6 +328,7 @@ class SyncOrchestrator:
             set_={
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
+                "opencritic_description": stmt.excluded.opencritic_description,
                 # Keep existing date when OpenCritic omits it temporarily,
                 # and prevent future placeholder dates from replacing known released dates.
                 "release_date": case(
@@ -339,9 +349,18 @@ class SyncOrchestrator:
 
         # Get the ID
         result = await self.db.execute(
-            select(Game.id).where(Game.opencritic_id == transformed["opencritic_id"])
+            select(Game).where(Game.opencritic_id == transformed["opencritic_id"])
         )
-        return result.scalar_one_or_none()
+        game = result.scalar_one_or_none()
+        if game is not None:
+            await sync_game_source_taxonomy(
+                self.db,
+                game,
+                source="opencritic",
+                source_labels=extract_opencritic_source_labels(game_data),
+            )
+            return game.id
+        return None
 
     async def _sync_game_reviews(self, opencritic_game_id: int, internal_game_id: int) -> int:
         """
@@ -612,10 +631,17 @@ class SyncOrchestrator:
             self._request_count += 1
             if game_data:
                 transformed = OpenCriticService.transform_game(game_data)
+                await sync_game_source_taxonomy(
+                    self.db,
+                    game,
+                    source="opencritic",
+                    source_labels=extract_opencritic_source_labels(game_data),
+                )
 
                 if transformed.get("title") and transformed["title"] != game.title:
                     game.title = transformed["title"]
                     metadata_updated = True
+                    mark_game_similarity_v3_dirty(game, "game_title")
 
                 if (
                     transformed.get("description") is not None
@@ -623,6 +649,10 @@ class SyncOrchestrator:
                 ):
                     game.description = transformed["description"]
                     metadata_updated = True
+                if apply_opencritic_description(game, transformed.get("description")):
+                    refresh_game_taxonomy_v2_text(game)
+                    metadata_updated = True
+                    mark_game_similarity_v3_dirty(game, "source_text_opencritic")
 
                 new_release_date = transformed.get("release_date")
                 if self._should_replace_release_date(
@@ -1094,11 +1124,22 @@ class SyncOrchestrator:
                 self._request_count += 1
                 if game_data:
                     transformed = OpenCriticService.transform_game(game_data)
+                    await sync_game_source_taxonomy(
+                        self.db,
+                        game,
+                        source="opencritic",
+                        source_labels=extract_opencritic_source_labels(game_data),
+                    )
                     today = datetime.now(timezone.utc).date()
                     if transformed.get("title"):
-                        game.title = transformed["title"]
+                        if game.title != transformed["title"]:
+                            game.title = transformed["title"]
+                            mark_game_similarity_v3_dirty(game, "game_title")
                     if transformed.get("description") is not None:
                         game.description = transformed["description"]
+                    if apply_opencritic_description(game, transformed.get("description")):
+                        refresh_game_taxonomy_v2_text(game)
+                        mark_game_similarity_v3_dirty(game, "source_text_opencritic")
                     if self._should_replace_release_date(
                         game.release_date,
                         transformed.get("release_date"),
@@ -1301,7 +1342,9 @@ class SyncOrchestrator:
             "metacritic_slugs_assigned": 0,
             "matched": 0,
             "failed": 0,
+            "steam_unmatched": 0,
         }
+        unmatched_games: list[tuple[str, int | None, str]] = []
         processed = 0
 
         for game in games:
@@ -1316,6 +1359,7 @@ class SyncOrchestrator:
                 if match_result["steam_app_id"]:
                     if game.steam_app_id != match_result["steam_app_id"]:
                         game.steam_app_id = match_result["steam_app_id"]
+                        mark_game_similarity_v3_dirty(game, "source_identifier_steam")
                         stats["steam_matched"] += 1
                         stats["matched"] += 1
                         print(
@@ -1327,9 +1371,14 @@ class SyncOrchestrator:
                         matcher.steam_service,
                     ):
                         print(f"  Added Steam image: {game.title}")
+                else:
+                    stats["steam_unmatched"] += 1
+                    reason = match_result.get("steam_match_reason", "unknown")
+                    unmatched_games.append((game.title, game.opencritic_id, reason))
 
                 if match_result["metacritic_slug"] and not game.metacritic_slug:
                     game.metacritic_slug = match_result["metacritic_slug"]
+                    mark_game_similarity_v3_dirty(game, "source_identifier_metacritic")
                     stats["metacritic_slugs_assigned"] += 1
                     print(
                         f"  Assigned Metacritic slug: {game.title} -> "
@@ -1352,8 +1401,15 @@ class SyncOrchestrator:
             "\nMatching complete: "
             f"{stats['steam_matched']} Steam IDs matched, "
             f"{stats['metacritic_slugs_assigned']} Metacritic slugs assigned, "
+            f"{stats['steam_unmatched']} Steam unmatched, "
             f"{stats['failed']} failed"
         )
+
+        if unmatched_games:
+            print(f"\nUnmatched games ({len(unmatched_games)}):")
+            for title, oc_id, reason in unmatched_games:
+                print(f"  - {title} (OC {oc_id}): {reason}")
+
         return stats
 
     async def _sync_single_game_image_from_steam(

@@ -1,0 +1,104 @@
+{
+  "version": "connection_matrix_v2",
+  "relation_weights": {
+    "same": 220,
+    "strong_neighbor": 175,
+    "adjacent_neighbor": 140,
+    "bridge_neighbor": 155,
+    "strong_secondary": 155,
+    "adjacent_secondary": 125,
+    "bridge_secondary": 140
+  },
+  "nodes": {
+    "open_world_fantasy_action_rpg": {
+      "adjacent_neighbors": [
+        "cinematic_action_adventure"
+      ],
+      "bridge_neighbors": [
+        {
+          "target": "western_narrative_rpg",
+          "required_all": [
+            "shared_world_topology"
+          ],
+          "required_any": [
+            "shared_progression_model:quest_driven",
+            "shared_rules_goals:complete_quests",
+            "shared_entity_interaction:dialogue_choice",
+            "shared_narrative_topic:branching_choices"
+          ]
+        },
+        {
+          "target": "soulslike_action_rpg",
+          "required_all": [
+            "shared_world_topology"
+          ],
+          "required_any": [
+            "shared_rules_goals:defeat_bosses",
+            "shared_combat_structure:boss_centric",
+            "shared_challenge_model:soulslike"
+          ]
+        },
+        {
+          "target": "mmo_action_rpg",
+          "required_all": [
+            "shared_world_topology",
+            "shared_setting"
+          ],
+          "required_any": [
+            "shared_traversal_verbs",
+            "shared_combat_style_or_structure",
+            "shared_progression_model"
+          ]
+        }
+      ]
+    },
+    "western_narrative_rpg": {
+      "bridge_neighbors": [
+        {
+          "target": "open_world_fantasy_action_rpg",
+          "required_all": [
+            "shared_world_topology"
+          ],
+          "required_any": [
+            "shared_progression_model:quest_driven",
+            "shared_rules_goals:complete_quests",
+            "shared_setting"
+          ]
+        }
+      ]
+    },
+    "soulslike_action_rpg": {
+      "bridge_neighbors": [
+        {
+          "target": "open_world_fantasy_action_rpg",
+          "required_any": [
+            "shared_rules_goals:defeat_bosses",
+            "shared_combat_structure:boss_centric",
+            "shared_setting"
+          ]
+        }
+      ]
+    },
+    "mmo_action_rpg": {
+      "bridge_neighbors": [
+        {
+          "target": "open_world_fantasy_action_rpg",
+          "required_all": [
+            "shared_setting",
+            "shared_world_topology"
+          ],
+          "required_any": [
+            "shared_traversal_verbs",
+            "shared_combat_style_or_structure",
+            "shared_progression_model"
+          ]
+        }
+      ]
+    },
+    "cinematic_action_adventure": {
+      "adjacent_neighbors": [
+        "open_world_fantasy_action_rpg"
+      ]
+    }
+  }
+}

@@ -116,15 +116,26 @@ async def get_cached(key: str) -> Optional[str]:
         return _memory_get(key)
 
 
-async def set_cached(key: str, value: str, expire_seconds: int = 300) -> bool:
-    """Set value in cache with expiration."""
+async def set_cached(
+    key: str,
+    value: str,
+    expire_seconds: int = 300,
+    *,
+    ttl: Optional[int] = None,
+) -> bool:
+    """Set value in cache with expiration.
+
+    ``ttl`` is accepted as a backward-compatible alias because some call sites
+    still use that keyword.
+    """
+    effective_expire_seconds = ttl if ttl is not None else expire_seconds
     try:
         client = await get_redis()
-        await client.set(key, value, ex=expire_seconds)
+        await client.set(key, value, ex=effective_expire_seconds)
         return True
     except Exception:
         # Fallback to process-local cache (dev/single-worker resilience)
-        return _memory_set(key, value, expire_seconds)
+        return _memory_set(key, value, effective_expire_seconds)
 
 
 async def delete_cached(pattern: str) -> int:

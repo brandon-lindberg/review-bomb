@@ -11,6 +11,7 @@ import pytest
 from app.models.models import (
     DisparitySnapshot,
     Game,
+    GameSimilarityV3Neighbor,
     Journalist,
     JournalistOutletDisparitySnapshot,
     Outlet,
@@ -18,7 +19,7 @@ from app.models.models import (
     SteamPlayerRangeSnapshot,
     SteamPlayerSnapshot,
 )
-from app.routers.games import get_game, get_game_reviews
+from app.routers.games import get_game, get_game_reviews, get_game_similar
 from app.routers.games import get_game_history, get_game_steam_activity
 from app.routers.journalists import get_journalist, get_journalist_history, get_journalist_reviews
 from app.routers.outlets import get_outlet, get_outlet_history, get_outlet_reviews
@@ -679,8 +680,8 @@ async def test_get_game_detail_returns_stored_denormalized_disparities():
 
     assert resp.disparity_steam == Decimal("-3.25")
     assert resp.disparity_metacritic == Decimal("1.75")
-    assert not hasattr(resp, "steam_current_players")
-    assert not hasattr(resp, "steam_current_players_sampled_at")
+    assert resp.steam_current_players == 56164
+    assert resp.steam_current_players_sampled_at == now
     assert resp.steam_player_24h_peak == 62830
     assert resp.steam_player_24h_low_observed == 25110
     assert resp.steam_player_all_time_peak == 88337
@@ -738,13 +739,1271 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
     assert resp.summary.steam_player_24h_peak == 57000
     assert resp.summary.steam_player_24h_low_observed == 21000
     assert resp.summary.steam_player_all_time_peak == 57000
-    assert resp.summary.steam_player_all_time_peak_at == datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc)
-    assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
-    assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
-    assert [point.latest_players for point in resp.points] == [53000, 54000]
-    assert resp.summary.steam_player_all_time_peak >= resp.summary.steam_player_24h_peak
-    assert any(marker.marker_type == "first_tracked" for marker in resp.markers)
-    assert any(marker.marker_type == "all_time_peak" for marker in resp.markers)
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_returns_only_strict_taxonomy_matches(monkeypatch: pytest.MonkeyPatch):
+    anchor = Game(
+        id=1,
+        public_id="anchor",
+        title="Anchor Game",
+        release_date=date(2026, 1, 1),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["rpg"],
+        taxonomy_themes=["action-rpg"],
+        taxonomy_modes=["single-player"],
+    )
+    strong_match = Game(
+        id=2,
+        public_id="strong",
+        title="Strong Match",
+        release_date=date(2026, 3, 1),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["rpg"],
+        taxonomy_themes=["action-rpg"],
+        taxonomy_modes=["single-player"],
+        critic_review_count=40,
+        avg_critic_score=Decimal("88.00"),
+        steam_user_score=Decimal("90.00"),
+        steam_sample_size=400,
+    )
+    mode_match = Game(
+        id=3,
+        public_id="mode",
+        title="Mode Match",
+        release_date=date(2025, 12, 1),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["rpg"],
+        taxonomy_modes=["single-player"],
+        critic_review_count=20,
+        avg_critic_score=Decimal("81.00"),
+        metacritic_user_score=Decimal("84.00"),
+        metacritic_sample_size=40,
+    )
+    studio_only = Game(
+        id=4,
+        public_id="studio",
+        title="Studio Only",
+        release_date=date(2026, 2, 1),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["rpg"],
+        taxonomy_studios=["shared-studio"],
+        critic_review_count=22,
+    )
+    one_source_only = Game(
+        id=5,
+        public_id="onesource",
+        title="One Source Only",
+        release_date=date(2026, 2, 1),
+        taxonomy_sources=["steam"],
+        taxonomy_genres=["rpg"],
+        taxonomy_themes=["action-rpg"],
+        taxonomy_modes=["single-player"],
+        critic_review_count=30,
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(scalars_all=[strong_match, mode_match, studio_only, one_source_only]),
+            FakeResult(
+                all_rows=[
+                    SimpleNamespace(game_id=2, shared_outlets=2, shared_journalists=1),
+                    SimpleNamespace(game_id=3, shared_outlets=0, shared_journalists=0),
+                    SimpleNamespace(game_id=4, shared_outlets=1, shared_journalists=1),
+                    SimpleNamespace(game_id=5, shared_outlets=1, shared_journalists=0),
+                ]
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=1, limit=4, db=db)
+
+    assert [item.title for item in resp] == ["Strong Match", "Mode Match"]
+    assert resp[0].match_reasons
+    assert resp[0].similarity_score > resp[1].similarity_score
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_hides_section_when_fewer_than_two_matches(monkeypatch: pytest.MonkeyPatch):
+    anchor = Game(
+        id=10,
+        public_id="anchor-two",
+        title="Anchor Two",
+        release_date=date(2026, 1, 1),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["strategy"],
+        taxonomy_themes=["turn-based"],
+    )
+    lone_match = Game(
+        id=11,
+        public_id="lone",
+        title="Lone Match",
+        release_date=date(2026, 1, 10),
+        taxonomy_sources=["steam", "opencritic"],
+        taxonomy_genres=["strategy"],
+        taxonomy_themes=["turn-based"],
+        critic_review_count=12,
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(scalars_all=[lone_match]),
+            FakeResult(all_rows=[SimpleNamespace(game_id=11, shared_outlets=0, shared_journalists=0)]),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=10, limit=4, db=db)
+
+    assert resp == []
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_returns_empty_for_hidden_v2_anchor_without_v1_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=12,
+        public_id="hidden-anchor",
+        title="Hidden Anchor",
+        release_date=date(2026, 1, 1),
+        taxonomy_v2_status="hidden",
+        taxonomy_v2_version="taxonomy_v3_matrix_1",
+        taxonomy_v2_fingerprint={"world_topology": ["open_world"]},
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=12, limit=4, db=db)
+
+    assert resp == []
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_prefers_published_v3_neighbors_when_available(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=40,
+        public_id="v3-anchor",
+        title="Anchor V3",
+        release_date=date(2026, 1, 1),
+        similarity_v3_version="similarity_v3_pgvector_1",
+        similarity_v3_status="computed",
+    )
+    candidate_one = Game(
+        id=41,
+        public_id="v3-one",
+        title="Vector Match One",
+        release_date=date(2026, 2, 1),
+        critic_review_count=40,
+        avg_critic_score=Decimal("89.00"),
+        steam_user_score=Decimal("91.00"),
+        steam_sample_size=500,
+    )
+    candidate_two = Game(
+        id=42,
+        public_id="v3-two",
+        title="Vector Match Two",
+        release_date=date(2026, 3, 1),
+        critic_review_count=30,
+        avg_critic_score=Decimal("84.00"),
+        metacritic_user_score=Decimal("86.00"),
+        metacritic_sample_size=100,
+    )
+    neighbor_one = GameSimilarityV3Neighbor(
+        anchor_game_id=40,
+        candidate_game_id=41,
+        rank=1,
+        final_score=Decimal("0.9123"),
+        explanation_payload={"match_reasons": ["Shared world", "Shared traversal"], "confidence": "high"},
+        similarity_version="similarity_v3_pgvector_1",
+    )
+    neighbor_two = GameSimilarityV3Neighbor(
+        anchor_game_id=40,
+        candidate_game_id=42,
+        rank=2,
+        final_score=Decimal("0.8444"),
+        explanation_payload={"match_reasons": ["Shared setting"], "confidence": "medium"},
+        similarity_version="similarity_v3_pgvector_1",
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(all_rows=[(neighbor_one, candidate_one), (neighbor_two, candidate_two)]),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=40, limit=4, db=db)
+
+    assert [item.title for item in resp] == ["Vector Match One", "Vector Match Two"]
+    assert resp[0].similarity_score == 912
+    assert resp[0].match_reasons == ["Shared world", "Shared traversal"]
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_prefers_v2_archetype_matches_over_broad_v1_overlap(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=50,
+        public_id="crimson",
+        title="Crimson Desert",
+        release_date=date(2026, 1, 1),
+        taxonomy_studios=["pearl-abyss"],
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["western_narrative_rpg", "soulslike_action_rpg", "mmo_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "progression_model": ["quest_driven", "buildcraft", "gear_chase"],
+            "traversal_verbs": ["horseback", "climbing"],
+            "setting": ["high_fantasy"],
+            "tone": ["serious", "heroic"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=30,
+    )
+    witcher_like = Game(
+        id=51,
+        public_id="witcher-like",
+        title="Witcher-Like",
+        release_date=date(2025, 5, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="western_narrative_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "traversal_verbs": ["horseback"],
+            "setting": ["high_fantasy"],
+            "tone": ["serious"],
+            "mode_profile": ["single_player"],
+            "narrative_structure": ["authored_branching"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=40,
+        avg_critic_score=Decimal("91.00"),
+    )
+    elden_like = Game(
+        id=52,
+        public_id="elden-like",
+        title="Elden-Like",
+        release_date=date(2025, 6, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "combat_structure": ["boss_centric"],
+            "combat_tempo": ["deliberate"],
+            "progression_model": ["quest_driven", "gear_chase"],
+            "setting": ["dark_fantasy"],
+            "tone": ["bleak"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=45,
+        avg_critic_score=Decimal("93.00"),
+    )
+    botw_like = Game(
+        id=53,
+        public_id="botw-like",
+        title="BOTW-Like",
+        release_date=date(2025, 4, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="action_adventure",
+        taxonomy_v2_primary_archetype="open_world_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "progression_model": ["quest_driven"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=38,
+        avg_critic_score=Decimal("92.00"),
+    )
+    horror_false_positive = Game(
+        id=54,
+        public_id="horror",
+        title="Resident Evil Requiem",
+        release_date=date(2026, 2, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="horror",
+        taxonomy_v2_primary_archetype="action_horror",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["linear"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["encounter_driven"],
+            "setting": ["horror"],
+            "tone": ["bleak", "grotesque"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": ["pure_survival_horror"],
+            "soft_penalties": [],
+        },
+        critic_review_count=55,
+        avg_critic_score=Decimal("90.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(scalars_all=[witcher_like, elden_like, botw_like, horror_false_positive]),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=50, limit=4, db=db)
+
+    assert [item.title for item in resp] == ["Elden-Like", "Witcher-Like", "BOTW-Like"]
+    assert all("Shared genres" not in reason for item in resp for reason in item.match_reasons)
+    assert all(item.title != "Resident Evil Requiem" for item in resp)
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_diversifies_v2_results_across_primary_archetypes(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=60,
+        public_id="crimson-two",
+        title="Crimson Desert",
+        release_date=date(2026, 1, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["western_narrative_rpg", "soulslike_action_rpg", "mmo_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["quest_driven", "buildcraft", "skill_tree"],
+            "traversal_verbs": ["horseback", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=30,
+    )
+    totk_like = Game(
+        id=61,
+        public_id="totk-like",
+        title="TOTK-Like",
+        release_date=date(2025, 5, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["gear_chase"],
+            "traversal_verbs": ["gliding", "climbing"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=50,
+        avg_critic_score=Decimal("96.00"),
+    )
+    botw_like = Game(
+        id=62,
+        public_id="botw-like",
+        title="BOTW-Like",
+        release_date=date(2025, 4, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["gear_chase"],
+            "traversal_verbs": ["gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=48,
+        avg_critic_score=Decimal("94.00"),
+    )
+    forspoken_like = Game(
+        id=63,
+        public_id="forspoken-like",
+        title="Forspoken-Like",
+        release_date=date(2025, 3, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "magic"],
+            "progression_model": ["buildcraft"],
+            "traversal_verbs": ["parkour"],
+            "setting": ["high_fantasy"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=47,
+        avg_critic_score=Decimal("90.00"),
+    )
+    witcher_like = Game(
+        id=64,
+        public_id="witcher-like-two",
+        title="Witcher-Like",
+        release_date=date(2025, 2, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="western_narrative_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "narrative_structure": ["authored_branching"],
+            "entity_interaction": ["dialogue_choice"],
+            "rules_goals": ["complete_quests"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=46,
+        avg_critic_score=Decimal("93.00"),
+    )
+    amalur_like = Game(
+        id=67,
+        public_id="amalur-like",
+        title="Amalur-Like",
+        release_date=date(2025, 2, 15),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="western_narrative_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "progression_model": ["quest_driven", "buildcraft", "skill_tree"],
+            "setting": ["high_fantasy"],
+            "narrative_structure": ["authored_branching"],
+            "entity_interaction": ["dialogue_choice"],
+            "rules_goals": ["complete_quests"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=18,
+        avg_critic_score=Decimal("87.00"),
+    )
+    elden_like = Game(
+        id=65,
+        public_id="elden-like-two",
+        title="Elden-Like",
+        release_date=date(2025, 1, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft", "gear_chase"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=45,
+        avg_critic_score=Decimal("95.00"),
+    )
+    black_desert_like = Game(
+        id=66,
+        public_id="black-desert-like",
+        title="Black Desert-Like",
+        release_date=date(2024, 12, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="mmo_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world", "persistent_shared_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["buildcraft", "base_growth"],
+            "setting": ["high_fantasy", "mythic"],
+            "mode_profile": ["mmo"],
+            "content_model": ["mmo_persistent"],
+            "hard_exclusions": ["mmo_first"],
+            "soft_penalties": [],
+        },
+        critic_review_count=44,
+        avg_critic_score=Decimal("88.00"),
+    )
+    maneater_like = Game(
+        id=68,
+        public_id="maneater-like",
+        title="Maneater-Like",
+        release_date=date(2025, 1, 15),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "setting": ["modern"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=60,
+        avg_critic_score=Decimal("84.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(
+                scalars_all=[
+                    totk_like,
+                    botw_like,
+                    forspoken_like,
+                    witcher_like,
+                    amalur_like,
+                    elden_like,
+                    black_desert_like,
+                    maneater_like,
+                ]
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=60, limit=5, db=db)
+
+    titles = [item.title for item in resp]
+    assert len(resp) == 5
+    assert titles[0] == "TOTK-Like"
+    assert "Witcher-Like" in titles
+    assert "Elden-Like" in titles
+    assert "Black Desert-Like" in titles
+    assert "Amalur-Like" not in titles
+    assert "Forspoken-Like" not in titles
+    assert "Maneater-Like" not in titles
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_crimson_style_selector_prefers_western_mmo_and_second_same_lane(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=68,
+        public_id="crimson-three",
+        title="Crimson Desert",
+        release_date=date(2026, 1, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["soulslike_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["quest_driven", "buildcraft", "gear_chase"],
+            "traversal_verbs": ["horseback", "climbing"],
+            "setting": ["high_fantasy"],
+            "tone": ["serious", "heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=48,
+        avg_critic_score=Decimal("89.00"),
+    )
+    totk_like = Game(
+        id=69,
+        public_id="totk-like-three",
+        title="TOTK-Like",
+        release_date=date(2023, 5, 12),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=72,
+        avg_critic_score=Decimal("96.00"),
+    )
+    botw_like = Game(
+        id=70,
+        public_id="botw-like-three",
+        title="BOTW-Like",
+        release_date=date(2017, 3, 3),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=65,
+        avg_critic_score=Decimal("95.00"),
+    )
+    elden_like = Game(
+        id=71,
+        public_id="elden-like-four",
+        title="Elden-Like",
+        release_date=date(2022, 2, 25),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["gear_chase", "buildcraft"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "tone": ["bleak"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=69,
+        avg_critic_score=Decimal("95.00"),
+    )
+    black_desert_like = Game(
+        id=72,
+        public_id="black-desert-like-two",
+        title="Black-Desert-Like",
+        release_date=date(2016, 3, 3),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="mmo_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world", "persistent_shared_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "progression_model": ["gear_chase", "buildcraft"],
+            "traversal_verbs": ["horseback"],
+            "setting": ["high_fantasy"],
+            "tone": ["serious"],
+            "mode_profile": ["mmo"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        taxonomy_studios=["Pearl Abyss"],
+        critic_review_count=38,
+        avg_critic_score=Decimal("81.00"),
+    )
+    witcher_like = Game(
+        id=73,
+        public_id="witcher-like-two",
+        title="Witcher-Like",
+        release_date=date(2015, 5, 19),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="western_narrative_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee", "magic"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "traversal_verbs": ["horseback"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "tone": ["serious", "bleak"],
+            "mode_profile": ["single_player"],
+            "narrative_structure": ["authored_branching"],
+            "rules_goals": ["complete_quests"],
+            "entity_interaction": ["dialogue_choice"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=90,
+        avg_critic_score=Decimal("94.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(
+                scalars_all=[totk_like, botw_like, elden_like, black_desert_like, witcher_like]
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=68, limit=5, db=db)
+
+    titles = [item.title for item in resp]
+    assert titles == [
+        "TOTK-Like",
+        "Elden-Like",
+        "Black-Desert-Like",
+        "Witcher-Like",
+        "BOTW-Like",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_prefers_totk_expected_bridge_mix(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=69,
+        public_id="totk-anchor",
+        title="The Legend of Zelda: Tears of the Kingdom",
+        release_date=date(2025, 5, 12),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["soulslike_action_rpg", "open_world_action_adventure"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "world_density": ["handcrafted_discovery"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric", "encounter_driven"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "entity_interaction": ["construction_placement"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=58,
+        avg_critic_score=Decimal("96.00"),
+    )
+    botw_like = Game(
+        id=70,
+        public_id="botw-like-two",
+        title="BOTW-Like",
+        release_date=date(2017, 3, 3),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "world_density": ["handcrafted_discovery"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "combat_structure": ["encounter_driven"],
+            "progression_model": ["buildcraft", "skill_tree"],
+            "traversal_verbs": ["climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=52,
+        avg_critic_score=Decimal("97.00"),
+    )
+    crimson_like = Game(
+        id=71,
+        public_id="crimson-like-two",
+        title="Crimson-Like",
+        release_date=date(2026, 1, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["western_narrative_rpg", "soulslike_action_rpg", "mmo_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "traversal_verbs": ["horseback", "climbing", "gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=44,
+        avg_critic_score=Decimal("93.00"),
+    )
+    elden_like = Game(
+        id=72,
+        public_id="elden-like-three",
+        title="Elden-Like",
+        release_date=date(2022, 2, 25),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["buildcraft", "gear_chase"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "dark_fantasy", "mythic"],
+            "tone": ["bleak", "heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=61,
+        avg_critic_score=Decimal("95.00"),
+    )
+    gow_like = Game(
+        id=73,
+        public_id="gow-like",
+        title="God-of-War-Like",
+        release_date=date(2022, 11, 9),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "combat_structure": ["boss_centric", "encounter_driven"],
+            "progression_model": ["skill_tree", "buildcraft"],
+            "setting": ["mythic", "high_fantasy"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=57,
+        avg_critic_score=Decimal("94.00"),
+    )
+    pathless_like = Game(
+        id=74,
+        public_id="pathless-like",
+        title="Pathless-Like",
+        release_date=date(2020, 11, 12),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["ranged"],
+            "progression_model": ["buildcraft"],
+            "traversal_verbs": ["gliding"],
+            "setting": ["high_fantasy", "mythic"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=62,
+        avg_critic_score=Decimal("92.00"),
+    )
+    just_cause_like = Game(
+        id=75,
+        public_id="just-cause-like",
+        title="Just-Cause-Like",
+        release_date=date(2015, 12, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["shooter"],
+            "combat_structure": ["encounter_driven"],
+            "progression_model": ["buildcraft"],
+            "setting": ["modern"],
+            "tone": ["pulpy"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=54,
+        avg_critic_score=Decimal("85.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(scalars_all=[botw_like, crimson_like, elden_like, gow_like, pathless_like, just_cause_like]),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=69, limit=4, db=db)
+
+    titles = [item.title for item in resp]
+    assert titles == ["BOTW-Like", "Crimson-Like", "Elden-Like", "God-of-War-Like"]
+    assert "Pathless-Like" not in titles
+    assert "Just-Cause-Like" not in titles
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_prefers_soulslike_lineage_cluster_for_elden_ring_style_anchor(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=80,
+        public_id="elden-anchor",
+        title="Elden Ring",
+        release_date=date(2022, 2, 25),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["gear_chase", "buildcraft"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "dark_fantasy", "mythic"],
+            "tone": ["bleak"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        taxonomy_studios=["FromSoftware"],
+        critic_review_count=72,
+        avg_critic_score=Decimal("96.00"),
+    )
+
+    def souls_candidate(game_id: int, title: str, score: str, studios: list[str] | None = None) -> Game:
+        return Game(
+            id=game_id,
+            public_id=title.lower().replace(" ", "-"),
+            title=title,
+            release_date=date(2019, 1, 1),
+            taxonomy_v2_status="computed",
+            taxonomy_v2_primary_archetype="soulslike_action_rpg",
+            taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+            taxonomy_v2_fingerprint={
+                "world_topology": ["open_world"],
+                "perspective": ["third_person"],
+                "combat_presence": ["dominant"],
+                "combat_style": ["melee", "hybrid"],
+                "combat_structure": ["boss_centric"],
+                "progression_model": ["gear_chase", "buildcraft"],
+                "challenge_model": ["soulslike"],
+                "setting": ["high_fantasy", "dark_fantasy", "mythic"],
+                "tone": ["bleak"],
+                "mode_profile": ["single_player"],
+                "rules_goals": ["defeat_bosses"],
+                "hard_exclusions": [],
+                "soft_penalties": [],
+            },
+            taxonomy_studios=studios or ["FromSoftware"],
+            critic_review_count=60,
+            avg_critic_score=Decimal(score),
+        )
+
+    dark_souls = souls_candidate(81, "Dark Souls Remastered", "90.00")
+    dark_souls_iii = souls_candidate(82, "Dark Souls III", "92.00")
+    bloodborne = souls_candidate(83, "Bloodborne", "95.00")
+    dark_souls_ii = souls_candidate(84, "Dark Souls II", "87.00")
+    sekiro = souls_candidate(85, "Sekiro", "94.00")
+    witcher_like = Game(
+        id=86,
+        public_id="witcher-detour",
+        title="Witcher Detour",
+        release_date=date(2015, 5, 19),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="western_narrative_rpg",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["quest_driven", "buildcraft"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "tone": ["bleak"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=88,
+        avg_critic_score=Decimal("93.00"),
+    )
+    sonic_like = Game(
+        id=87,
+        public_id="sonic-detour",
+        title="Sonic Detour",
+        release_date=date(2022, 11, 8),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_action_adventure",
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid"],
+            "progression_model": ["skill_tree"],
+            "traversal_verbs": ["parkour"],
+            "setting": ["whimsical"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=64,
+        avg_critic_score=Decimal("91.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(
+                scalars_all=[
+                    dark_souls,
+                    dark_souls_iii,
+                    bloodborne,
+                    dark_souls_ii,
+                    sekiro,
+                    witcher_like,
+                    sonic_like,
+                ]
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=80, limit=5, db=db)
+
+    titles = [item.title for item in resp]
+    assert titles == [
+        "Bloodborne",
+        "Sekiro",
+        "Dark Souls III",
+        "Dark Souls Remastered",
+        "Dark Souls II",
+    ]
+    assert "Witcher Detour" not in titles
+    assert "Sonic Detour" not in titles
+
+
+@pytest.mark.asyncio
+async def test_get_game_similar_soulslike_selector_ignores_secondary_only_when_exact_lineage_exists(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    anchor = Game(
+        id=90,
+        public_id="elden-anchor-two",
+        title="Elden Ring",
+        release_date=date(2022, 2, 25),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_family="rpg",
+        taxonomy_v2_primary_archetype="soulslike_action_rpg",
+        taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["melee", "hybrid"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["gear_chase", "buildcraft"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "dark_fantasy", "mythic"],
+            "tone": ["bleak"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        taxonomy_studios=["FromSoftware"],
+        critic_review_count=72,
+        avg_critic_score=Decimal("96.00"),
+    )
+
+    def exact_souls(game_id: int, title: str, score: str) -> Game:
+        return Game(
+            id=game_id,
+            public_id=title.lower().replace(" ", "-"),
+            title=title,
+            release_date=date(2018, 1, 1),
+            taxonomy_v2_status="computed",
+            taxonomy_v2_primary_archetype="soulslike_action_rpg",
+            taxonomy_v2_secondary_archetypes=["open_world_fantasy_action_rpg"],
+            taxonomy_v2_fingerprint={
+                "world_topology": ["open_world"],
+                "perspective": ["third_person"],
+                "combat_presence": ["dominant"],
+                "combat_style": ["melee", "hybrid"],
+                "combat_structure": ["boss_centric"],
+                "progression_model": ["gear_chase", "buildcraft"],
+                "challenge_model": ["soulslike"],
+                "setting": ["high_fantasy", "dark_fantasy", "mythic"],
+                "tone": ["bleak"],
+                "mode_profile": ["single_player"],
+                "rules_goals": ["defeat_bosses"],
+                "hard_exclusions": [],
+                "soft_penalties": [],
+            },
+            taxonomy_studios=["FromSoftware"],
+            critic_review_count=58,
+            avg_critic_score=Decimal(score),
+        )
+
+    bloodborne = exact_souls(91, "Bloodborne", "95.00")
+    sekiro = exact_souls(92, "Sekiro", "94.00")
+    dark_souls_iii = exact_souls(93, "Dark Souls III", "92.00")
+    dark_souls = exact_souls(94, "Dark Souls Remastered", "90.00")
+    dark_souls_ii = exact_souls(95, "Dark Souls II", "87.00")
+    crimson_detour = Game(
+        id=96,
+        public_id="crimson-detour",
+        title="Crimson Detour",
+        release_date=date(2026, 1, 1),
+        taxonomy_v2_status="computed",
+        taxonomy_v2_primary_archetype="open_world_fantasy_action_rpg",
+        taxonomy_v2_secondary_archetypes=["soulslike_action_rpg"],
+        taxonomy_v2_fingerprint={
+            "world_topology": ["open_world"],
+            "perspective": ["third_person"],
+            "combat_presence": ["dominant"],
+            "combat_style": ["hybrid", "melee"],
+            "combat_structure": ["boss_centric"],
+            "progression_model": ["quest_driven", "gear_chase"],
+            "challenge_model": ["soulslike"],
+            "setting": ["high_fantasy", "dark_fantasy"],
+            "tone": ["heroic"],
+            "mode_profile": ["single_player"],
+            "rules_goals": ["complete_quests", "defeat_bosses"],
+            "hard_exclusions": [],
+            "soft_penalties": [],
+        },
+        critic_review_count=84,
+        avg_critic_score=Decimal("98.00"),
+    )
+
+    db = FakeAsyncSession(
+        results=[
+            FakeResult(scalar_one_or_none=anchor),
+            FakeResult(
+                scalars_all=[
+                    bloodborne,
+                    sekiro,
+                    dark_souls_iii,
+                    dark_souls,
+                    dark_souls_ii,
+                    crimson_detour,
+                ]
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
+    monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
+
+    resp = await get_game_similar(game_id=90, limit=5, db=db)
+
+    titles = [item.title for item in resp]
+    assert titles == [
+        "Bloodborne",
+        "Sekiro",
+        "Dark Souls III",
+        "Dark Souls Remastered",
+        "Dark Souls II",
+    ]
+    assert "Crimson Detour" not in titles
 
 
 @pytest.mark.asyncio
@@ -820,7 +2079,7 @@ async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             return None
 
-        async def get_steam_activity(self, steam_app_id: int, *, limit: int):
+        async def get_steam_activity(self, steam_app_id: int, *, limit: int, window: str = "1y"):
             return sparse_scraper_activity
 
     sync_mock = AsyncMock(

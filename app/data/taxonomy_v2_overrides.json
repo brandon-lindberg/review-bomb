@@ -1,0 +1,20 @@
+{
+  "games": {
+    "title:bloodborne": {
+      "primary_family": "rpg",
+      "primary_archetype": "soulslike_action_rpg",
+      "replace": {
+        "perspective": ["third_person"],
+        "combat_presence": ["dominant"],
+        "combat_style": ["melee", "hybrid"],
+        "combat_structure": ["boss_centric"],
+        "challenge_model": ["soulslike"],
+        "setting": ["dark_fantasy", "horror"],
+        "tone": ["bleak", "grotesque"],
+        "rules_goals": ["defeat_bosses"],
+        "narrative_structure": ["authored_linear"]
+      },
+      "rationale": "Canonical soulslike benchmark with sparse provider metadata; curated to anchor the gold set reliably."
+    }
+  }
+}

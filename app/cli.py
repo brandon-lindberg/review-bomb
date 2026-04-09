@@ -7,6 +7,8 @@ Usage:
     python -m app sync --status     Show sync status and progress
     python -m app sync --reset      Reset sync state (start fresh)
     python -m app sync --full-scan  Force full OpenCritic catalog sweep
+    python -m app import-steam-game --app-id 2701720
+                                    Import a Steam-only game directly into the catalog
     python -m app match             Match games to Steam/Metacritic IDs
     python -m app match --days 180  Match only games released in last 180 days
     python -m app steam             Sync Steam user scores and public Steam activity
@@ -24,6 +26,26 @@ Usage:
     python -m app merge-games       Merge deprecated games into canonical records
     python -m app news              Fetch latest gaming news from RSS feeds
     python -m app news-backfill     Link existing news articles to games by title matching
+    python -m app taxonomy-backfill Refresh stored taxonomy labels and canonical facets
+    python -m app description-backfill Refresh source-specific descriptions and taxonomy V2 text corpus
+    python -m app taxonomy-audit    Show raw source labels that do not map to canonical facets
+    python -m app similar-debug     Explain why a game does or does not qualify for similar games
+    python -m app taxonomy-v2-backfill Compute and store Similar Games Taxonomy V2 fingerprints
+    python -m app taxonomy-v2-debug    Inspect the Similar Games Taxonomy V2 fingerprint for one game
+    python -m app taxonomy-v2-label-audit Audit raw label coverage against Similar Games Taxonomy V2
+    python -m app taxonomy-v2-text-audit  Audit recurring text phrases by Similar Games Taxonomy V2 status
+    python -m app taxonomy-v2-near-miss-audit Audit missing required axes for hidden V2 games
+    python -m app taxonomy-v2-boilerplate-audit Audit recurring storefront boilerplate in V2 text corpora
+    python -m app taxonomy-v2-confusion-audit Audit V2 family/archetype coverage and pairings
+    python -m app taxonomy-v2-gold-set-audit Audit live similar-games output against the V2 gold set
+    python -m app similarity-v3-corpus Build Similar Games V3 corpus rows and embeddings
+    python -m app similarity-v3-embed Refresh Similar Games V3 embeddings for target games
+    python -m app similarity-v3-neighbors Preview Similar Games V3 ranked neighbors
+    python -m app similarity-v3-publish Publish Similar Games V3 neighbors for serving
+    python -m app similarity-v3-gold-audit Audit Similar Games V3 against the gold set
+    python -m app similarity-v3-confusion-audit Audit Similar Games V3 relationship distribution
+    python -m app similarity-v3-hidden-audit Audit Similar Games V3 hidden states
+    python -m app queue-job Enqueue a background worker job onto the Dramatiq queues
 """
 
 import argparse
@@ -31,8 +53,101 @@ import asyncio
 import sys
 from datetime import datetime, timezone, timedelta
 
-from app.database import async_session_maker
+from sqlalchemy import select
+from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
+
+from app.database import async_session_maker, engine
+from app.models.models import Game
 from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get_sync_status
+
+
+_SIMILARITY_V3_CORPUS_BATCH_SIZE = 50
+_SIMILARITY_V3_PUBLISH_BATCH_SIZE = 25
+_SIMILARITY_V3_BATCH_RETRY_LIMIT = 5
+_SIMILARITY_V3_RETRYABLE_ERROR_MARKERS = (
+    "connection was closed in the middle of operation",
+    "the database system is in recovery mode",
+    "cannot connect now",
+    "connection does not exist",
+    "server closed the connection unexpectedly",
+    "terminating connection",
+    "connection reset by peer",
+)
+
+
+def _truncate_cli_text(value: str | None, *, limit: int = 96) -> str:
+    if not value:
+        return ""
+    cleaned = " ".join(str(value).split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 3].rstrip() + "..."
+
+
+def _is_transient_database_error(exc: BaseException) -> bool:
+    if isinstance(exc, (DBAPIError, OperationalError, InterfaceError)):
+        if getattr(exc, "connection_invalidated", False):
+            return True
+    lowered = str(exc).lower()
+    if any(marker in lowered for marker in _SIMILARITY_V3_RETRYABLE_ERROR_MARKERS):
+        return True
+    for nested in (getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
+        if nested is not None and nested is not exc and _is_transient_database_error(nested):
+            return True
+    return False
+
+
+async def _retry_similarity_v3_batch(
+    label: str,
+    batch_number: int,
+    total_batches: int,
+    operation,
+):
+    last_error: BaseException | None = None
+    for attempt in range(1, _SIMILARITY_V3_BATCH_RETRY_LIMIT + 1):
+        try:
+            return await operation()
+        except Exception as exc:
+            last_error = exc
+            if not _is_transient_database_error(exc) or attempt >= _SIMILARITY_V3_BATCH_RETRY_LIMIT:
+                raise
+            delay_seconds = min(30, 2 * attempt)
+            print(
+                f"  {label} batch {batch_number}/{total_batches} hit transient DB failure "
+                f"(attempt {attempt}/{_SIMILARITY_V3_BATCH_RETRY_LIMIT}): {exc}"
+            )
+            print(f"  Retrying after {delay_seconds}s...")
+            await engine.dispose()
+            await asyncio.sleep(delay_seconds)
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"{label} batch {batch_number}/{total_batches} failed without an exception")
+
+
+async def _load_similarity_v3_target_game_ids(
+    *,
+    dirty_only: bool = False,
+    game_identifier: str | None = None,
+    limit: int | None = None,
+) -> list[int]:
+    from app.services.game_similarity_v3 import load_similarity_v3_target_games
+
+    async with async_session_maker() as db:
+        games = await load_similarity_v3_target_games(
+            db,
+            dirty_only=dirty_only,
+            game_identifier=game_identifier,
+            limit=limit,
+        )
+    return [game.id for game in games if game is not None and game.id is not None]
+
+
+async def _load_games_by_ids(db, game_ids: list[int]) -> list[Game]:
+    if not game_ids:
+        return []
+    result = await db.execute(select(Game).where(Game.id.in_(game_ids)))
+    by_id = {game.id: game for game in result.scalars().all()}
+    return [by_id[game_id] for game_id in game_ids if game_id in by_id]
 
 
 def _should_update_release_date_from_metacritic(
@@ -74,6 +189,66 @@ def _should_update_release_date_from_metacritic(
 
     # Avoid moving a date earlier in the past from Metacritic alone.
     return False
+
+
+async def _resolve_target_game_with_title_fallback(db, Game, identifier: str):
+    from sqlalchemy import func, select
+
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy import normalize_taxonomy_label
+
+    raw_identifier = str(identifier).strip()
+    if not raw_identifier:
+        return None
+
+    game = await resolve_entity_by_identifier(db, Game, raw_identifier)
+    if game is not None:
+        return game
+
+    lowered = raw_identifier.lower()
+    exact = (
+        await db.execute(
+            select(Game)
+            .where(func.lower(Game.title) == lowered)
+            .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+        )
+    ).scalars().first()
+    if exact is not None:
+        return exact
+
+    normalized_target = normalize_taxonomy_label(raw_identifier)
+    if not normalized_target:
+        return None
+
+    candidates = (
+        await db.execute(
+            select(Game)
+            .where(func.lower(Game.title).like(f"%{lowered}%"))
+            .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            .limit(25)
+        )
+    ).scalars().all()
+    if not candidates:
+        return None
+
+    def _rank(candidate):
+        title = getattr(candidate, "title", "") or ""
+        lowered_title = title.lower()
+        normalized_title = normalize_taxonomy_label(title)
+        exact_lower = 0 if lowered_title == lowered else 1
+        exact_normalized = 0 if normalized_title == normalized_target else 1
+        starts_with = 0 if lowered_title.startswith(lowered) else 1
+        contains_normalized = 0 if normalized_target in normalized_title else 1
+        return (
+            exact_lower,
+            exact_normalized,
+            starts_with,
+            contains_normalized,
+            len(title),
+            -(getattr(candidate, "id", 0) or 0),
+        )
+
+    return sorted(candidates, key=_rank)[0]
 
 
 async def cmd_sync(args):
@@ -208,7 +383,17 @@ async def _load_cli_steam_games(db, args, Game):
 
 async def cmd_steam(args):
     """Handle Steam sync command."""
+    from app.services.game_taxonomy import (
+        extract_steam_source_labels,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
     from app.services.steam import SteamService
+    from app.services.steam_catalog import ensure_tracked_steam_games
     from app.services.steam_activity import SteamActivityService, sync_game_steam_public_activity
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import delete
@@ -231,13 +416,6 @@ async def cmd_steam(args):
         ).ratio()
 
     async with async_session_maker() as db:
-        games, mode = await _load_cli_steam_games(db, args, Game)
-
-        print(f"Found {len(games)} games {mode}")
-
-        if args.limit:
-            print(f"Processing up to {args.limit} games")
-
         synced = 0
         activity_updated = 0
         activity_snapshots = 0
@@ -251,6 +429,20 @@ async def cmd_steam(args):
         cleared_steam_score_rows = 0
 
         async with SteamService() as service, SteamActivityService() as activity_service:
+            curated_stats = await ensure_tracked_steam_games(db, service)
+            if curated_stats["created"] or curated_stats["updated"]:
+                print(
+                    "Ensured curated Steam-only catalog entries: "
+                    f"{curated_stats['created']} created, {curated_stats['updated']} updated"
+                )
+
+            games, mode = await _load_cli_steam_games(db, args, Game)
+
+            print(f"Found {len(games)} games {mode}")
+
+            if args.limit:
+                print(f"Processing up to {args.limit} games")
+
             for game in games:
                 processed += 1
                 try:
@@ -269,6 +461,25 @@ async def cmd_steam(args):
                             )
                             print(f"  Candidate app IDs: {top}")
                         continue
+
+                    transformed = SteamService.transform_app_details(app_details, app_id)
+                    text_changed = apply_steam_descriptions(
+                        game,
+                        short_description=transformed.get("steam_short_description"),
+                        detailed_description=transformed.get("steam_detailed_description"),
+                    )
+                    if text_changed:
+                        refresh_game_taxonomy_v2_text(game)
+                        mark_game_similarity_v3_dirty(game, "source_text_steam")
+
+                    taxonomy_changed = await sync_game_source_taxonomy(
+                        db,
+                        game,
+                        source="steam",
+                        source_labels=extract_steam_source_labels(app_details),
+                    )
+                    if taxonomy_changed:
+                        mark_game_similarity_v3_dirty(game, "source_labels_steam")
 
                     steam_title = (app_details.get("name") or "").strip()
                     release_info = app_details.get("release_date") or {}
@@ -380,22 +591,31 @@ async def cmd_steam(args):
 
 async def cmd_steamdb(args):
     """Handle SteamDB peak sync command."""
+    from app.services.steam import SteamService
+    from app.services.steam_catalog import ensure_tracked_steam_games
     from app.services.steam_activity import SteamActivityService, sync_game_steamdb_peaks
     from app.models.models import Game
 
     async with async_session_maker() as db:
-        games, mode = await _load_cli_steam_games(db, args, Game)
-
-        print(f"Found {len(games)} games {mode}")
-
-        if args.limit:
-            print(f"Processing up to {args.limit} games")
-
         processed = 0
         updated = 0
         failed = 0
 
-        async with SteamActivityService() as activity_service:
+        async with SteamService() as steam_service, SteamActivityService() as activity_service:
+            curated_stats = await ensure_tracked_steam_games(db, steam_service)
+            if curated_stats["created"] or curated_stats["updated"]:
+                print(
+                    "Ensured curated Steam-only catalog entries: "
+                    f"{curated_stats['created']} created, {curated_stats['updated']} updated"
+                )
+
+            games, mode = await _load_cli_steam_games(db, args, Game)
+
+            print(f"Found {len(games)} games {mode}")
+
+            if args.limit:
+                print(f"Processing up to {args.limit} games")
+
             for game in games:
                 processed += 1
                 try:
@@ -430,10 +650,211 @@ async def cmd_steamdb(args):
         )
 
 
+async def cmd_import_steam_game(args):
+    """Import or update a game directly from Steam, even without OpenCritic coverage."""
+    import re
+
+    from sqlalchemy import select, func
+
+    from app.models.models import Game, UserScore, UserScoreSource
+    from app.services.game_taxonomy import (
+        extract_steam_source_labels,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+    from app.services.steam import SteamService
+    from app.services.steam_activity import (
+        SteamActivityService,
+        sync_game_steam_public_activity,
+        sync_game_steamdb_peaks,
+    )
+
+    if args.app_id is None and not getattr(args, "query", None):
+        print("Provide either --app-id or --query.")
+        return 1
+
+    def normalize_title(value: str) -> str:
+        normalized = re.sub(r"[^a-z0-9]+", " ", (value or "").lower())
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    async with async_session_maker() as db:
+        async with SteamService() as steam_service, SteamActivityService() as activity_service:
+            app_id = args.app_id
+            selected_name = None
+
+            if app_id is None:
+                query = args.query.strip()
+                search_results = await steam_service.search_games(query)
+                if not search_results:
+                    print(f"No Steam results found for query: {query}")
+                    return 1
+
+                normalized_query = normalize_title(query)
+
+                def result_rank(item: dict[str, object]) -> tuple[int, int]:
+                    name = normalize_title(str(item.get("name") or ""))
+                    if name == normalized_query:
+                        return (3, len(name))
+                    if name.startswith(normalized_query):
+                        return (2, len(name))
+                    if normalized_query in name:
+                        return (1, len(name))
+                    return (0, len(name))
+
+                ranked_results = sorted(search_results, key=result_rank, reverse=True)
+                best_match = ranked_results[0]
+                app_id = int(best_match["steam_app_id"])
+                selected_name = str(best_match.get("name") or "").strip() or None
+                print(f"Selected Steam app {app_id}: {selected_name or 'Unknown title'}")
+
+            app_details = await steam_service.get_app_details(app_id)
+            if not app_details:
+                print(f"Steam app details not found for app_id={app_id}")
+                return 1
+
+            transformed = SteamService.transform_app_details(app_details, app_id)
+            steam_title = (transformed.get("title") or selected_name or "").strip()
+            if not steam_title:
+                print(f"Steam app {app_id} did not return a title")
+                return 1
+
+            existing_by_app = (
+                await db.execute(select(Game).where(Game.steam_app_id == app_id))
+            ).scalar_one_or_none()
+            existing_by_title = (
+                await db.execute(
+                    select(Game).where(func.lower(Game.title) == steam_title.lower())
+                )
+            ).scalar_one_or_none()
+
+            if existing_by_app is not None:
+                game = existing_by_app
+                action = "Updated existing Steam-linked game"
+            elif existing_by_title is not None:
+                if existing_by_title.steam_app_id is not None and existing_by_title.steam_app_id != app_id:
+                    print(
+                        "Refusing to import due to title collision with a different Steam app ID: "
+                        f"{existing_by_title.title} already points to {existing_by_title.steam_app_id}"
+                    )
+                    return 1
+                game = existing_by_title
+                action = "Updated existing title match"
+            else:
+                game = Game(
+                    title=steam_title,
+                    steam_app_id=app_id,
+                    description=transformed.get("description"),
+                    release_date=transformed.get("release_date"),
+                    image_url=transformed.get("image_url"),
+                )
+                db.add(game)
+                await db.flush()
+                action = "Created new Steam-only game"
+
+            if game.steam_app_id != app_id:
+                game.steam_app_id = app_id
+
+            if not game.title:
+                game.title = steam_title
+            elif normalize_title(game.title) == normalize_title(steam_title) and game.title != steam_title:
+                game.title = steam_title
+
+            if transformed.get("description") and not game.description:
+                game.description = transformed["description"]
+            if apply_steam_descriptions(
+                game,
+                short_description=transformed.get("steam_short_description"),
+                detailed_description=transformed.get("steam_detailed_description"),
+            ):
+                refresh_game_taxonomy_v2_text(game)
+                mark_game_similarity_v3_dirty(game, "source_text_steam")
+
+            if transformed.get("image_url") and not game.image_url:
+                game.image_url = transformed["image_url"]
+
+            candidate_release_date = transformed.get("release_date")
+            today = datetime.now(timezone.utc).date()
+            if _should_update_release_date_from_metacritic(
+                game.release_date,
+                candidate_release_date,
+                today=today,
+            ):
+                game.release_date = candidate_release_date
+
+            score_data = await steam_service.get_user_score(app_id)
+            if score_data:
+                db.add(
+                    UserScore(
+                        game_id=game.id,
+                        source=UserScoreSource.STEAM,
+                        score=score_data["score"],
+                        score_raw=score_data["score_raw"],
+                        sample_size=score_data["sample_size"],
+                        positive_count=score_data["positive_count"],
+                        negative_count=score_data["negative_count"],
+                        review_score_desc=score_data["review_score_desc"],
+                        scraped_at=score_data["scraped_at"],
+                    )
+                )
+                game.steam_user_score = score_data["score"]
+                game.steam_sample_size = score_data["sample_size"]
+
+            activity_result = await sync_game_steam_public_activity(
+                db,
+                game,
+                activity_service,
+            )
+            await sync_game_source_taxonomy(
+                db,
+                game,
+                source="steam",
+                source_labels=extract_steam_source_labels(app_details),
+            )
+            peak_result = await sync_game_steamdb_peaks(
+                game,
+                activity_service,
+            )
+
+            await db.commit()
+
+            print(action)
+            print(f"  Title: {game.title}")
+            print(f"  Public ID: {game.public_id}")
+            print(f"  Steam app ID: {game.steam_app_id}")
+            if game.release_date is not None:
+                print(f"  Release date: {game.release_date.isoformat()}")
+            if game.steam_user_score is not None:
+                print(
+                    "  Steam user score: "
+                    f"{game.steam_user_score} ({game.steam_sample_size or 0} reviews)"
+                )
+            if activity_result["current_players"] is not None:
+                print(f"  Current players: {activity_result['current_players']:,}")
+            if peak_result.get("steam_player_24h_peak") is not None:
+                print(f"  24h peak: {peak_result['steam_player_24h_peak']:,}")
+            if peak_result.get("steam_player_all_time_peak") is not None:
+                print(f"  All-time peak: {peak_result['steam_player_all_time_peak']:,}")
+
+    return 0
+
+
 async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
     import asyncio
     import time
+    from app.services.game_taxonomy import (
+        extract_metacritic_source_labels,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
     from app.services.metacritic import MetacriticService
     from app.models.models import Game, UserScore, UserScoreSource, Review
     from sqlalchemy import select, func, delete, or_, and_, case
@@ -680,12 +1101,23 @@ async def cmd_metacritic(args):
                         print(f"  No data returned from Metacritic")
 
                     if score_data:
+                        await sync_game_source_taxonomy(
+                            db,
+                            game,
+                            source="metacritic",
+                            source_labels=extract_metacritic_source_labels(score_data),
+                        )
                         updated_anything = False
                         resolved_slug = score_data.get("resolved_slug")
                         if resolved_slug and resolved_slug != game.metacritic_slug:
                             print(f"  Slug resolved: {game.metacritic_slug} -> {resolved_slug}")
                             game.metacritic_slug = resolved_slug
                             updated_anything = True
+                            mark_game_similarity_v3_dirty(game, "source_identifier_metacritic")
+                        if apply_metacritic_description(game, score_data.get("description")):
+                            refresh_game_taxonomy_v2_text(game)
+                            updated_anything = True
+                            mark_game_similarity_v3_dirty(game, "source_text_metacritic")
 
                         # Check and update user score/sample size only if changed
                         if score_data.get("user_score") is not None:
@@ -819,6 +1251,1594 @@ async def cmd_metacritic(args):
 
         await db.commit()
         print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")
+
+
+async def cmd_taxonomy_backfill(args):
+    """Refresh stored source taxonomy labels and canonical game taxonomy."""
+    from sqlalchemy import select, or_
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy import (
+        extract_metacritic_source_labels,
+        extract_opencritic_source_labels,
+        extract_steam_source_labels,
+        rebuild_game_taxonomy,
+        sync_game_source_taxonomy,
+    )
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        apply_opencritic_description,
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+    from app.services.metacritic import MetacriticService
+    from app.services.opencritic import OpenCriticService
+    from app.services.steam import SteamService
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = select(Game).where(
+                or_(
+                    Game.opencritic_id.isnot(None),
+                    Game.steam_app_id.isnot(None),
+                    Game.metacritic_slug.isnot(None),
+                )
+            ).order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for taxonomy backfill.")
+            return 1
+
+        opencritic_service = OpenCriticService()
+        processed = 0
+        updated = 0
+
+        async with SteamService() as steam_service, MetacriticService() as metacritic_service:
+            for game in games:
+                if game is None:
+                    continue
+                print(f"Backfilling taxonomy for: {game.title}")
+                touched = False
+
+                if args.source in (None, "opencritic") and game.opencritic_id is not None:
+                    game_data = await opencritic_service.get_game(game.opencritic_id)
+                    if game_data:
+                        if apply_opencritic_description(game, game_data.get("description")):
+                            mark_game_similarity_v3_dirty(game, "source_text_opencritic")
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="opencritic",
+                                source_labels=extract_opencritic_source_labels(game_data),
+                            )
+                            or touched
+                        )
+
+                if args.source in (None, "steam") and game.steam_app_id is not None:
+                    app_details = await steam_service.get_app_details(game.steam_app_id)
+                    if app_details:
+                        transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
+                        if apply_steam_descriptions(
+                            game,
+                            short_description=transformed.get("steam_short_description"),
+                            detailed_description=transformed.get("steam_detailed_description"),
+                        ):
+                            mark_game_similarity_v3_dirty(game, "source_text_steam")
+                        store_tags = await steam_service.get_store_tags(game.steam_app_id)
+                        if store_tags:
+                            app_details = {**app_details, "store_tags": store_tags}
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="steam",
+                                source_labels=extract_steam_source_labels(app_details),
+                            )
+                            or touched
+                        )
+
+                if args.source in (None, "metacritic") and game.metacritic_slug:
+                    score_data = await metacritic_service.get_scores(
+                        game.metacritic_slug,
+                        title=game.title,
+                    )
+                    if score_data:
+                        if apply_metacritic_description(game, score_data.get("description")):
+                            mark_game_similarity_v3_dirty(game, "source_text_metacritic")
+                        touched = (
+                            await sync_game_source_taxonomy(
+                                db,
+                                game,
+                                source="metacritic",
+                                source_labels=extract_metacritic_source_labels(score_data),
+                            )
+                            or touched
+                        )
+
+                if not touched:
+                    await rebuild_game_taxonomy(db, game)
+                refresh_game_taxonomy_v2_text(game)
+
+                processed += 1
+                if touched:
+                    updated += 1
+                if processed % 10 == 0 or processed == len(games):
+                    await db.commit()
+                    print(f"  Progress: {processed}/{len(games)}")
+
+        await db.commit()
+        print(f"Taxonomy backfill complete: {updated} updated, {processed} processed")
+    return 0
+
+
+async def cmd_description_backfill(args):
+    """Fetch and store source-specific narrative descriptions for taxonomy V2 text enrichment."""
+    from contextlib import AsyncExitStack
+    from sqlalchemy import or_, select
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy_v2 import (
+        apply_metacritic_description,
+        apply_opencritic_description,
+        apply_steam_descriptions,
+        refresh_game_taxonomy_v2_text,
+    )
+    from app.services.game_similarity_v3 import mark_game_similarity_v3_dirty
+    from app.services.metacritic import MetacriticService
+    from app.services.opencritic import OpenCriticService
+    from app.services.steam import SteamService
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = (
+                select(Game)
+                .where(
+                    or_(
+                        Game.opencritic_id.isnot(None),
+                        Game.steam_app_id.isnot(None),
+                        Game.metacritic_slug.isnot(None),
+                    )
+                )
+                .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            )
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for description backfill.")
+            return 1
+
+        use_opencritic = args.source in (None, "opencritic")
+        use_steam = args.source in (None, "steam")
+        use_metacritic = args.source in (None, "metacritic")
+
+        opencritic_service = OpenCriticService() if use_opencritic else None
+        processed = 0
+        updated = 0
+
+        async with AsyncExitStack() as stack:
+            steam_service = await stack.enter_async_context(SteamService()) if use_steam else None
+            metacritic_service = (
+                await stack.enter_async_context(MetacriticService()) if use_metacritic else None
+            )
+            for game in games:
+                if game is None:
+                    continue
+                print(f"Backfilling descriptions for: {game.title}")
+                changed = False
+
+                if opencritic_service and game.opencritic_id is not None:
+                    game_data = await opencritic_service.get_game(game.opencritic_id)
+                    if game_data:
+                        source_changed = apply_opencritic_description(game, game_data.get("description"))
+                        if source_changed:
+                            mark_game_similarity_v3_dirty(game, "source_text_opencritic")
+                        changed = source_changed or changed
+
+                if steam_service and game.steam_app_id is not None:
+                    app_details = await steam_service.get_app_details(game.steam_app_id)
+                    if app_details:
+                        transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
+                        source_changed = apply_steam_descriptions(
+                                game,
+                                short_description=transformed.get("steam_short_description"),
+                                detailed_description=transformed.get("steam_detailed_description"),
+                        )
+                        if source_changed:
+                            mark_game_similarity_v3_dirty(game, "source_text_steam")
+                        changed = source_changed or changed
+
+                if metacritic_service and game.metacritic_slug:
+                    score_data = await metacritic_service.get_scores(
+                        game.metacritic_slug,
+                        title=game.title,
+                    )
+                    if score_data:
+                        source_changed = apply_metacritic_description(game, score_data.get("description"))
+                        if source_changed:
+                            mark_game_similarity_v3_dirty(game, "source_text_metacritic")
+                        changed = source_changed or changed
+
+                previous_corpus = getattr(game, "taxonomy_v2_text_corpus", None)
+                previous_sources = list(getattr(game, "taxonomy_v2_text_sources", None) or [])
+                corpus, sources = refresh_game_taxonomy_v2_text(game)
+                if corpus != previous_corpus or sources != previous_sources:
+                    changed = True
+                    mark_game_similarity_v3_dirty(game, "source_text_corpus")
+
+                processed += 1
+                if changed:
+                    updated += 1
+                if processed % 10 == 0 or processed == len(games):
+                    await db.commit()
+                    print(f"  Progress: {processed}/{len(games)}")
+
+        await db.commit()
+        print(f"Description backfill complete: {updated} updated, {processed} processed")
+    return 0
+
+
+async def cmd_taxonomy_audit(args):
+    """Show raw source labels that do not map to canonical taxonomy."""
+    from collections import defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import GameSourceTaxonomyLabel
+    from app.services.game_taxonomy import raw_label_is_mapped
+
+    async with async_session_maker() as db:
+        query = select(GameSourceTaxonomyLabel)
+        if args.source:
+            query = query.where(GameSourceTaxonomyLabel.source == args.source)
+        result = await db.execute(query)
+        rows = result.scalars().all()
+
+        unmapped: dict[tuple[str, str, str], dict[str, object]] = defaultdict(
+            lambda: {"count": 0, "sample": ""}
+        )
+        for row in rows:
+            if raw_label_is_mapped(row.source, row.facet, row.raw_label):
+                continue
+            key = (row.source, row.facet, row.normalized_label)
+            unmapped[key]["count"] = int(unmapped[key]["count"]) + 1
+            unmapped[key]["sample"] = row.raw_label
+
+        if not unmapped:
+            print("All stored taxonomy labels map to canonical facets.")
+            return 0
+
+        print("Unmapped taxonomy labels:")
+        ranked = sorted(
+            unmapped.items(),
+            key=lambda item: (-int(item[1]["count"]), item[0][0], item[0][1], item[0][2]),
+        )
+        for index, ((source, facet, normalized), info) in enumerate(ranked[: args.limit or 50], start=1):
+            print(
+                f"{index:>3}. {source}/{facet}: {normalized} "
+                f"(games={info['count']}, sample='{info['sample']}')"
+            )
+    return 0
+
+
+async def cmd_similar_debug(args):
+    """Explain current taxonomy support and top strict similar-game matches."""
+    from sqlalchemy import select, and_, or_
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy import (
+        build_game_taxonomy_sets,
+        build_similarity_breakdown,
+        game_has_curated_override,
+        game_has_sufficient_taxonomy_support,
+    )
+
+    async with async_session_maker() as db:
+        game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
+        if not game:
+            print("Game not found.")
+            return 1
+
+        taxonomy = build_game_taxonomy_sets(game)
+        print(f"Game: {game.title}")
+        print(f"  Sources: {', '.join(game.taxonomy_sources or []) or 'none'}")
+        print(f"  Curated override: {'yes' if game_has_curated_override(game) else 'no'}")
+        print(f"  Genres: {', '.join(sorted(taxonomy['genres'])) or 'none'}")
+        print(f"  Themes: {', '.join(sorted(taxonomy['themes'])) or 'none'}")
+        print(f"  Modes: {', '.join(sorted(taxonomy['modes'])) or 'none'}")
+        print(f"  Perspectives: {', '.join(sorted(taxonomy['perspectives'])) or 'none'}")
+
+        if not game_has_sufficient_taxonomy_support(game):
+            print("  Fails support gate: requires at least 2 taxonomy sources or a curated override.")
+            return 0
+        if not taxonomy["genres"]:
+            print("  Fails similarity gate: no canonical genres.")
+            return 0
+        if not (taxonomy["themes"] or taxonomy["modes"] or taxonomy["perspectives"]):
+            print("  Fails similarity gate: no secondary gameplay facets (theme/mode/perspective).")
+            return 0
+
+        secondary_overlap_clauses = []
+        if game.taxonomy_themes:
+            secondary_overlap_clauses.append(Game.taxonomy_themes.overlap(list(game.taxonomy_themes)))
+        if game.taxonomy_modes:
+            secondary_overlap_clauses.append(Game.taxonomy_modes.overlap(list(game.taxonomy_modes)))
+        if game.taxonomy_perspectives:
+            secondary_overlap_clauses.append(Game.taxonomy_perspectives.overlap(list(game.taxonomy_perspectives)))
+
+        query = (
+            select(Game)
+            .where(
+                Game.id != game.id,
+                Game.release_date.isnot(None),
+                Game.release_date <= datetime.now(timezone.utc).date(),
+                Game.taxonomy_genres.overlap(list(game.taxonomy_genres or [])),
+                or_(*secondary_overlap_clauses),
+                or_(
+                    Game.steam_sample_size >= 50,
+                    and_(
+                        Game.metacritic_user_score.isnot(None),
+                        or_(Game.metacritic_sample_size.is_(None), Game.metacritic_sample_size >= 20),
+                    ),
+                    Game.critic_review_count >= 5,
+                ),
+            )
+            .limit(args.limit or 10)
+        )
+        result = await db.execute(query)
+        candidates = result.scalars().all()
+        if not candidates:
+            print("  No candidate games passed the coarse query.")
+            return 0
+
+        ranked: list[tuple[int, str, list[str]]] = []
+        for candidate in candidates:
+            breakdown = build_similarity_breakdown(game, candidate)
+            if breakdown is None:
+                continue
+            ranked.append((breakdown.score, candidate.title, breakdown.match_reasons))
+
+        if not ranked:
+            print("  Candidates exist, but none passed strict similarity rules.")
+            return 0
+
+        ranked.sort(key=lambda item: (-item[0], item[1].lower()))
+        print("Top strict matches:")
+        for index, (score, title, reasons) in enumerate(ranked[: args.limit or 10], start=1):
+            print(f"{index:>3}. {title} (score={score})")
+            for reason in reasons:
+                print(f"     - {reason}")
+    return 0
+
+
+async def cmd_taxonomy_v2_backfill(args):
+    """Compute and store Similar Games Taxonomy V2 fingerprints."""
+    from sqlalchemy import func, or_, select
+
+    from app.models.models import Game
+    from app.public_ids import resolve_entity_by_identifier
+    from app.services.game_taxonomy_v2 import (
+        TAXONOMY_V2_STATUS_COMPUTED,
+        TAXONOMY_V2_STATUS_CURATED,
+        TAXONOMY_V2_STATUS_HIDDEN,
+        compute_and_store_game_taxonomy_v2,
+    )
+
+    async with async_session_maker() as db:
+        if args.game:
+            game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
+            games = [game] if game else []
+        else:
+            query = (
+                select(Game)
+                .where(
+                    or_(
+                        Game.description.isnot(None),
+                        Game.opencritic_description.isnot(None),
+                        Game.steam_short_description.isnot(None),
+                        Game.steam_detailed_description.isnot(None),
+                        Game.metacritic_description.isnot(None),
+                        Game.taxonomy_v2_text_corpus.isnot(None),
+                        Game.opencritic_id.isnot(None),
+                        Game.steam_app_id.isnot(None),
+                        Game.metacritic_slug.isnot(None),
+                    )
+                )
+                .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            )
+            if args.limit:
+                query = query.limit(args.limit)
+            result = await db.execute(query)
+            games = result.scalars().all()
+
+        if not games:
+            print("No games found for taxonomy V2 backfill.")
+            return 1
+
+        processed = 0
+        computed = 0
+        curated = 0
+        hidden = 0
+        hidden_reasons: dict[str, int] = {}
+
+        for game in games:
+            if game is None:
+                continue
+            print(f"Backfilling taxonomy V2 for: {game.title}")
+            result = await compute_and_store_game_taxonomy_v2(db, game)
+            processed += 1
+            if result.status == TAXONOMY_V2_STATUS_COMPUTED:
+                computed += 1
+            elif result.status == TAXONOMY_V2_STATUS_CURATED:
+                curated += 1
+            elif result.status == TAXONOMY_V2_STATUS_HIDDEN:
+                hidden += 1
+                audit_state = str(result.debug_payload.get("audit_state") or "unknown")
+                hidden_reasons[audit_state] = hidden_reasons.get(audit_state, 0) + 1
+            if processed % 25 == 0 or processed == len(games):
+                await db.commit()
+                print(
+                    f"  Progress: {processed}/{len(games)} "
+                    f"(computed={computed}, curated={curated}, hidden={hidden})"
+                )
+
+        await db.commit()
+        hidden_summary = ", ".join(
+            f"{reason}={count}"
+            for reason, count in sorted(hidden_reasons.items(), key=lambda item: (-item[1], item[0]))
+        ) or "none"
+        print(
+            "Taxonomy V2 backfill complete: "
+            f"{processed} processed, {computed} computed, {curated} curated, "
+            f"{hidden} hidden"
+        )
+        print(f"Hidden audit states: {hidden_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_debug(args):
+    """Explain the computed Similar Games Taxonomy V2 fingerprint for a game."""
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import (
+        build_similarity_breakdown_v2,
+        compute_game_taxonomy_v2,
+        display_taxonomy_v2_token,
+        store_game_taxonomy_v2,
+    )
+
+    def _clone_game_for_breakdown(source: Game, result) -> Game:
+        return Game(
+            id=source.id,
+            public_id=source.public_id,
+            title=source.title,
+            release_date=source.release_date,
+            taxonomy_studios=list(getattr(source, "taxonomy_studios", None) or []),
+            taxonomy_v2_status=result.status,
+            taxonomy_v2_primary_family=result.primary_family,
+            taxonomy_v2_primary_archetype=result.primary_archetype,
+            taxonomy_v2_secondary_archetypes=list(result.secondary_archetypes or []),
+            taxonomy_v2_hard_exclusions=list(result.hard_exclusions or []),
+            taxonomy_v2_soft_penalties=list(result.soft_penalties or []),
+            taxonomy_v2_fingerprint={key: list(values) for key, values in (result.fingerprint or {}).items()},
+        )
+
+    def _print_breakdown(label: str, breakdown) -> None:
+        print(f"  {label}:")
+        if breakdown is None:
+            print("    none")
+            return
+        print(f"    relationship: {breakdown.relationship}")
+        print(f"    score: {breakdown.score}")
+        print(f"    confidence: {breakdown.confidence}")
+        reasons = list(getattr(breakdown, "match_reasons", None) or [])
+        if reasons:
+            print(f"    reasons: {', '.join(reasons)}")
+        else:
+            print("    reasons: none")
+
+    def _print_compact_result(label: str, result_like) -> None:
+        status = getattr(result_like, "status", None)
+        if status is None:
+            status = getattr(result_like, "taxonomy_v2_status", None)
+        primary_archetype = getattr(result_like, "primary_archetype", None)
+        if primary_archetype is None:
+            primary_archetype = getattr(result_like, "taxonomy_v2_primary_archetype", None)
+        secondary_archetypes = getattr(result_like, "secondary_archetypes", None)
+        if secondary_archetypes is None:
+            secondary_archetypes = getattr(result_like, "taxonomy_v2_secondary_archetypes", None) or []
+        hard_exclusions = getattr(result_like, "hard_exclusions", None)
+        if hard_exclusions is None:
+            hard_exclusions = getattr(result_like, "taxonomy_v2_hard_exclusions", None) or []
+        fingerprint = getattr(result_like, "fingerprint", None)
+        if fingerprint is None:
+            fingerprint = getattr(result_like, "taxonomy_v2_fingerprint", None) or {}
+        print(f"  {label}:")
+        print(f"    status: {status or 'none'}")
+        print(f"    primary archetype: {primary_archetype or 'none'}")
+        print(f"    secondary archetypes: {', '.join(secondary_archetypes) or 'none'}")
+        print(
+            "    hard exclusions: "
+            + (", ".join(display_taxonomy_v2_token(value) for value in hard_exclusions) or "none")
+        )
+        interesting_axes = ("world_topology", "perspective", "combat_style", "combat_structure", "traversal_verbs", "progression_model", "challenge_model", "setting", "rules_goals", "entity_interaction")
+        for axis in interesting_axes:
+            values = fingerprint.get(axis, [])
+            if not values:
+                continue
+            rendered = ", ".join(display_taxonomy_v2_token(value) for value in values)
+            print(f"    {axis}: {rendered}")
+
+    def _print_source_snippets(label: str, game_like) -> None:
+        snippet_fields = (
+            ("generic", getattr(game_like, "description", None)),
+            ("opencritic", getattr(game_like, "opencritic_description", None)),
+            ("steam_short", getattr(game_like, "steam_short_description", None)),
+            ("steam_detailed", getattr(game_like, "steam_detailed_description", None)),
+            ("metacritic", getattr(game_like, "metacritic_description", None)),
+        )
+        printed = False
+        print(f"  {label}:")
+        for source_name, value in snippet_fields:
+            if not value:
+                continue
+            printed = True
+            print(f"    {source_name}: {_truncate_cli_text(str(value).replace(chr(10), ' '), limit=240)}")
+        if not printed:
+            print("    none")
+
+    def _print_provenance(label: str, result_like, fingerprint_like) -> None:
+        debug_payload = getattr(result_like, "debug_payload", None)
+        if debug_payload is None:
+            debug_payload = getattr(result_like, "taxonomy_v2_debug_payload", None) or {}
+        provenance = debug_payload.get("provenance_by_field_value", {}) if isinstance(debug_payload, dict) else {}
+        if not provenance:
+            print(f"  {label}: none")
+            return
+        interesting_axes = (
+            "world_topology",
+            "perspective",
+            "combat_style",
+            "combat_structure",
+            "traversal_verbs",
+            "progression_model",
+            "challenge_model",
+            "setting",
+            "rules_goals",
+            "entity_interaction",
+        )
+        printed = False
+        print(f"  {label}:")
+        for axis in interesting_axes:
+            values = (fingerprint_like or {}).get(axis, [])
+            if not values:
+                continue
+            for value in values:
+                providers = provenance.get(axis, {}).get(value, [])
+                if not providers:
+                    continue
+                printed = True
+                print(f"    {axis}={value}: {', '.join(providers)}")
+        if not printed:
+            print("    none")
+
+    async with async_session_maker() as db:
+        game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
+        if not game:
+            print("Game not found.")
+            return 1
+
+        result = await compute_game_taxonomy_v2(db, game)
+        if args.persist:
+            await store_game_taxonomy_v2(db, game, result)
+            await db.commit()
+
+        print(f"Game: {game.title}")
+        print(f"  Status: {result.status}")
+        if result.status == "hidden":
+            print(f"  Audit state: {result.debug_payload.get('audit_state', 'unknown')}")
+        print(f"  Version: {result.version}")
+        print(f"  Primary family: {result.primary_family or 'none'}")
+        print(f"  Primary archetype: {result.primary_archetype or 'none'}")
+        print(f"  Secondary archetypes: {', '.join(result.secondary_archetypes) or 'none'}")
+        print(f"  Confidence: {result.confidence:.2f}" if result.confidence is not None else "  Confidence: none")
+        print(f"  Curated override: {'yes' if result.curated else 'no'}")
+        text_sources = result.debug_payload.get("text_sources", [])
+        print(f"  Text sources: {', '.join(text_sources) or 'none'}")
+        print(f"  Text length: {result.debug_payload.get('text_length', 0)}")
+        matrix_versions = result.debug_payload.get("matrix_versions", {})
+        if matrix_versions:
+            print(
+                "  Matrix versions: "
+                + ", ".join(f"{key}={value}" for key, value in matrix_versions.items() if value)
+            )
+
+        interesting_axes = (
+            "world_topology",
+            "world_density",
+            "session_shape",
+            "perspective",
+            "combat_presence",
+            "combat_style",
+            "combat_tempo",
+            "combat_structure",
+            "traversal_verbs",
+            "progression_model",
+            "challenge_model",
+            "narrative_structure",
+            "setting",
+            "tone",
+            "mode_profile",
+            "content_model",
+            "input_complexity",
+        )
+        print("  Fingerprint:")
+        for axis in interesting_axes:
+            values = result.fingerprint.get(axis, [])
+            if not values:
+                continue
+            rendered = ", ".join(display_taxonomy_v2_token(value) for value in values)
+            print(f"    {axis}: {rendered}")
+        print(
+            "    hard_exclusions: "
+            f"{', '.join(display_taxonomy_v2_token(value) for value in result.hard_exclusions) or 'none'}"
+        )
+        print(
+            "    soft_penalties: "
+            f"{', '.join(display_taxonomy_v2_token(value) for value in result.soft_penalties) or 'none'}"
+        )
+
+        candidates = result.debug_payload.get("candidate_archetypes", [])
+        if candidates:
+            print("  Top archetype candidates:")
+            for index, candidate in enumerate(candidates[: args.limit or 5], start=1):
+                print(
+                    f"    {index}. {candidate['archetype']} "
+                    f"(score={candidate['score']}, required={candidate['required_hits']}/{candidate['required_total']}, "
+                    f"preferred={candidate['preferred_hits']}/{candidate['preferred_total']}, "
+                    f"confidence={candidate['confidence']})"
+                )
+        else:
+            print("  Top archetype candidates: none")
+
+        near_misses = result.debug_payload.get("near_misses", [])
+        if near_misses:
+            print("  Near misses:")
+            for index, near_miss in enumerate(near_misses[: args.limit or 5], start=1):
+                missing = ", ".join(
+                    display_taxonomy_v2_token(value)
+                    for value in near_miss.get("missing_required_axes", [])
+                ) or "none"
+                print(
+                    f"    {index}. {near_miss['archetype']} "
+                    f"(required={near_miss['required_hits']}/{near_miss['required_total']}, missing={missing})"
+                )
+
+        if result.evidence:
+            print("  Evidence:")
+            ranked_evidence = sorted(
+                result.evidence,
+                key=lambda item: (-item.confidence, item.field, item.value, item.source),
+            )
+            for record in ranked_evidence[: args.evidence_limit]:
+                note = f" ({record.evidence_text})" if record.evidence_text else ""
+                print(
+                    f"    - {record.field}={record.value} "
+                    f"[{record.source}/{record.source_field}, confidence={record.confidence:.2f}]{note}"
+                )
+        else:
+            print("  Evidence: none")
+        _print_provenance("Provenance", result, result.fingerprint)
+        _print_source_snippets("Source snippets", game)
+
+        if args.compare:
+            compare_game = await _resolve_target_game_with_title_fallback(db, Game, str(args.compare))
+            if not compare_game:
+                print("Compare game not found.")
+                return 1
+
+            compare_result = await compute_game_taxonomy_v2(db, compare_game)
+            if args.persist:
+                await store_game_taxonomy_v2(db, compare_game, compare_result)
+                await db.commit()
+
+            print(f"Compare Game: {compare_game.title}")
+            _print_compact_result("Stored compare taxonomy", compare_game)
+            _print_compact_result("Recomputed compare taxonomy", compare_result)
+            _print_provenance(
+                "Stored compare provenance",
+                compare_game,
+                getattr(compare_game, "taxonomy_v2_fingerprint", None) or {},
+            )
+            _print_provenance("Recomputed compare provenance", compare_result, compare_result.fingerprint)
+            _print_source_snippets("Compare source snippets", compare_game)
+
+            stored_breakdown = build_similarity_breakdown_v2(game, compare_game)
+            recomputed_breakdown = build_similarity_breakdown_v2(
+                _clone_game_for_breakdown(game, result),
+                _clone_game_for_breakdown(compare_game, compare_result),
+            )
+            _print_breakdown("Stored pair breakdown", stored_breakdown)
+            _print_breakdown("Recomputed pair breakdown", recomputed_breakdown)
+    return 0
+
+
+async def cmd_taxonomy_v2_label_audit(args):
+    """Audit grouped raw labels against the V2 label extractor."""
+    from sqlalchemy import func, select
+
+    from app.models.models import GameSourceTaxonomyLabel
+    from app.services.game_taxonomy_v2 import analyze_taxonomy_v2_label
+
+    async with async_session_maker() as db:
+        query = (
+            select(
+                GameSourceTaxonomyLabel.source,
+                GameSourceTaxonomyLabel.facet,
+                GameSourceTaxonomyLabel.normalized_label,
+                func.min(GameSourceTaxonomyLabel.raw_label).label("sample_raw_label"),
+                func.count().label("row_count"),
+                func.count(func.distinct(GameSourceTaxonomyLabel.game_id)).label("game_count"),
+            )
+            .group_by(
+                GameSourceTaxonomyLabel.source,
+                GameSourceTaxonomyLabel.facet,
+                GameSourceTaxonomyLabel.normalized_label,
+            )
+        )
+        if args.source:
+            query = query.where(GameSourceTaxonomyLabel.source == args.source)
+        if args.facet:
+            query = query.where(GameSourceTaxonomyLabel.facet == args.facet)
+
+        rows = (await db.execute(query)).all()
+
+    audited: list[dict[str, object]] = []
+    for source, facet, normalized_label, sample_raw_label, row_count, game_count in rows:
+        if int(game_count) < args.min_count:
+            continue
+        analysis = analyze_taxonomy_v2_label(
+            source=str(source),
+            facet=str(facet),
+            raw_label=str(normalized_label),
+            normalized_label=str(normalized_label),
+        )
+        audited.append(
+            {
+                "source": str(source),
+                "facet": str(facet),
+                "normalized_label": str(normalized_label),
+                "sample_raw_label": str(sample_raw_label or normalized_label),
+                "row_count": int(row_count),
+                "game_count": int(game_count),
+                "analysis": analysis,
+            }
+        )
+
+    if not audited:
+        print("No grouped labels matched the requested audit scope.")
+        return 0
+
+    mapped = [row for row in audited if row["analysis"].classification == "mapped"]
+    suppressed = [row for row in audited if row["analysis"].classification == "suppressed"]
+    ignored = [row for row in audited if row["analysis"].classification == "ignored"]
+    provider_gap = [row for row in audited if row["analysis"].classification == "provider_gap"]
+    unmapped = [row for row in audited if row["analysis"].classification == "unmapped"]
+    print(
+        "Taxonomy V2 label audit: "
+        f"{len(audited)} grouped labels "
+        f"(mapped={len(mapped)}, suppressed={len(suppressed)}, ignored={len(ignored)}, "
+        f"provider_gap={len(provider_gap)}, unmapped={len(unmapped)}, min_count={args.min_count})"
+    )
+
+    if suppressed:
+        print("Top suppressed labels:")
+        ranked_suppressed = sorted(
+            suppressed,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_suppressed[: args.limit], start=1):
+            analysis = row["analysis"]
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, reason={analysis.suppression_reason or 'suppressed'})"
+            )
+    else:
+        print("Top suppressed labels: none")
+
+    if ignored:
+        print("Top ignored labels:")
+        ranked_ignored = sorted(
+            ignored,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_ignored[: args.limit], start=1):
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']})"
+            )
+    else:
+        print("Top ignored labels: none")
+
+    if provider_gap:
+        print("Top provider-gap labels:")
+        ranked_provider_gap = sorted(
+            provider_gap,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_provider_gap[: args.limit], start=1):
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, sample='{_truncate_cli_text(str(row['sample_raw_label']), limit=72)}')"
+            )
+    else:
+        print("Top provider-gap labels: none")
+
+    if unmapped:
+        print("Top unmapped labels:")
+        ranked_unmapped = sorted(
+            unmapped,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_unmapped[: args.limit], start=1):
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, rows={row['row_count']}, sample='{_truncate_cli_text(str(row['sample_raw_label']), limit=72)}')"
+            )
+    else:
+        print("Top unmapped labels: none")
+
+    if args.show_mapped:
+        print("Top mapped labels:")
+        ranked_mapped = sorted(
+            mapped,
+            key=lambda row: (
+                -int(row["game_count"]),
+                str(row["source"]),
+                str(row["facet"]),
+                str(row["normalized_label"]),
+            ),
+        )
+        for index, row in enumerate(ranked_mapped[: args.limit], start=1):
+            analysis = row["analysis"]
+            tokens = ", ".join(analysis.resolved_tokens[:4]) or "none"
+            signals = ", ".join(analysis.emitted_signals[:4]) or "none"
+            print(
+                f"{index:>3}. {row['source']}/{row['facet']}: {row['normalized_label']} "
+                f"(games={row['game_count']}, tokens={tokens}, signals={signals}, "
+                f"role={analysis.role_tier or 'none'}, rarity={analysis.rarity_bucket or 'none'})"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_text_audit(args):
+    """Audit recurring phrases in stored V2 text corpora."""
+    from collections import Counter, defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import extract_taxonomy_v2_text_phrases
+
+    async with async_session_maker() as db:
+        query = select(Game.title, Game.taxonomy_v2_status, Game.taxonomy_v2_text_corpus).where(
+            Game.taxonomy_v2_text_corpus.isnot(None)
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    phrase_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    phrase_samples: dict[str, dict[str, str]] = defaultdict(dict)
+    game_counts = Counter()
+
+    for title, status, text_corpus in rows:
+        status_key = str(status or "unknown")
+        game_counts[status_key] += 1
+        phrases = extract_taxonomy_v2_text_phrases(
+            text_corpus,
+            ngram=args.ngram,
+            exclude_boilerplate=not args.include_boilerplate,
+        )
+        for phrase in phrases:
+            phrase_counts[status_key][phrase] += 1
+            phrase_samples[status_key].setdefault(phrase, str(title))
+
+    if not game_counts:
+        print("No games with taxonomy V2 text corpus matched the requested audit scope.")
+        return 0
+
+    statuses = list(args.status or [])
+    if not statuses:
+        statuses = [
+            status
+            for status in ("computed", "hidden", "curated", "pending", "needs_review", "failed", "unknown")
+            if status in game_counts
+        ]
+
+    print(
+        "Taxonomy V2 text audit: "
+        f"games_scanned={sum(game_counts.values())}, "
+        f"ngram={args.ngram}, "
+        f"exclude_boilerplate={'no' if args.include_boilerplate else 'yes'}"
+    )
+    for status in statuses:
+        print(f"  {status}: games={game_counts.get(status, 0)}")
+
+    for status in statuses:
+        ranked = [
+            (phrase, count)
+            for phrase, count in phrase_counts.get(status, Counter()).most_common()
+            if count >= args.min_count
+        ]
+        print(f"Top phrases for {status}:")
+        if not ranked:
+            print("  none")
+            continue
+        for index, (phrase, count) in enumerate(ranked[: args.limit], start=1):
+            sample_title = phrase_samples.get(status, {}).get(phrase, "")
+            print(
+                f"{index:>3}. {phrase} "
+                f"(games={count}, sample='{_truncate_cli_text(sample_title, limit=56)}')"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_near_miss_audit(args):
+    """Audit the closest archetype misses for V2 games without a clean classification."""
+    from collections import Counter, defaultdict
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import display_taxonomy_v2_token, rank_taxonomy_v2_near_misses
+
+    async with async_session_maker() as db:
+        query = select(
+            Game.title,
+            Game.public_id,
+            Game.taxonomy_v2_status,
+            Game.taxonomy_v2_fingerprint,
+            Game.taxonomy_v2_hard_exclusions,
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    games_scanned = 0
+    games_with_fingerprint = 0
+    games_with_near_miss = 0
+    archetype_counts = Counter()
+    missing_axis_counts = Counter()
+    archetype_missing_axis_counts: dict[str, Counter[str]] = defaultdict(Counter)
+    examples: list[tuple[int, int, int, str, str, object]] = []
+
+    for title, public_id, status, fingerprint, hard_exclusions in rows:
+        games_scanned += 1
+        if not fingerprint:
+            continue
+        games_with_fingerprint += 1
+        near_misses = rank_taxonomy_v2_near_misses(
+            fingerprint,
+            hard_exclusions=hard_exclusions or [],
+            limit=args.candidate_depth,
+        )
+        if not near_misses:
+            continue
+        games_with_near_miss += 1
+        top = near_misses[0]
+        archetype_counts[top.archetype] += 1
+        for axis in top.missing_required_axes:
+            missing_axis_counts[axis] += 1
+            archetype_missing_axis_counts[top.archetype][axis] += 1
+        examples.append(
+            (
+                top.required_hits,
+                -len(top.missing_required_axes),
+                top.preferred_hits,
+                str(title),
+                str(public_id or ""),
+                top,
+            )
+        )
+
+    print(
+        "Taxonomy V2 near-miss audit: "
+        f"games_scanned={games_scanned}, "
+        f"with_fingerprint={games_with_fingerprint}, "
+        f"with_near_miss={games_with_near_miss}, "
+        f"statuses={', '.join(args.status or []) or 'all'}"
+    )
+
+    print("Top near archetypes:")
+    if not archetype_counts:
+        print("  none")
+    else:
+        for index, (archetype, count) in enumerate(archetype_counts.most_common(args.limit), start=1):
+            common_missing = ", ".join(
+                display_taxonomy_v2_token(axis)
+                for axis, _ in archetype_missing_axis_counts[archetype].most_common(3)
+            ) or "none"
+            print(
+                f"{index:>3}. {display_taxonomy_v2_token(archetype)} "
+                f"(games={count}, common_missing={common_missing})"
+            )
+
+    print("Top missing required axes:")
+    if not missing_axis_counts:
+        print("  none")
+    else:
+        for index, (axis, count) in enumerate(missing_axis_counts.most_common(args.limit), start=1):
+            print(f"{index:>3}. {display_taxonomy_v2_token(axis)} (games={count})")
+
+    print("Examples:")
+    if not examples:
+        print("  none")
+    else:
+        examples.sort(key=lambda item: (-item[0], item[1], -item[2], item[3].lower()))
+        for index, (_, _, _, title, public_id, near_miss) in enumerate(examples[: args.examples], start=1):
+            missing = ", ".join(display_taxonomy_v2_token(axis) for axis in near_miss.missing_required_axes) or "none"
+            print(
+                f"{index:>3}. {title} -> {display_taxonomy_v2_token(near_miss.archetype)} "
+                f"(missing={missing}, required={near_miss.required_hits}/{near_miss.required_total})"
+            )
+            if public_id:
+                print(f"     public_id={public_id}")
+    return 0
+
+
+async def cmd_taxonomy_v2_boilerplate_audit(args):
+    """Audit recurring storefront boilerplate in taxonomy V2 text corpora."""
+    from collections import Counter
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import detect_taxonomy_v2_boilerplate_segments
+
+    async with async_session_maker() as db:
+        query = select(Game.title, Game.taxonomy_v2_status, Game.taxonomy_v2_text_corpus).where(
+            Game.taxonomy_v2_text_corpus.isnot(None)
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    category_game_counts = Counter()
+    category_hit_counts = Counter()
+    snippet_counts = Counter()
+    snippet_samples: dict[tuple[str, str], tuple[str, str]] = {}
+    games_scanned = 0
+
+    for title, status, text_corpus in rows:
+        games_scanned += 1
+        hits = detect_taxonomy_v2_boilerplate_segments(text_corpus)
+        seen_categories: set[str] = set()
+        seen_snippets: set[tuple[str, str]] = set()
+        for hit in hits:
+            category_hit_counts[hit.category] += 1
+            seen_categories.add(hit.category)
+            marker = (hit.category, hit.normalized_segment)
+            if marker in seen_snippets:
+                continue
+            seen_snippets.add(marker)
+            snippet_counts[marker] += 1
+            snippet_samples.setdefault(marker, (str(title), hit.segment))
+        for category in seen_categories:
+            category_game_counts[category] += 1
+
+    print(
+        "Taxonomy V2 boilerplate audit: "
+        f"games_scanned={games_scanned}, statuses={', '.join(args.status or []) or 'all'}"
+    )
+
+    print("Top boilerplate categories:")
+    if not category_game_counts:
+        print("  none")
+    else:
+        for index, (category, game_count) in enumerate(category_game_counts.most_common(args.limit), start=1):
+            print(
+                f"{index:>3}. {category} "
+                f"(games={game_count}, hits={category_hit_counts.get(category, 0)})"
+            )
+
+    print("Top boilerplate snippets:")
+    ranked_snippets = [
+        (marker, count)
+        for marker, count in snippet_counts.most_common()
+        if count >= args.min_count
+    ]
+    if not ranked_snippets:
+        print("  none")
+    else:
+        for index, ((category, normalized_segment), count) in enumerate(ranked_snippets[: args.limit], start=1):
+            sample_title, sample_segment = snippet_samples[(category, normalized_segment)]
+            print(
+                f"{index:>3}. [{category}] {_truncate_cli_text(sample_segment, limit=96)} "
+                f"(games={count}, sample='{_truncate_cli_text(sample_title, limit=40)}')"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_confusion_audit(args):
+    """Summarize taxonomy V2 family/archetype coverage and common secondary pairings."""
+    from collections import Counter
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.services.game_taxonomy_v2 import display_taxonomy_v2_token
+
+    async with async_session_maker() as db:
+        query = select(
+            Game.title,
+            Game.taxonomy_v2_status,
+            Game.taxonomy_v2_primary_family,
+            Game.taxonomy_v2_primary_archetype,
+            Game.taxonomy_v2_secondary_archetypes,
+        )
+        if args.status:
+            query = query.where(Game.taxonomy_v2_status.in_(list(args.status)))
+        if args.limit_games:
+            query = query.limit(args.limit_games)
+        rows = (await db.execute(query)).all()
+
+    status_counts = Counter()
+    family_counts = Counter()
+    archetype_counts = Counter()
+    confusion_pairs = Counter()
+
+    for _title, status, family, archetype, secondaries in rows:
+        status_key = str(status or "unknown")
+        status_counts[status_key] += 1
+        if family:
+            family_counts[str(family)] += 1
+        if archetype:
+            archetype_counts[str(archetype)] += 1
+        primary = str(archetype or "")
+        if primary:
+            for secondary in secondaries or []:
+                confusion_pairs[(primary, str(secondary))] += 1
+
+    print(
+        "Taxonomy V2 confusion audit: "
+        f"games_scanned={sum(status_counts.values())}, statuses={', '.join(args.status or []) or 'all'}"
+    )
+    print("Statuses:")
+    for index, (status, count) in enumerate(status_counts.most_common(args.limit), start=1):
+        print(f"{index:>3}. {status} (games={count})")
+
+    print("Top primary families:")
+    if not family_counts:
+        print("  none")
+    else:
+        for index, (family, count) in enumerate(family_counts.most_common(args.limit), start=1):
+            print(f"{index:>3}. {display_taxonomy_v2_token(family)} (games={count})")
+
+    print("Top primary archetypes:")
+    if not archetype_counts:
+        print("  none")
+    else:
+        for index, (archetype, count) in enumerate(archetype_counts.most_common(args.limit), start=1):
+            print(f"{index:>3}. {display_taxonomy_v2_token(archetype)} (games={count})")
+
+    print("Top primary->secondary pairings:")
+    if not confusion_pairs:
+        print("  none")
+    else:
+        for index, ((primary, secondary), count) in enumerate(confusion_pairs.most_common(args.limit), start=1):
+            print(
+                f"{index:>3}. {display_taxonomy_v2_token(primary)} -> "
+                f"{display_taxonomy_v2_token(secondary)} (games={count})"
+            )
+    return 0
+
+
+async def cmd_taxonomy_v2_gold_set_audit(args):
+    """Evaluate live similar-games output against the taxonomy V2 gold set."""
+    import json
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from app.models.models import Game
+    from app.routers.games import get_game_similar
+
+    gold_set_path = Path(__file__).resolve().parent / "data" / "taxonomy_v2_gold_set.json"
+    payload = json.loads(gold_set_path.read_text())
+    anchors = list(payload.get("anchors", []))
+    if args.limit_games:
+        anchors = anchors[: args.limit_games]
+
+    processed = 0
+    expected_total = 0
+    expected_hits = 0
+    blocked_violations = 0
+
+    async with async_session_maker() as db:
+        for anchor in anchors:
+            anchor_title = str(anchor.get("title") or "").strip()
+            if not anchor_title:
+                continue
+            game = (
+                await db.execute(
+                    select(Game).where(Game.title == anchor_title).order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+                )
+            ).scalars().first()
+            if not game:
+                print(f"Missing anchor: {anchor_title}")
+                continue
+
+            processed += 1
+            results = await get_game_similar(game_id=str(game.id), limit=args.limit, db=db)
+            result_titles = [item.title for item in results]
+            result_title_set = set(result_titles)
+
+            expected_neighbors = [str(value) for value in anchor.get("expected_neighbors", [])]
+            blocked_neighbors = [str(value) for value in anchor.get("blocked_neighbors", [])]
+
+            hits = [title for title in expected_neighbors if title in result_title_set]
+            violations = [title for title in blocked_neighbors if title in result_title_set]
+
+            expected_total += len(expected_neighbors)
+            expected_hits += len(hits)
+            blocked_violations += len(violations)
+
+            precision = (len(hits) / max(1, min(len(expected_neighbors), len(result_titles)))) if result_titles else 0.0
+            print(f"{anchor_title}: precision@{args.limit}={precision:.2f}")
+            print(f"  results: {', '.join(result_titles) or 'none'}")
+            print(f"  expected_hits: {', '.join(hits) or 'none'}")
+            print(f"  blocked_hits: {', '.join(violations) or 'none'}")
+
+    print(
+        "Taxonomy V2 gold-set audit: "
+        f"anchors={processed}, expected_hits={expected_hits}/{expected_total}, blocked_violations={blocked_violations}"
+    )
+    return 0
+
+
+async def cmd_similarity_v3_corpus(args):
+    """Build/update Similar Games V3 document rows and embeddings."""
+    from app.services.game_similarity_v3 import (
+        build_similarity_v3_document_rows,
+    )
+
+    game_ids = await _load_similarity_v3_target_game_ids(
+        dirty_only=args.dirty_only,
+        game_identifier=args.game,
+        limit=args.limit,
+    )
+    if not game_ids:
+        print("No games found for similarity V3 corpus build.")
+        return 1
+
+    processed = 0
+    total_batches = max(1, (len(game_ids) + _SIMILARITY_V3_CORPUS_BATCH_SIZE - 1) // _SIMILARITY_V3_CORPUS_BATCH_SIZE)
+    for batch_index, batch_start in enumerate(range(0, len(game_ids), _SIMILARITY_V3_CORPUS_BATCH_SIZE), start=1):
+        batch_ids = game_ids[batch_start : batch_start + _SIMILARITY_V3_CORPUS_BATCH_SIZE]
+
+        async def _process_batch() -> int:
+            async with async_session_maker() as db:
+                batch_games = await _load_games_by_ids(db, batch_ids)
+                updated = await build_similarity_v3_document_rows(db, batch_games)
+                await db.commit()
+                return updated
+
+        updated = await _retry_similarity_v3_batch(
+            "Similarity V3 corpus",
+            batch_index,
+            total_batches,
+            _process_batch,
+        )
+        processed += len(batch_ids)
+        print(
+            f"  Progress: {processed}/{len(game_ids)} "
+            f"(documents_refreshed={updated})"
+        )
+
+    print(f"Similarity V3 corpus complete: {processed} games processed")
+    return 0
+
+
+async def cmd_similarity_v3_embed(args):
+    """Refresh Similar Games V3 embeddings for target games."""
+    return await cmd_similarity_v3_corpus(args)
+
+
+async def cmd_similarity_v3_neighbors(args):
+    """Preview Similar Games V3 ranked neighbors without switching the live route."""
+    from app.services.game_similarity_v3 import (
+        build_similarity_v3_document_rows,
+        compute_similarity_v3_neighbors_for_game,
+        load_similarity_v3_target_games,
+    )
+
+    async with async_session_maker() as db:
+        games = await load_similarity_v3_target_games(
+            db,
+            dirty_only=args.dirty_only,
+            game_identifier=args.game,
+            limit=args.limit_games,
+        )
+        if not games:
+            print("No games found for similarity V3 neighbor preview.")
+            return 1
+
+        await build_similarity_v3_document_rows(db, games)
+        await db.commit()
+
+        for game in games:
+            print(f"Similarity V3 preview for: {game.title}")
+            neighbors = await compute_similarity_v3_neighbors_for_game(db, game, limit=args.limit)
+            if not neighbors:
+                print("  none")
+                continue
+            for index, neighbor in enumerate(neighbors, start=1):
+                print(
+                    f"  {index}. {neighbor.candidate.title} "
+                    f"(score={neighbor.final_score:.4f}, relationship={neighbor.relationship_type}, "
+                    f"vector_exception={'yes' if neighbor.used_vector_exception else 'no'})"
+                )
+                reasons = neighbor.explanation_payload.get("match_reasons") or []
+                if reasons:
+                    print(f"     reasons: {', '.join(reasons)}")
+    return 0
+
+
+async def cmd_similarity_v3_publish(args):
+    """Publish Similar Games V3 neighbors to the DB-backed serving table."""
+    from app.services.game_similarity_v3 import (
+        build_similarity_v3_document_rows,
+        publish_similarity_v3_neighbors_for_games,
+    )
+
+    game_ids = await _load_similarity_v3_target_game_ids(
+        dirty_only=args.dirty_only,
+        game_identifier=args.game,
+        limit=args.limit_games,
+    )
+    if not game_ids:
+        print("No games found for similarity V3 publish.")
+        return 1
+
+    processed = 0
+    computed = 0
+    hidden = 0
+    total_batches = max(1, (len(game_ids) + _SIMILARITY_V3_PUBLISH_BATCH_SIZE - 1) // _SIMILARITY_V3_PUBLISH_BATCH_SIZE)
+    for batch_index, batch_start in enumerate(range(0, len(game_ids), _SIMILARITY_V3_PUBLISH_BATCH_SIZE), start=1):
+        batch_ids = game_ids[batch_start : batch_start + _SIMILARITY_V3_PUBLISH_BATCH_SIZE]
+
+        async def _process_batch() -> dict[str, int]:
+            async with async_session_maker() as db:
+                batch_games = await _load_games_by_ids(db, batch_ids)
+                await build_similarity_v3_document_rows(db, batch_games)
+                stats = await publish_similarity_v3_neighbors_for_games(
+                    db,
+                    batch_games,
+                    limit=args.limit,
+                    persist_run=batch_index == total_batches,
+                )
+                await db.commit()
+                return stats
+
+        stats = await _retry_similarity_v3_batch(
+            "Similarity V3 publish",
+            batch_index,
+            total_batches,
+            _process_batch,
+        )
+        processed += stats["processed"]
+        computed += stats["computed"]
+        hidden += stats["hidden"]
+        print(
+            f"  Progress: {processed}/{len(game_ids)} "
+            f"(computed={computed}, hidden={hidden})"
+        )
+
+    print(
+        "Similarity V3 publish complete: "
+        f"{processed} processed, {computed} computed, {hidden} hidden"
+    )
+    return 0
+
+
+async def cmd_similarity_v3_gold_audit(args):
+    """Audit published Similar Games V3 neighbors against the gold set."""
+    from app.services.game_similarity_v3 import audit_similarity_v3_gold_set
+
+    async with async_session_maker() as db:
+        results = await audit_similarity_v3_gold_set(db, limit=args.limit)
+
+    if not results:
+        print("No Similar Games V3 gold-set results available.")
+        return 0
+
+    hits = 0
+    expected_total = 0
+    blocked_hits = 0
+    for row in results:
+        if not row.get("found"):
+            print(f"{row['anchor']}: missing")
+            continue
+        print(f"{row['anchor']}: precision@{args.limit}={row['precision_at_limit']:.2f}")
+        print(f"  results: {', '.join(row['results']) or 'none'}")
+        hits += int(row["hits"])
+        expected_total += int(row["expected_count"])
+        blocked_hits += int(row["blocked_hits"])
+
+    print(
+        "Similarity V3 gold-set audit: "
+        f"expected_hits={hits}/{expected_total}, blocked_hits={blocked_hits}"
+    )
+    return 0
+
+
+async def cmd_similarity_v3_confusion_audit(args):
+    """Audit published Similar Games V3 relationship distribution by archetype."""
+    from app.services.game_similarity_v3 import audit_similarity_v3_confusion
+
+    async with async_session_maker() as db:
+        rows = await audit_similarity_v3_confusion(db, limit=args.limit)
+
+    if not rows:
+        print("No Similar Games V3 confusion data available.")
+        return 0
+
+    print("Similarity V3 confusion audit:")
+    for index, row in enumerate(rows, start=1):
+        print(
+            f"{index:>3}. {row['primary_archetype'] or 'none'} -> "
+            f"{row['relationship_type'] or 'none'} (rows={row['count']})"
+        )
+    return 0
+
+
+async def cmd_similarity_v3_hidden_audit(args):
+    """Audit hidden Similar Games V3 states by cause."""
+    from app.services.game_similarity_v3 import audit_similarity_v3_hidden_states
+
+    async with async_session_maker() as db:
+        rows = await audit_similarity_v3_hidden_states(db)
+
+    print("Similarity V3 hidden audit:")
+    if not rows:
+        print("  none")
+        return 0
+    for index, (reason, count) in enumerate(rows.items(), start=1):
+        print(f"{index:>3}. {reason} (games={count})")
+    return 0
+
+
+def cmd_enqueue_job(args):
+    """Enqueue a background worker job onto the Dramatiq queues."""
+    from app.tasks.disparity import calculate_daily_snapshots
+    from app.tasks.similarity import (
+        similarity_v3_corpus_job,
+        similarity_v3_pipeline_job,
+        similarity_v3_publish_job,
+        taxonomy_v2_backfill_job,
+    )
+    from app.tasks.sync import (
+        match_games_to_platforms,
+        sync_metacritic_scores,
+        sync_opencritic_full,
+        sync_opencritic_incremental,
+        sync_steam_scores,
+    )
+
+    job_map = {
+        "sync-opencritic-full": (
+            sync_opencritic_full,
+            (),
+            {},
+        ),
+        "sync-opencritic-incremental": (
+            sync_opencritic_incremental,
+            (),
+            {},
+        ),
+        "sync-steam": (
+            sync_steam_scores,
+            (),
+            {},
+        ),
+        "sync-metacritic": (
+            sync_metacritic_scores,
+            (),
+            {},
+        ),
+        "match-games": (
+            match_games_to_platforms,
+            (),
+            {},
+        ),
+        "disparity-snapshots": (
+            calculate_daily_snapshots,
+            (),
+            {"snapshot_date": args.snapshot_date},
+        ),
+        "taxonomy-v2-backfill": (
+            taxonomy_v2_backfill_job,
+            (),
+            {"game": args.game, "limit": args.limit},
+        ),
+        "similarity-v3-corpus": (
+            similarity_v3_corpus_job,
+            (),
+            {"game": args.game, "limit": args.limit, "dirty_only": args.dirty_only},
+        ),
+        "similarity-v3-publish": (
+            similarity_v3_publish_job,
+            (),
+            {
+                "game": args.game,
+                "limit": args.limit or 10,
+                "limit_games": args.limit_games,
+                "dirty_only": args.dirty_only,
+            },
+        ),
+        "similarity-v3-pipeline": (
+            similarity_v3_pipeline_job,
+            (),
+            {
+                "taxonomy_backfill": args.taxonomy_backfill,
+                "corpus_dirty_only": args.dirty_only,
+                "publish_dirty_only": args.publish_dirty_only,
+                "game": args.game,
+                "taxonomy_limit": args.taxonomy_limit,
+                "corpus_limit": args.limit,
+                "publish_limit": args.publish_limit,
+                "publish_limit_games": args.limit_games,
+                "run_gold_audit": args.run_gold_audit,
+            },
+        ),
+    }
+
+    actor, positional_args, keyword_args = job_map[args.job]
+    filtered_kwargs = {key: value for key, value in keyword_args.items() if value is not None}
+    message = actor.send(*positional_args, **filtered_kwargs)
+    print(
+        f"Enqueued {args.job} "
+        f"(queue={getattr(message, 'queue_name', 'unknown')}, message_id={getattr(message, 'message_id', 'unknown')})"
+    )
+    return 0
 
 
 async def cmd_disparity(args):
@@ -1618,6 +3638,14 @@ def main():
     match_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     match_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
 
+    # Steam-only import command
+    import_steam_parser = subparsers.add_parser(
+        "import-steam-game",
+        help="Import a game directly from Steam, even without OpenCritic coverage",
+    )
+    import_steam_parser.add_argument("--app-id", type=int, help="Steam app ID to import")
+    import_steam_parser.add_argument("--query", type=str, help="Steam store search query to resolve and import")
+
     # Steam command
     steam_parser = subparsers.add_parser(
         "steam",
@@ -1728,6 +3756,285 @@ def main():
     news_backfill_parser.add_argument("--limit", type=int, help="Limit number of articles to process")
     news_backfill_parser.add_argument("--dry-run", action="store_true", help="Show what would change without writing to DB")
 
+    taxonomy_backfill_parser = subparsers.add_parser(
+        "taxonomy-backfill",
+        help="Refresh raw taxonomy labels and canonical game taxonomy",
+    )
+    taxonomy_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    taxonomy_backfill_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only refresh one taxonomy source",
+    )
+    taxonomy_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    description_backfill_parser = subparsers.add_parser(
+        "description-backfill",
+        help="Refresh source-specific descriptions and taxonomy V2 text corpus",
+    )
+    description_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    description_backfill_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only refresh one source",
+    )
+    description_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    taxonomy_audit_parser = subparsers.add_parser(
+        "taxonomy-audit",
+        help="Show raw taxonomy labels that do not map to canonical facets",
+    )
+    taxonomy_audit_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only audit one source",
+    )
+    taxonomy_audit_parser.add_argument("--limit", type=int, default=50, help="Max rows to print")
+
+    similar_debug_parser = subparsers.add_parser(
+        "similar-debug",
+        help="Explain why a game does or does not qualify for similar games",
+    )
+    similar_debug_parser.add_argument("--game", required=True, help="Game public_id or numeric ID")
+    similar_debug_parser.add_argument("--limit", type=int, default=10, help="Max matches to print")
+
+    taxonomy_v2_backfill_parser = subparsers.add_parser(
+        "taxonomy-v2-backfill",
+        help="Compute and store Similar Games Taxonomy V2 fingerprints",
+    )
+    taxonomy_v2_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    taxonomy_v2_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    taxonomy_v2_debug_parser = subparsers.add_parser(
+        "taxonomy-v2-debug",
+        help="Explain the computed Similar Games Taxonomy V2 fingerprint for a game",
+    )
+    taxonomy_v2_debug_parser.add_argument("--game", required=True, help="Game public_id or numeric ID")
+    taxonomy_v2_debug_parser.add_argument(
+        "--compare",
+        type=str,
+        help="Optional second game public_id, numeric ID, or title to compare pairwise similarity against",
+    )
+    taxonomy_v2_debug_parser.add_argument("--limit", type=int, default=5, help="Max archetype candidates to print")
+    taxonomy_v2_debug_parser.add_argument(
+        "--evidence-limit",
+        type=int,
+        default=20,
+        help="Max evidence rows to print",
+    )
+    taxonomy_v2_debug_parser.add_argument(
+        "--persist",
+        action="store_true",
+        help="Write the computed V2 fingerprint and evidence back to the database",
+    )
+
+    taxonomy_v2_label_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-label-audit",
+        help="Audit grouped raw labels against the Similar Games Taxonomy V2 extractor",
+    )
+    taxonomy_v2_label_audit_parser.add_argument(
+        "--source",
+        choices=["opencritic", "steam", "metacritic"],
+        help="Only audit one source",
+    )
+    taxonomy_v2_label_audit_parser.add_argument("--facet", help="Only audit one stored facet")
+    taxonomy_v2_label_audit_parser.add_argument("--min-count", type=int, default=5, help="Min games per grouped label")
+    taxonomy_v2_label_audit_parser.add_argument("--limit", type=int, default=50, help="Max rows to print")
+    taxonomy_v2_label_audit_parser.add_argument(
+        "--show-mapped",
+        action="store_true",
+        help="Also print top mapped labels and emitted signals",
+    )
+
+    taxonomy_v2_text_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-text-audit",
+        help="Audit recurring phrases in stored Similar Games Taxonomy V2 text corpora",
+    )
+    taxonomy_v2_text_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        choices=["pending", "computed", "curated", "hidden", "failed", "needs_review"],
+        help="Only audit one or more V2 statuses",
+    )
+    taxonomy_v2_text_audit_parser.add_argument("--ngram", type=int, default=3, help="Phrase length in words")
+    taxonomy_v2_text_audit_parser.add_argument("--min-count", type=int, default=10, help="Min games per phrase")
+    taxonomy_v2_text_audit_parser.add_argument("--limit", type=int, default=25, help="Max phrases per status")
+    taxonomy_v2_text_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+    taxonomy_v2_text_audit_parser.add_argument(
+        "--include-boilerplate",
+        action="store_true",
+        help="Include phrases from segments that look like storefront boilerplate",
+    )
+
+    taxonomy_v2_near_miss_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-near-miss-audit",
+        help="Audit closest archetype misses for Similar Games Taxonomy V2 fingerprints",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        default=["hidden"],
+        choices=["pending", "computed", "curated", "hidden", "failed", "needs_review"],
+        help="Audit one or more V2 statuses",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument("--limit", type=int, default=15, help="Max summary rows to print")
+    taxonomy_v2_near_miss_audit_parser.add_argument("--examples", type=int, default=10, help="Max examples to print")
+    taxonomy_v2_near_miss_audit_parser.add_argument(
+        "--candidate-depth",
+        type=int,
+        default=3,
+        help="How many near-miss archetypes to evaluate per game",
+    )
+    taxonomy_v2_near_miss_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+
+    taxonomy_v2_boilerplate_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-boilerplate-audit",
+        help="Audit recurring storefront boilerplate in Similar Games Taxonomy V2 text corpora",
+    )
+    taxonomy_v2_boilerplate_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        choices=["pending", "computed", "curated", "hidden", "failed", "needs_review"],
+        help="Only audit one or more V2 statuses",
+    )
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--min-count", type=int, default=5, help="Min games per snippet")
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--limit", type=int, default=25, help="Max rows to print")
+    taxonomy_v2_boilerplate_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+
+    taxonomy_v2_confusion_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-confusion-audit",
+        help="Audit Similar Games Taxonomy V2 family/archetype coverage and common pairings",
+    )
+    taxonomy_v2_confusion_audit_parser.add_argument(
+        "--status",
+        nargs="+",
+        choices=["pending", "computed", "curated", "hidden", "failed", "needs_review"],
+        help="Only audit one or more V2 statuses",
+    )
+    taxonomy_v2_confusion_audit_parser.add_argument("--limit", type=int, default=25, help="Max rows to print")
+    taxonomy_v2_confusion_audit_parser.add_argument("--limit-games", type=int, help="Limit number of games scanned")
+
+    taxonomy_v2_gold_set_audit_parser = subparsers.add_parser(
+        "taxonomy-v2-gold-set-audit",
+        help="Audit live Similar Games Taxonomy V2 output against the curated gold set",
+    )
+    taxonomy_v2_gold_set_audit_parser.add_argument("--limit", type=int, default=5, help="Max neighbors per anchor")
+    taxonomy_v2_gold_set_audit_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
+
+    similarity_v3_corpus_parser = subparsers.add_parser(
+        "similarity-v3-corpus",
+        help="Build Similar Games V3 corpus rows and embeddings",
+    )
+    similarity_v3_corpus_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_corpus_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+    similarity_v3_corpus_parser.add_argument(
+        "--dirty-only",
+        action="store_true",
+        help="Only process games marked dirty or on an older V3 version",
+    )
+
+    similarity_v3_embed_parser = subparsers.add_parser(
+        "similarity-v3-embed",
+        help="Refresh Similar Games V3 embeddings for target games",
+    )
+    similarity_v3_embed_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_embed_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+    similarity_v3_embed_parser.add_argument(
+        "--dirty-only",
+        action="store_true",
+        help="Only process games marked dirty or on an older V3 version",
+    )
+
+    similarity_v3_neighbors_parser = subparsers.add_parser(
+        "similarity-v3-neighbors",
+        help="Preview Similar Games V3 ranked neighbors",
+    )
+    similarity_v3_neighbors_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_neighbors_parser.add_argument("--limit", type=int, default=5, help="Max neighbors to print")
+    similarity_v3_neighbors_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
+    similarity_v3_neighbors_parser.add_argument(
+        "--dirty-only",
+        action="store_true",
+        help="Only process games marked dirty or on an older V3 version",
+    )
+
+    similarity_v3_publish_parser = subparsers.add_parser(
+        "similarity-v3-publish",
+        help="Publish Similar Games V3 neighbors for serving",
+    )
+    similarity_v3_publish_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_publish_parser.add_argument("--limit", type=int, default=10, help="Max neighbors to publish")
+    similarity_v3_publish_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
+    similarity_v3_publish_parser.add_argument(
+        "--dirty-only",
+        action="store_true",
+        help="Only process games marked dirty or on an older V3 version",
+    )
+
+    similarity_v3_gold_audit_parser = subparsers.add_parser(
+        "similarity-v3-gold-audit",
+        help="Audit Similar Games V3 against the gold set",
+    )
+    similarity_v3_gold_audit_parser.add_argument("--limit", type=int, default=5, help="Max neighbors per anchor")
+
+    similarity_v3_confusion_audit_parser = subparsers.add_parser(
+        "similarity-v3-confusion-audit",
+        help="Audit Similar Games V3 relationship distribution",
+    )
+    similarity_v3_confusion_audit_parser.add_argument("--limit", type=int, default=25, help="Max rows to print")
+
+    subparsers.add_parser(
+        "similarity-v3-hidden-audit",
+        help="Audit Similar Games V3 hidden states",
+    )
+
+    queue_job_parser = subparsers.add_parser(
+        "queue-job",
+        help="Enqueue a background worker job onto the Dramatiq queues",
+    )
+    queue_job_parser.add_argument(
+        "job",
+        choices=[
+            "sync-opencritic-full",
+            "sync-opencritic-incremental",
+            "sync-steam",
+            "sync-metacritic",
+            "match-games",
+            "disparity-snapshots",
+            "taxonomy-v2-backfill",
+            "similarity-v3-corpus",
+            "similarity-v3-publish",
+            "similarity-v3-pipeline",
+        ],
+        help="Queued job to enqueue",
+    )
+    queue_job_parser.add_argument("--game", type=str, help="Specific game public_id, numeric ID, or title")
+    queue_job_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+    queue_job_parser.add_argument("--limit-games", type=int, help="Limit number of anchors/games processed")
+    queue_job_parser.add_argument("--publish-limit", type=int, default=10, help="Max neighbors to publish")
+    queue_job_parser.add_argument("--taxonomy-limit", type=int, help="Limit number of games for taxonomy backfill")
+    queue_job_parser.add_argument("--snapshot-date", type=str, help="Optional snapshot date for disparity jobs")
+    queue_job_parser.add_argument(
+        "--dirty-only",
+        action="store_true",
+        help="For V3 jobs, only process games marked dirty or on an older version",
+    )
+    queue_job_parser.add_argument(
+        "--publish-dirty-only",
+        action="store_true",
+        help="For similarity-v3-pipeline, only publish dirty games",
+    )
+    queue_job_parser.add_argument(
+        "--taxonomy-backfill",
+        action="store_true",
+        help="For similarity-v3-pipeline, run taxonomy-v2-backfill before corpus/publish",
+    )
+    queue_job_parser.add_argument(
+        "--run-gold-audit",
+        action="store_true",
+        help="For similarity-v3-pipeline, run the gold audit after publish",
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -1739,6 +4046,8 @@ def main():
         return asyncio.run(cmd_sync(args))
     elif args.command == "match":
         return asyncio.run(cmd_match(args))
+    elif args.command == "import-steam-game":
+        return asyncio.run(cmd_import_steam_game(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
     elif args.command == "steamdb":
@@ -1765,6 +4074,46 @@ def main():
         return asyncio.run(cmd_news(args))
     elif args.command == "news-backfill":
         return asyncio.run(cmd_news_backfill(args))
+    elif args.command == "taxonomy-backfill":
+        return asyncio.run(cmd_taxonomy_backfill(args))
+    elif args.command == "description-backfill":
+        return asyncio.run(cmd_description_backfill(args))
+    elif args.command == "taxonomy-audit":
+        return asyncio.run(cmd_taxonomy_audit(args))
+    elif args.command == "similar-debug":
+        return asyncio.run(cmd_similar_debug(args))
+    elif args.command == "taxonomy-v2-backfill":
+        return asyncio.run(cmd_taxonomy_v2_backfill(args))
+    elif args.command == "taxonomy-v2-debug":
+        return asyncio.run(cmd_taxonomy_v2_debug(args))
+    elif args.command == "taxonomy-v2-label-audit":
+        return asyncio.run(cmd_taxonomy_v2_label_audit(args))
+    elif args.command == "taxonomy-v2-text-audit":
+        return asyncio.run(cmd_taxonomy_v2_text_audit(args))
+    elif args.command == "taxonomy-v2-near-miss-audit":
+        return asyncio.run(cmd_taxonomy_v2_near_miss_audit(args))
+    elif args.command == "taxonomy-v2-boilerplate-audit":
+        return asyncio.run(cmd_taxonomy_v2_boilerplate_audit(args))
+    elif args.command == "taxonomy-v2-confusion-audit":
+        return asyncio.run(cmd_taxonomy_v2_confusion_audit(args))
+    elif args.command == "taxonomy-v2-gold-set-audit":
+        return asyncio.run(cmd_taxonomy_v2_gold_set_audit(args))
+    elif args.command == "similarity-v3-corpus":
+        return asyncio.run(cmd_similarity_v3_corpus(args))
+    elif args.command == "similarity-v3-embed":
+        return asyncio.run(cmd_similarity_v3_embed(args))
+    elif args.command == "similarity-v3-neighbors":
+        return asyncio.run(cmd_similarity_v3_neighbors(args))
+    elif args.command == "similarity-v3-publish":
+        return asyncio.run(cmd_similarity_v3_publish(args))
+    elif args.command == "similarity-v3-gold-audit":
+        return asyncio.run(cmd_similarity_v3_gold_audit(args))
+    elif args.command == "similarity-v3-confusion-audit":
+        return asyncio.run(cmd_similarity_v3_confusion_audit(args))
+    elif args.command == "similarity-v3-hidden-audit":
+        return asyncio.run(cmd_similarity_v3_hidden_audit(args))
+    elif args.command == "queue-job":
+        return cmd_enqueue_job(args)
     else:
         parser.print_help()
         return 1

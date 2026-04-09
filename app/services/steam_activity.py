@@ -45,6 +45,62 @@ def _format_players(value: int) -> str:
     return f"{value:,} players"
 
 
+def filter_transient_zeros(
+    points: list[dict[str, Any]],
+    *,
+    player_key: str = "concurrent_players",
+    time_key: str = "sampled_at",
+    max_gap: timedelta = timedelta(hours=2),
+) -> list[dict[str, Any]]:
+    """Remove isolated zero-player readings that indicate server blips, not real drops.
+
+    A zero is considered *transient* (and removed) when both:
+      - a non-zero reading exists within ``max_gap`` before it, AND
+      - a non-zero reading exists within ``max_gap`` after it.
+
+    Consecutive runs of zeros are evaluated as a group: if the entire run is
+    bounded by non-zero neighbours within ``max_gap`` of the run's start/end,
+    the whole run is removed.  Sustained zeros (no nearby recovery) are kept.
+    """
+    if not points:
+        return points
+
+    n = len(points)
+    keep = [True] * n
+
+    # Identify contiguous runs of zero values
+    i = 0
+    while i < n:
+        if points[i][player_key] == 0:
+            run_start = i
+            while i < n and points[i][player_key] == 0:
+                i += 1
+            run_end = i - 1  # inclusive
+
+            # Look for a non-zero neighbour before the run within max_gap
+            has_before = False
+            if run_start > 0:
+                gap_before = points[run_start][time_key] - points[run_start - 1][time_key]
+                if gap_before <= max_gap and points[run_start - 1][player_key] > 0:
+                    has_before = True
+
+            # Look for a non-zero neighbour after the run within max_gap
+            has_after = False
+            if run_end < n - 1:
+                gap_after = points[run_end + 1][time_key] - points[run_end][time_key]
+                if gap_after <= max_gap and points[run_end + 1][player_key] > 0:
+                    has_after = True
+
+            # Only remove if BOTH sides have a nearby non-zero neighbour
+            if has_before and has_after:
+                for j in range(run_start, run_end + 1):
+                    keep[j] = False
+        else:
+            i += 1
+
+    return [p for p, k in zip(points, keep) if k]
+
+
 def _parse_datetime_string(value: str, *, fetched_at: datetime) -> Optional[datetime]:
     text = (value or "").strip()
     if not text:
@@ -204,6 +260,7 @@ def build_steam_activity_markers(
         return []
 
     ordered_points = sorted(points, key=lambda point: point["sampled_at"])
+    ordered_points = filter_transient_zeros(ordered_points)
     markers: list[dict[str, Any]] = []
 
     if ordered_points:
@@ -319,6 +376,10 @@ def build_observed_24h_player_points(
         return []
 
     ordered_points = sorted(points, key=lambda point: point["sampled_at"])
+    ordered_points = filter_transient_zeros(ordered_points)
+    if not ordered_points:
+        return []
+
     window = timedelta(hours=24)
     values = [point["concurrent_players"] for point in ordered_points]
     times = [point["sampled_at"] for point in ordered_points]
