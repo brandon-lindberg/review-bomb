@@ -23,6 +23,7 @@ import type {
 import { withTrendSnapshot } from "@/lib/share-url";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
+const EMPTY_SIMILAR_GAMES: SimilarGame[] = [];
 
 function ChartModuleFallback() {
   return (
@@ -174,8 +175,9 @@ export function LazyChartSection({
   releaseDate,
   steamUserScore,
   metacriticUserScore,
-  similarGames = [],
+  similarGames,
 }: LazyChartSectionProps) {
+  const initialSimilarGames = similarGames ?? EMPTY_SIMILAR_GAMES;
   const [reviews, setReviews] = useState<ReviewData[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -193,7 +195,7 @@ export function LazyChartSection({
   const [steamMaxLoading, setSteamMaxLoading] = useState(false);
   const steamMaxFetchedRef = useRef(false);
   const [isMobile, setIsMobile] = useState(false);
-  const [resolvedSimilarGames, setResolvedSimilarGames] = useState<SimilarGame[]>(similarGames);
+  const [resolvedSimilarGames, setResolvedSimilarGames] = useState<SimilarGame[]>(initialSimilarGames);
   const similarGamesFetchedRef = useRef(false);
 
   // News pagination state
@@ -220,9 +222,16 @@ export function LazyChartSection({
   }, []);
 
   useEffect(() => {
-    setResolvedSimilarGames(similarGames);
+    if (entityType !== "game") return;
+
+    const nextSimilarGames = similarGames ?? EMPTY_SIMILAR_GAMES;
+    setResolvedSimilarGames((current) => {
+      const currentIds = current.map((item) => item.id).join(",");
+      const nextIds = nextSimilarGames.map((item) => item.id).join(",");
+      return currentIds === nextIds ? current : nextSimilarGames;
+    });
     similarGamesFetchedRef.current = false;
-  }, [entityId, similarGames]);
+  }, [entityId, entityType, similarGames]);
 
   // Intersection Observer: trigger fetch when section scrolls into view
   useEffect(() => {

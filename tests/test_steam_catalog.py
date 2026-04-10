@@ -53,6 +53,15 @@ def test_load_tracked_steam_games_includes_pubg():
     assert pubg.release_date == date(2017, 12, 21)
 
 
+def test_load_tracked_steam_games_includes_supraworld_early_access():
+    tracked_games = load_tracked_steam_games()
+    supraworld = next(game for game in tracked_games if game.steam_app_id == 1869290)
+
+    assert supraworld.title == "Supraworld"
+    assert supraworld.release_date == date(2025, 8, 15)
+    assert "early access" in (supraworld.reason or "").lower()
+
+
 @pytest.mark.asyncio
 async def test_ensure_tracked_steam_games_creates_curated_fallback_when_steam_is_unavailable():
     tracked_game = TrackedSteamGame(

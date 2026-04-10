@@ -7,6 +7,7 @@ import { DisparityBadge } from "@/components/DisparityBadge";
 import { DisparityScoreCards } from "@/components/DisparityScores";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
+import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
@@ -352,6 +353,12 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
 
   return (
     <div className="space-y-8">
+      <RecentEntityViewSync
+        href={canonicalPath}
+        imageUrl={outlet.logo_url}
+        subtitle="Outlet profile"
+        title={outlet.name}
+      />
       <JsonLd data={jsonLdData} />
       <JsonLd data={breadcrumbJsonLd} />
       <Breadcrumbs

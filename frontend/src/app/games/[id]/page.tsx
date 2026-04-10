@@ -5,6 +5,7 @@ import { DisparityScoreCards } from "@/components/DisparityScores";
 import { GameAvatar } from "@/components/GameAvatar";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
 import { LazyChartSection } from "@/components/LazyChartSection";
+import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ExpandableText } from "@/components/ExpandableText";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
@@ -406,6 +407,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
 
   return (
     <div className="space-y-8">
+      <RecentEntityViewSync
+        href={canonicalPath}
+        imageUrl={game.image_url}
+        subtitle="Game profile"
+        title={game.title}
+      />
       <JsonLd data={jsonLdData} />
       <JsonLd data={breadcrumbJsonLd} />
       <Breadcrumbs

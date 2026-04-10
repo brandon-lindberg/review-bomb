@@ -9,6 +9,12 @@
       ],
       "release_date": "2017-12-21",
       "reason": "Steam top-player-count outlier that needs catalog coverage even without dependable OpenCritic reviews."
+    },
+    {
+      "steam_app_id": 1869290,
+      "title": "Supraworld",
+      "release_date": "2025-08-15",
+      "reason": "Steam early access game with meaningful user-review signal that needs catalog coverage even without dependable OpenCritic reviews."
     }
   ]
 }

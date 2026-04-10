@@ -26,8 +26,7 @@ export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const stablePathname = hydrated ? pathname : "";
-  const showHeaderSearch = stablePathname === "/";
-  const hasBlockingOverlay = mobileMenuOpen || (showHeaderSearch && searchOpen);
+  const hasBlockingOverlay = mobileMenuOpen || searchOpen;
 
   useEffect(() => {
     if (!hasBlockingOverlay) return;
@@ -42,16 +41,6 @@ export function Header() {
       document.documentElement.style.overflow = previousHtmlOverflow;
     };
   }, [hasBlockingOverlay]);
-
-  useEffect(() => {
-    if (showHeaderSearch || !searchOpen) return;
-
-    const closeTimeout = window.setTimeout(() => {
-      setSearchOpen(false);
-    }, 0);
-
-    return () => window.clearTimeout(closeTimeout);
-  }, [searchOpen, showHeaderSearch]);
 
   const renderSearchTrigger = () => (
     <button
@@ -149,12 +138,12 @@ export function Header() {
                 })}
 	              </nav>
 
-	              {showHeaderSearch ? renderSearchTrigger() : null}
+	              {renderSearchTrigger()}
 	              <ThemeToggle />
 	            </div>
 
 	            <div className="flex items-center gap-2 lg:hidden">
-	              {showHeaderSearch ? renderSearchTrigger() : null}
+	              {renderSearchTrigger()}
 	              <button
 	                type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border"
@@ -310,9 +299,7 @@ export function Header() {
         </>
 	      )}
 
-	      {showHeaderSearch && (
-	        <HeaderSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-	      )}
+	      <HeaderSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
 	    </>
   );
 }

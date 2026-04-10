@@ -6,9 +6,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { GameAvatar } from "@/components/GameAvatar";
+import { getGame, getJournalist, getOutlet } from "@/lib/api";
 import { getBrowserApiUrl } from "@/lib/api-base-url";
+import { parseEntityRouteSegment } from "@/lib/entity-paths";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { formatCompactPlayerCount } from "@/lib/player-count-chart";
+import {
+  clearRecentPageHistory,
+  getRecentPageHistory,
+  MAX_VISIBLE_RECENT_PAGE_HISTORY,
+  type RecentPageHistoryEntry,
+  upsertRecentPageHistoryEntry,
+} from "@/lib/recent-page-history";
 import type { Game, Journalist, Outlet, SearchResult } from "@/types";
 
 interface HeaderSearchProps {
@@ -32,11 +41,13 @@ const EMPTY_SEARCH_RESULT: SearchResult = {
 function SearchSection({
   title,
   count,
+  action,
   childrenClassName,
   children,
 }: {
   title: string;
   count: number;
+  action?: ReactNode;
   childrenClassName?: string;
   children: ReactNode;
 }) {
@@ -53,9 +64,12 @@ function SearchSection({
         <h2 className="text-sm font-semibold" style={{ color: "var(--foreground)" }}>
           {title}
         </h2>
-        <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: "rgba(187, 59, 14, 0.12)", color: "var(--color-rust)" }}>
-          {count}
-        </span>
+        <div className="flex items-center gap-2">
+          {action}
+          <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: "rgba(187, 59, 14, 0.12)", color: "var(--color-rust)" }}>
+            {count}
+          </span>
+        </div>
       </div>
       <div className={childrenClassName ?? "space-y-2"}>
         {children}
@@ -233,6 +247,47 @@ function renderGameResult(game: Game, onSelect: () => void) {
   );
 }
 
+function renderRecentPageResult(entry: RecentPageHistoryEntry, onSelect: () => void) {
+  const media = entry.kind === "games"
+    ? (
+      <GameAvatar
+        title={entry.title}
+        imageUrl={entry.imageUrl}
+        width={54}
+        height={30}
+        sizes="54px"
+        className="h-[1.875rem] w-[3.375rem] rounded-lg object-contain"
+      />
+    ) : entry.imageUrl ? (
+      <Image
+        src={entry.imageUrl}
+        alt={entry.title}
+        width={40}
+        height={40}
+        sizes="40px"
+        className={entry.kind === "journalists" ? "h-10 w-10 rounded-full object-cover" : "h-10 w-10 rounded-xl object-contain"}
+      />
+    ) : (
+      <div
+        className={`flex h-10 w-10 items-center justify-center text-sm font-semibold ${entry.kind === "journalists" ? "rounded-full" : "rounded-xl"}`}
+        style={{ backgroundColor: "rgba(216, 197, 147, 0.18)", color: "var(--color-rust)" }}
+      >
+        {entry.title.charAt(0)}
+      </div>
+    );
+
+  return (
+    <SearchResultCard
+      key={`recent-page-${entry.href}`}
+      href={entry.href}
+      onSelect={onSelect}
+      title={entry.title}
+      subtitle={entry.subtitle}
+      media={media}
+    />
+  );
+}
+
 export function HeaderSearch({
   open,
   onClose,
@@ -241,6 +296,7 @@ export function HeaderSearch({
   const inputRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult | null>(null);
+  const [recentPageHistory, setRecentPageHistory] = useState<RecentPageHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isNavigating, startTransition] = useTransition();
 
@@ -252,12 +308,80 @@ export function HeaderSearch({
       return;
     }
 
+    setRecentPageHistory(getRecentPageHistory());
+
     const focusTimeout = window.setTimeout(() => {
       inputRef.current?.focus();
     }, 30);
 
     return () => window.clearTimeout(focusTimeout);
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const incompleteEntries = recentPageHistory.filter((entry) => !entry.imageUrl);
+    if (incompleteEntries.length === 0) return;
+
+    let cancelled = false;
+
+    const enrichEntries = async () => {
+      const enrichedEntries = await Promise.all(
+        incompleteEntries.map(async (entry) => {
+          const pathSegments = entry.href.split("/").filter(Boolean);
+          const entitySegment = pathSegments[pathSegments.length - 1];
+          if (!entitySegment) return null;
+
+          const parsedSegment = parseEntityRouteSegment(entitySegment);
+
+          try {
+            if (entry.kind === "games") {
+              const game = await getGame(parsedSegment.identifier);
+              return {
+                ...entry,
+                imageUrl: game.image_url ?? undefined,
+                title: game.title,
+              } satisfies RecentPageHistoryEntry;
+            }
+
+            if (entry.kind === "journalists") {
+              const journalist = await getJournalist(parsedSegment.identifier);
+              return {
+                ...entry,
+                imageUrl: journalist.image_url ?? undefined,
+                title: journalist.name,
+              } satisfies RecentPageHistoryEntry;
+            }
+
+            const outlet = await getOutlet(parsedSegment.identifier);
+            return {
+              ...entry,
+              imageUrl: outlet.logo_url ?? undefined,
+              title: outlet.name,
+            } satisfies RecentPageHistoryEntry;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (cancelled) return;
+
+      let nextHistory = recentPageHistory;
+      for (const entry of enrichedEntries) {
+        if (!entry) continue;
+        nextHistory = upsertRecentPageHistoryEntry(entry);
+      }
+
+      setRecentPageHistory(nextHistory);
+    };
+
+    enrichEntries();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, recentPageHistory]);
 
   useEffect(() => {
     if (!open) return;
@@ -324,13 +448,21 @@ export function HeaderSearch({
   const totalResults = activeResults.journalists.length + activeResults.outlets.length + activeResults.games.length;
   const hasVisibleResults = hasEnoughQuery && totalResults > 0;
   const searchPlaceholder = "Search games, journalists, or outlets";
+  const currentHref = typeof window !== "undefined"
+    ? window.location.pathname
+    : "";
+  const visibleRecentPageHistory = recentPageHistory
+    .filter((entry) => entry.href !== currentHref)
+    .slice(0, MAX_VISIBLE_RECENT_PAGE_HISTORY);
   const visibleSections: SearchSectionData[] = [];
+  const handleResultSelection = () => onClose();
+
   if (activeResults.games.length > 0) {
     visibleSections.push({
       key: "games",
       title: "Games",
       count: activeResults.games.length,
-      children: activeResults.games.map((game) => renderGameResult(game, onClose)),
+      children: activeResults.games.map((game) => renderGameResult(game, handleResultSelection)),
     });
   }
   if (activeResults.journalists.length > 0) {
@@ -338,7 +470,7 @@ export function HeaderSearch({
       key: "journalists",
       title: "Journalists",
       count: activeResults.journalists.length,
-      children: activeResults.journalists.map((journalist) => renderJournalistResult(journalist, onClose)),
+      children: activeResults.journalists.map((journalist) => renderJournalistResult(journalist, handleResultSelection)),
     });
   }
   if (activeResults.outlets.length > 0) {
@@ -346,7 +478,7 @@ export function HeaderSearch({
       key: "outlets",
       title: "Outlets",
       count: activeResults.outlets.length,
-      children: activeResults.outlets.map((outlet) => renderOutletResult(outlet, onClose)),
+      children: activeResults.outlets.map((outlet) => renderOutletResult(outlet, handleResultSelection)),
     });
   }
   const visibleSectionCount = visibleSections.length;
@@ -425,7 +557,7 @@ export function HeaderSearch({
                     Search the site
                   </div>
                   <div className="text-xs" style={{ color: "var(--foreground-muted)" }}>
-                    Find games, journalists, and outlets without leaving the home page.
+                    Find games, journalists, and outlets from anywhere on the site.
                   </div>
                 </div>
 
@@ -506,15 +638,42 @@ export function HeaderSearch({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
             {!hasEnoughQuery ? (
-              <div
-                className="rounded-[1.4rem] border px-4 py-5 text-sm"
-                style={{
-                  borderColor: "var(--border)",
-                  backgroundColor: "color-mix(in srgb, var(--background-card-strong) 88%, transparent)",
-                  color: "var(--foreground-muted)",
-                }}
-              >
-                Type at least 2 characters to search across games, journalists, and outlets.
+              <div className="space-y-4">
+                {visibleRecentPageHistory.length > 0 ? (
+                  <SearchSection
+                    title="Recently viewed"
+                    count={visibleRecentPageHistory.length}
+                    action={(
+                      <button
+                        type="button"
+                        onClick={() => {
+                          clearRecentPageHistory();
+                          setRecentPageHistory([]);
+                        }}
+                        className="text-[11px] font-semibold uppercase tracking-[0.12em] transition-opacity hover:opacity-70"
+                        style={{ color: "var(--foreground-muted)" }}
+                      >
+                        Clear
+                      </button>
+                    )}
+                    childrenClassName="space-y-2"
+                  >
+                    {visibleRecentPageHistory.map((entry) => renderRecentPageResult(entry, onClose))}
+                  </SearchSection>
+                ) : null}
+
+                <div
+                  className="rounded-[1.4rem] border px-4 py-5 text-sm"
+                  style={{
+                    borderColor: "var(--border)",
+                    backgroundColor: "color-mix(in srgb, var(--background-card-strong) 88%, transparent)",
+                    color: "var(--foreground-muted)",
+                  }}
+                >
+                  {visibleRecentPageHistory.length > 0
+                    ? "Type at least 2 characters to start a new search, or reopen a recently viewed page."
+                    : "Type at least 2 characters to search across games, journalists, and outlets. Recently viewed pages will appear here automatically."}
+                </div>
               </div>
             ) : isLoading ? (
               <div

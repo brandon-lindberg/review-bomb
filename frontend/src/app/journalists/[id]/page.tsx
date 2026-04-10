@@ -7,6 +7,7 @@ import { getDisparityColor, getDisparityBgColor, getDisparityBorderColor, format
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { LazyChartSection } from "@/components/LazyChartSection";
 import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
+import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
@@ -373,6 +374,12 @@ export default async function JournalistDetailPage({
 
   return (
     <div className="space-y-8">
+      <RecentEntityViewSync
+        href={canonicalPath}
+        imageUrl={journalist.image_url}
+        subtitle="Journalist profile"
+        title={journalist.name}
+      />
       <JsonLd data={jsonLdData} />
       <JsonLd data={breadcrumbJsonLd} />
       <Breadcrumbs

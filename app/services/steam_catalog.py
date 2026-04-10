@@ -1,5 +1,5 @@
 """
-Curated Steam-only catalog support.
+Curated Steam-only and early-access catalog support.
 
 Some high-signal Steam titles need to exist in our catalog even when they do
 not arrive through the normal OpenCritic-led ingest path.
@@ -217,7 +217,7 @@ async def ensure_tracked_steam_games(
     tracked_games: Iterable[TrackedSteamGame] | None = None,
 ) -> dict[str, int]:
     """
-    Ensure curated Steam-only titles exist in the catalog before Steam sync runs.
+    Ensure curated Steam-sourced titles exist in the catalog before Steam sync runs.
     """
     stats = {
         "created": 0,
