@@ -15,6 +15,8 @@ from app.services.game_similarity_v3 import (
     _similarity_v3_scoring_profile,
     _title_variant_key,
     SimilarityV3ScoredNeighbor,
+    audit_similarity_v3_confusion,
+    audit_similarity_v3_hidden_states,
     build_similarity_v3_documents,
     build_similarity_v3_provider_text_doc,
     load_similarity_v3_target_games,
@@ -825,3 +827,90 @@ def test_select_similarity_v3_neighbors_prefers_third_person_soulslike_peers():
         "Bloodborne Peer",
         "Sekiro Peer",
     ]
+
+
+class _PayloadScalars:
+    def __init__(self, items):
+        self._items = items
+
+    def all(self):
+        return self._items
+
+
+class _PayloadResult:
+    def __init__(self, payloads):
+        self._payloads = payloads
+
+    def scalars(self):
+        return _PayloadScalars(self._payloads)
+
+
+class _RowsResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _CaptureSession:
+    def __init__(self, result):
+        self.result = result
+        self.statements = []
+
+    async def execute(self, statement, *_args, **_kwargs):
+        self.statements.append(statement)
+        return self.result
+
+
+@pytest.mark.asyncio
+async def test_audit_similarity_v3_hidden_states_scopes_to_current_version_by_default():
+    db = _CaptureSession(_PayloadResult([None, {"audit_state": "insufficient_signal"}]))
+
+    rows = await audit_similarity_v3_hidden_states(db)
+
+    assert rows == {"insufficient_signal": 1, "unknown": 1}
+    compiled = db.statements[0].compile()
+    assert compiled.params["similarity_v3_status_1"] == "hidden"
+    assert compiled.params["similarity_v3_version_1"] == SIMILARITY_V3_VERSION
+
+
+@pytest.mark.asyncio
+async def test_audit_similarity_v3_hidden_states_can_include_all_versions():
+    db = _CaptureSession(_PayloadResult([]))
+
+    await audit_similarity_v3_hidden_states(db, similarity_version=None)
+
+    compiled = db.statements[0].compile()
+    assert compiled.params["similarity_v3_status_1"] == "hidden"
+    assert "similarity_v3_version_1" not in compiled.params
+
+
+@pytest.mark.asyncio
+async def test_audit_similarity_v3_confusion_excludes_same_by_default():
+    db = _CaptureSession(_RowsResult([("arcade_racer", "strong_neighbor", 12)]))
+
+    rows = await audit_similarity_v3_confusion(db, limit=10)
+
+    assert rows == [
+        {
+            "primary_archetype": "arcade_racer",
+            "relationship_type": "strong_neighbor",
+            "count": 12,
+        }
+    ]
+    compiled = db.statements[0].compile()
+    assert compiled.params["similarity_version_1"] == SIMILARITY_V3_VERSION
+    assert compiled.params["relationship_type_1"] == "same"
+    assert compiled.params["param_1"] == 10
+
+
+@pytest.mark.asyncio
+async def test_audit_similarity_v3_confusion_can_include_same_rows():
+    db = _CaptureSession(_RowsResult([]))
+
+    await audit_similarity_v3_confusion(db, limit=5, include_same=True)
+
+    compiled = db.statements[0].compile()
+    assert compiled.params["similarity_version_1"] == SIMILARITY_V3_VERSION
+    assert "relationship_type_1" not in compiled.params

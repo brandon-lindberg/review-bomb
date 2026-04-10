@@ -1771,10 +1771,15 @@ async def load_similarity_v3_target_games(
     return result.scalars().all()
 
 
-async def audit_similarity_v3_hidden_states(db: AsyncSession) -> dict[str, int]:
-    result = await db.execute(
-        select(Game.similarity_v3_debug_payload).where(Game.similarity_v3_status == SIMILARITY_V3_STATUS_HIDDEN)
-    )
+async def audit_similarity_v3_hidden_states(
+    db: AsyncSession,
+    *,
+    similarity_version: str | None = SIMILARITY_V3_VERSION,
+) -> dict[str, int]:
+    query = select(Game.similarity_v3_debug_payload).where(Game.similarity_v3_status == SIMILARITY_V3_STATUS_HIDDEN)
+    if similarity_version:
+        query = query.where(Game.similarity_v3_version == similarity_version)
+    result = await db.execute(query)
     counts: dict[str, int] = defaultdict(int)
     for payload in result.scalars().all():
         if not payload:
@@ -1784,8 +1789,13 @@ async def audit_similarity_v3_hidden_states(db: AsyncSession) -> dict[str, int]:
     return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
-async def audit_similarity_v3_confusion(db: AsyncSession, *, limit: int = 25) -> list[dict[str, Any]]:
-    result = await db.execute(
+async def audit_similarity_v3_confusion(
+    db: AsyncSession,
+    *,
+    limit: int = 25,
+    include_same: bool = False,
+) -> list[dict[str, Any]]:
+    query = (
         select(
             Game.taxonomy_v2_primary_archetype,
             GameSimilarityV3Neighbor.relationship_type,
@@ -1793,7 +1803,11 @@ async def audit_similarity_v3_confusion(db: AsyncSession, *, limit: int = 25) ->
         )
         .join(GameSimilarityV3Neighbor, GameSimilarityV3Neighbor.anchor_game_id == Game.id)
         .where(GameSimilarityV3Neighbor.similarity_version == SIMILARITY_V3_VERSION)
-        .group_by(Game.taxonomy_v2_primary_archetype, GameSimilarityV3Neighbor.relationship_type)
+    )
+    if not include_same:
+        query = query.where(GameSimilarityV3Neighbor.relationship_type != "same")
+    result = await db.execute(
+        query.group_by(Game.taxonomy_v2_primary_archetype, GameSimilarityV3Neighbor.relationship_type)
         .order_by(func.count().desc())
         .limit(limit)
     )

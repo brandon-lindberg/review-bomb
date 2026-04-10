@@ -2715,7 +2715,11 @@ async def cmd_similarity_v3_confusion_audit(args):
     from app.services.game_similarity_v3 import audit_similarity_v3_confusion
 
     async with async_session_maker() as db:
-        rows = await audit_similarity_v3_confusion(db, limit=args.limit)
+        rows = await audit_similarity_v3_confusion(
+            db,
+            limit=args.limit,
+            include_same=args.include_same,
+        )
 
     if not rows:
         print("No Similar Games V3 confusion data available.")
@@ -2732,12 +2736,18 @@ async def cmd_similarity_v3_confusion_audit(args):
 
 async def cmd_similarity_v3_hidden_audit(args):
     """Audit hidden Similar Games V3 states by cause."""
-    from app.services.game_similarity_v3 import audit_similarity_v3_hidden_states
+    from app.services.game_similarity_v3 import SIMILARITY_V3_VERSION, audit_similarity_v3_hidden_states
 
     async with async_session_maker() as db:
-        rows = await audit_similarity_v3_hidden_states(db)
+        rows = await audit_similarity_v3_hidden_states(
+            db,
+            similarity_version=None if args.all_versions else SIMILARITY_V3_VERSION,
+        )
 
-    print("Similarity V3 hidden audit:")
+    if args.all_versions:
+        print("Similarity V3 hidden audit (all versions):")
+    else:
+        print(f"Similarity V3 hidden audit ({SIMILARITY_V3_VERSION}):")
     if not rows:
         print("  none")
         return 0
@@ -3982,10 +3992,20 @@ def main():
         help="Audit Similar Games V3 relationship distribution",
     )
     similarity_v3_confusion_audit_parser.add_argument("--limit", type=int, default=25, help="Max rows to print")
+    similarity_v3_confusion_audit_parser.add_argument(
+        "--include-same",
+        action="store_true",
+        help="Include same-archetype rows in the confusion output",
+    )
 
-    subparsers.add_parser(
+    similarity_v3_hidden_audit_parser = subparsers.add_parser(
         "similarity-v3-hidden-audit",
         help="Audit Similar Games V3 hidden states",
+    )
+    similarity_v3_hidden_audit_parser.add_argument(
+        "--all-versions",
+        action="store_true",
+        help="Include hidden rows from older Similar Games V3 versions",
     )
 
     queue_job_parser = subparsers.add_parser(
