@@ -143,6 +143,8 @@ _HIGH_SIGNAL_SEGMENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bdeckbuilder\b"),
     re.compile(r"\bdeck[- ]building\b"),
     re.compile(r"\bcard battler\b"),
+    re.compile(r"\brogue[- ]?lite\b"),
+    re.compile(r"\brogue[- ]?like\b"),
     re.compile(r"\bpinball\b"),
     re.compile(r"\bplatformer\b"),
     re.compile(r"\breal[- ]time\b"),
@@ -164,7 +166,23 @@ _HIGH_SIGNAL_SEGMENT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bfighter\b"),
     re.compile(r"\brhythm\b"),
     re.compile(r"\bshooter\b"),
+    re.compile(r"\btwin[- ]stick\b"),
     re.compile(r"\bhorror\b"),
+    re.compile(r"\bsupernatural\b"),
+    re.compile(r"\bisometric\b"),
+    re.compile(r"\bcrpg\b"),
+    re.compile(r"\bword[- ]game\b"),
+    re.compile(r"\bletter(?:s| synergies?)?\b"),
+    re.compile(r"\bsynerg(?:y|ies)\b"),
+    re.compile(r"\bfarming\b"),
+    re.compile(r"\bcrops?\b"),
+    re.compile(r"\bfish(?:ing)?\b"),
+    re.compile(r"\bcultivat(?:e|ing)\b"),
+    re.compile(r"\bbrawler\b"),
+    re.compile(r"\brespawn system\b"),
+    re.compile(r"\bzombies?\b"),
+    re.compile(r"\bmodern warfare\b"),
+    re.compile(r"\bmilitary\b"),
 )
 _IGNORED_SOURCE_LABELS: dict[tuple[str, str], set[str]] = {
     ("*", "platform"): {
@@ -370,6 +388,10 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             re.compile(r"\bparkour\b"),
             re.compile(r"\bwall[- ]run\b"),
             re.compile(r"\bfree[- ]run\b"),
+            re.compile(r"\bfree[- ]running\b"),
+            re.compile(r"\bfreerunning\b"),
+            re.compile(r"\bfree[- ]runner\b"),
+            re.compile(r"\bfree runner\b"),
         ),
         (("traversal_verbs", "parkour", 0.92),),
     ),
@@ -388,9 +410,56 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
     ),
     (
         (
+            re.compile(r"\bcreative online sandbox adventure\b"),
+            re.compile(r"\bvoxel[- ]based action mmo\b"),
+            re.compile(r"\bcooperative,? 3d sandbox action rpg\b"),
+            re.compile(r"\b3d sandbox action rpg\b"),
+            re.compile(r"\bcreative sandbox adventure\b"),
+            re.compile(r"\bsandbox adventure/building games?\b"),
+            re.compile(r"\bsandbox adventure game\b"),
+            re.compile(r"\bblock[- ]building rpg\b"),
+            re.compile(r"\bblock[- ]building role[- ]playing game\b"),
+            re.compile(r"\bbuild your own world of adventure\b"),
+            re.compile(r"\bbuild big projects\b"),
+            re.compile(r"\bbuild a cozy new life\b"),
+            re.compile(r"\bbuild a new life\b"),
+            re.compile(r"\brebuild a desolate world\b"),
+            re.compile(r"\brebuild[^.]{0,80}\bworld\b"),
+            re.compile(r"\brestore your [^.\n]{0,40}workshop\b"),
+            re.compile(r"\bconstruct machines\b"),
+            re.compile(r"\bturn your run[- ]down workshop\b"),
+            re.compile(r"\bbuild the perfect neighborhood\b"),
+            re.compile(r"\blife[- ]sim adventure game\b"),
+            re.compile(r"\bhybrid between a life[- ]sim and an adventure game\b"),
+            re.compile(r"\bcreating and destroying various types of blocks\b"),
+            re.compile(r"\bdestroy or create blocks\b"),
+            re.compile(r"\bforming fantastic structures\b"),
+            re.compile(r"\bbuild impressive architectural structures\b"),
+            re.compile(r"\bbuild brand new worlds\b"),
+            re.compile(r"\bbuild almost anything\b"),
+            re.compile(r"\bbuild your home\b"),
+            re.compile(r"\bbuild your homebase\b"),
+            re.compile(r"\bsculpt your world\b"),
+            re.compile(r"\breshape or destroy anything\b"),
+            re.compile(r"\bworlds? of skybound islands\b"),
+            re.compile(r"\bsandbox islands\b"),
+        ),
+        (
+            ("world_density", "systemic_sandbox", 0.9),
+            ("progression_model", "buildcraft", 0.88),
+            ("mechanics_structure", "settlement_building", 0.88),
+            ("mechanics_structure", "systemic_problem_solving", 0.82),
+            ("entity_interaction", "construction_placement", 0.9),
+            ("rules_goals", "build_and_optimize", 0.9),
+            ("session_shape", "sandbox_loop", 0.82),
+        ),
+    ),
+    (
+        (
             re.compile(r"\bexpansive world\b"),
             re.compile(r"\bworld just waiting to be explored\b"),
             re.compile(r"\bwaiting to be explored\b"),
+            re.compile(r"\bexplore every corner\b"),
         ),
         (
             ("world_topology", "open_world", 0.86),
@@ -494,9 +563,6 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
         ),
         (
             ("combat_structure", "crowd_control", 0.8),
-            ("session_shape", "match_session", 0.72),
-            ("mode_profile", "pvp", 0.74),
-            ("keyword_layer", "hero_shooter", 0.72),
         ),
     ),
     (
@@ -506,7 +572,6 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             re.compile(r"\bparty members\b"),
             re.compile(r"\bparty of heroes\b"),
             re.compile(r"\bcompanions\b"),
-            re.compile(r"\bcast of characters\b"),
         ),
         (
             ("combat_style", "party_tactics", 0.88),
@@ -550,7 +615,96 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
     ),
     (
         (
+            re.compile(r"\bsingle[- ]player crpg\b"),
+            re.compile(r"\bttrpg[- ]turned[- ]crpg\b"),
+            re.compile(r"\bdisco[- ]like\b"),
+            re.compile(r"\bpolitical conspiracy\b"),
+            re.compile(r"\broll dice in tense encounters\b"),
+        ),
+        (
+            ("perspective", "isometric", 0.9),
+            ("progression_model", "quest_driven", 0.86),
+            ("narrative_structure", "authored_branching", 0.86),
+            ("entity_interaction", "dialogue_choice", 0.84),
+            ("session_shape", "campaign", 0.82),
+            ("tone", "serious", 0.76),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bdetective with a unique skill system\b"),
+            re.compile(r"\binterrogate unforgettable characters\b"),
+            re.compile(r"\bcrack murders\b"),
+            re.compile(r"\btake bribes\b"),
+            re.compile(r"\bwhole city block\b"),
+        ),
+        (
+            ("perspective", "isometric", 0.9),
+            ("progression_model", "quest_driven", 0.86),
+            ("narrative_structure", "authored_branching", 0.86),
+            ("entity_interaction", "dialogue_choice", 0.84),
+            ("session_shape", "campaign", 0.82),
+            ("narrative_topic", "detective_mystery", 0.84),
+            ("rules_goals", "solve_mysteries", 0.84),
+            ("tone", "serious", 0.78),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bcoming of age story\b"),
+            re.compile(r"\bchain of serial murders\b"),
+            re.compile(r"\bprotagonist and his friends\b"),
+            re.compile(r"\bstrange world full of colorful friends and foes\b"),
+            re.compile(r"\buncover a forgotten past\b"),
+            re.compile(r"\bdetermine your fate\b"),
+        ),
+        (
+            ("session_shape", "campaign", 0.84),
+            ("combat_structure", "party_management", 0.82),
+            ("combat_tempo", "tactical", 0.78),
+            ("progression_model", "skill_tree", 0.78),
+            ("narrative_structure", "authored_linear", 0.82),
+            ("tone", "serious", 0.76),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bshoot '?em up\b"),
+            re.compile(r"\bshoot[- ]'?em[- ]up\b"),
+            re.compile(r"\bshooting game series\b"),
+            re.compile(r"\blegendary shooting game series\b"),
+            re.compile(r"\bclassic arcade shoot\b"),
+            re.compile(r"\barcade shoot.?em ups?\b"),
+            re.compile(r"\barcade shoot '?em up\b"),
+            re.compile(r"\bbullet[- ]hell shoot\b"),
+            re.compile(r"\bbullet[- ]hell shooter\b"),
+            re.compile(r"\bfrantic shooter series\b"),
+            re.compile(r"\brevamped scoring system\b"),
+            re.compile(r"\bvertically in (?:the )?popular '?tate'? mode\b"),
+            re.compile(r"\bhigh[- ]octane aerial action\b"),
+            re.compile(r"\bblast through these shooters\b"),
+            re.compile(r"\bclassic shooting games\b"),
+            re.compile(r"\braiden fighters trilogy\b"),
+            re.compile(r"\braiden fighters series\b"),
+            re.compile(r"\bhigh[- ]tempo\b.{0,80}\bscoring system\b"),
+        ),
+        (
+            ("combat_style", "shooter", 0.92),
+            ("combat_tempo", "twitch", 0.88),
+            ("combat_presence", "dominant", 0.84),
+            ("session_shape", "match_session", 0.82),
+            ("perspective", "side_scrolling", 0.78),
+            ("mechanics_structure", "score_attack", 0.8),
+            ("rules_goals", "clear_stages", 0.8),
+            ("rules_goals", "score_attack", 0.76),
+        ),
+    ),
+    (
+        (
             re.compile(r"\bcustomize your build\b"),
+            re.compile(r"\badapt your build\b"),
+            re.compile(r"\bpower builds?\b"),
+            re.compile(r"\bunique power builds?\b"),
             re.compile(r"\btailor your playstyle\b"),
             re.compile(r"\bskill tree\b"),
             re.compile(r"\bno single path to victory\b"),
@@ -559,6 +713,114 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             ("progression_model", "buildcraft", 0.88),
             ("progression_model", "skill_tree", 0.84),
             ("rules_goals", "defeat_bosses", 0.66),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bpets destroy homes\b"),
+            re.compile(r"\bdestroy homes\b"),
+            re.compile(r"\bdemolition game\b"),
+            re.compile(r"\bdestructive cat simulator\b"),
+            re.compile(r"\bcat on a rampage\b"),
+            re.compile(r"\bswat your human'?s possessions\b"),
+            re.compile(r"\bscratch up curtains\b"),
+            re.compile(r"\bsmash precious keepsakes\b"),
+            re.compile(r"\bhorrible goose\b"),
+            re.compile(r"\bslapstick[- ]stealth[- ]sandbox\b"),
+            re.compile(r"\bgoose let loose\b"),
+            re.compile(r"\bcreate carnage\b"),
+            re.compile(r"\bsandbox farmyard experience\b"),
+        ),
+        (
+            ("world_density", "systemic_sandbox", 0.88),
+            ("mechanics_structure", "systemic_problem_solving", 0.86),
+            ("rules_goals", "cause_mischief", 0.9),
+            ("session_shape", "sandbox_loop", 0.82),
+            ("tone", "whimsical", 0.84),
+            ("input_complexity", "casual", 0.78),
+            ("combat_presence", "none", 0.72),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\btwin[- ]stick shooter\b"),
+            re.compile(r"\bbase defense twist\b"),
+            re.compile(r"\bdefend your (?:ship|spaceship)\b"),
+            re.compile(r"\balien hordes\b"),
+        ),
+        (
+            ("combat_style", "shooter", 0.88),
+            ("combat_structure", "crowd_control", 0.84),
+            ("combat_presence", "dominant", 0.84),
+            ("rules_goals", "survive_waves", 0.82),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\baction rogue[- ]lite\b"),
+            re.compile(r"\baction rogue[- ]like\b"),
+            re.compile(r"\baction roguelite\b"),
+            re.compile(r"\baction roguelike\b"),
+            re.compile(r"\brun after run\b"),
+        ),
+        (
+            ("world_topology", "run_based", 0.88),
+            ("session_shape", "roguelite_run", 0.86),
+            ("progression_model", "metaprogression", 0.8),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bfps rogue[- ]lite\b"),
+            re.compile(r"\bfps rogue[- ]like\b"),
+            re.compile(r"\bfps roguelite\b"),
+            re.compile(r"\bfps roguelike\b"),
+            re.compile(r"\brogue[- ]lite fps\b"),
+            re.compile(r"\brogue[- ]like fps\b"),
+            re.compile(r"\broguelite fps\b"),
+            re.compile(r"\broguelike fps\b"),
+            re.compile(r"\bfps with roguelite elements\b"),
+            re.compile(r"\bfps with roguelike elements\b"),
+            re.compile(r"\bfps with rogue[- ]lite elements\b"),
+            re.compile(r"\bfps with rogue[- ]like elements\b"),
+            re.compile(r"\bfps\b.{0,120}\broguelite elements\b"),
+            re.compile(r"\bfps\b.{0,120}\broguelike elements\b"),
+            re.compile(r"\bfps\b.{0,120}\brogue[- ]lite elements\b"),
+            re.compile(r"\bfps\b.{0,120}\brogue[- ]like elements\b"),
+            re.compile(r"\bfirst[- ]person shooter\b.{0,120}\broguelite mechanics\b"),
+            re.compile(r"\bfirst[- ]person shooter\b.{0,120}\broguelike mechanics\b"),
+            re.compile(r"\bfirst[- ]person shooter\b.{0,120}\brogue[- ]lite mechanics\b"),
+            re.compile(r"\bfirst[- ]person shooter\b.{0,120}\brogue[- ]like mechanics\b"),
+            re.compile(r"\bfirst[- ]person shooter with roguelite elements\b"),
+            re.compile(r"\bfirst[- ]person shooter with roguelike elements\b"),
+            re.compile(r"\bfirst[- ]person shooter with rogue[- ]lite elements\b"),
+            re.compile(r"\bfirst[- ]person shooter with rogue[- ]like elements\b"),
+        ),
+        (
+            ("perspective", "first_person", 0.95),
+            ("combat_style", "shooter", 0.95),
+            ("combat_presence", "dominant", 0.86),
+            ("world_topology", "run_based", 0.9),
+            ("session_shape", "roguelite_run", 0.88),
+            ("progression_model", "metaprogression", 0.78),
+            ("hard_exclusions", "fps_only", 0.86),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bprotect your crystal\b"),
+            re.compile(r"\bnever[- ]ending waves of monsters\b"),
+            re.compile(r"\brogue[- ]lite tactical action\b"),
+            re.compile(r"\bblend of roguelite, tactical action, and tower defense\b"),
+        ),
+        (
+            ("world_topology", "run_based", 0.88),
+            ("session_shape", "roguelite_run", 0.86),
+            ("combat_presence", "dominant", 0.84),
+            ("combat_style", "hybrid", 0.76),
+            ("combat_structure", "crowd_control", 0.82),
+            ("progression_model", "metaprogression", 0.8),
+            ("rules_goals", "survive_waves", 0.82),
         ),
     ),
     (
@@ -572,6 +834,71 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             ("progression_model", "gear_chase", 0.86),
             ("progression_model", "loot_rarity", 0.8),
             ("entity_interaction", "inventory_loot", 0.74),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bimprove your city\b"),
+            re.compile(r"\bexpand your city\b"),
+            re.compile(r"\brebuild your city\b"),
+        ),
+        (
+            ("progression_model", "base_growth", 0.84),
+            ("rules_goals", "build_and_optimize", 0.82),
+            ("entity_interaction", "construction_placement", 0.76),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bhordes? of enemies\b"),
+            re.compile(r"\bhordes? of terrifying monsters\b"),
+            re.compile(r"\bobliterate hordes?\b"),
+            re.compile(r"\blegions? from the depths\b"),
+        ),
+        (
+            ("combat_structure", "crowd_control", 0.84),
+            ("combat_structure", "encounter_driven", 0.78),
+            ("combat_presence", "dominant", 0.8),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\baction platformer\b"),
+            re.compile(r"\bretro[- ]inspired action platformer\b"),
+            re.compile(r"\bclassic 2d action\b"),
+            re.compile(r"\bretro sword[- ]and[- ]whip action\b"),
+            re.compile(r"\b8[- ]bit aesthetic\b"),
+        ),
+        (
+            ("world_topology", "level_based", 0.88),
+            ("perspective", "side_scrolling", 0.9),
+            ("traversal_verbs", "platforming", 0.9),
+            ("combat_presence", "dominant", 0.84),
+            ("combat_structure", "encounter_driven", 0.8),
+            ("art_style", "retro", 0.84),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bgothic world\b"),
+            re.compile(r"\bcursed realms?\b"),
+            re.compile(r"\bpixel art foes\b"),
+            re.compile(r"\bold school gameplay\b"),
+            re.compile(r"\bgore galore\b"),
+            re.compile(r"\barcade combat\b"),
+            re.compile(r"\bback from hell\b"),
+            re.compile(r"\bdark,? 8[- ]bit aesthetic\b"),
+        ),
+        (
+            ("world_topology", "level_based", 0.84),
+            ("perspective", "side_scrolling", 0.88),
+            ("traversal_verbs", "platforming", 0.84),
+            ("combat_presence", "dominant", 0.84),
+            ("combat_structure", "encounter_driven", 0.78),
+            ("setting", "horror", 0.84),
+            ("tone", "bleak", 0.82),
+            ("art_style", "retro", 0.84),
+            ("art_style", "pixel_art", 0.82),
         ),
     ),
     (
@@ -667,6 +994,11 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             re.compile(r"\bterror\b"),
             re.compile(r"\bnightmarish\b"),
             re.compile(r"\bgrotesque creatures\b"),
+            re.compile(r"\bterrifying monsters\b"),
+            re.compile(r"\beldritch abomination\b"),
+            re.compile(r"\bblood[- ]soaked\b"),
+            re.compile(r"\bgrim cultists\b"),
+            re.compile(r"\binfernal minions\b"),
             re.compile(r"\bpsychological horror\b"),
             re.compile(r"\bdescend into madness\b"),
             re.compile(r"\bsurreal nightmare\b"),
@@ -706,10 +1038,15 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             re.compile(r"\bclassic jrpg\b"),
             re.compile(r"\bjrpg adventure\b"),
             re.compile(r"\bjapanese voice acting\b"),
+            re.compile(r"\bstrategic turn[- ]based combat system\b"),
+            re.compile(r"\brole[- ]playing game\b.{0,120}\bturn[- ]based combat\b"),
+            re.compile(r"\bboard the astral express\b"),
+            re.compile(r"\btravel across unique worlds\b"),
         ),
         (
             ("session_shape", "campaign", 0.84),
             ("combat_structure", "party_management", 0.8),
+            ("combat_tempo", "tactical", 0.82),
             ("progression_model", "skill_tree", 0.78),
             ("narrative_structure", "authored_linear", 0.82),
             ("tone", "heroic", 0.72),
@@ -810,11 +1147,69 @@ _DESCRIPTION_RULES: tuple[tuple[tuple[re.Pattern[str], ...], tuple[tuple[str, st
             re.compile(r"\bprecision jumps\b"),
             re.compile(r"\bprecision platforming\b"),
             re.compile(r"\bchallenging platforming\b"),
+            re.compile(r"\bcustom respawn system\b"),
+            re.compile(r"\breductive platforming game\b"),
+            re.compile(r"\btough[- ]as[- ]nails platformer\b"),
+            re.compile(r"\bcompetitive scoring\b"),
+            re.compile(r"\breverse(?:d)? gravity instead of jumping\b"),
+            re.compile(r"\bphysics[- ]based platformer\b"),
+            re.compile(r"\bsuper[- ]tight platformer\b"),
+            re.compile(r"\bhundreds of hand[- ]crafted challenges\b"),
+            re.compile(r"\bclimb any surface for a few seconds\b"),
+            re.compile(r"\bsprawling adventure platformer where you die a lot\b"),
         ),
         (
+            ("perspective", "side_scrolling", 0.88),
+            ("world_topology", "level_based", 0.84),
             ("traversal_verbs", "platforming", 0.92),
             ("challenge_model", "precision_platforming", 0.92),
             ("input_complexity", "mastery_heavy", 0.82),
+            ("combat_presence", "none", 0.78),
+            ("rules_goals", "score_attack", 0.8),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bmysteries of the supernatural\b"),
+            re.compile(r"\bsupernatural phenomena\b"),
+            re.compile(r"\bsupernatural horror game\b"),
+            re.compile(r"\bvillage that has vanished from the map\b"),
+            re.compile(r"\blost in a village\b"),
+            re.compile(r"\bhistory of suicides\b"),
+            re.compile(r"\btragic deaths\b"),
+            re.compile(r"\bshadows of those who passed away\b"),
+            re.compile(r"\btrapped in an old abandoned town\b"),
+            re.compile(r"\btrusty smart[- ]phone\b"),
+            re.compile(r"\bslr camera\b"),
+            re.compile(r"\bterrifying encounters\b"),
+            re.compile(r"\bsolve mysterious puzzles\b"),
+        ),
+        (
+            ("setting", "horror", 0.9),
+            ("tone", "bleak", 0.82),
+            ("combat_style", "survival", 0.84),
+            ("combat_structure", "encounter_driven", 0.8),
+            ("challenge_model", "puzzle_gating", 0.84),
+            ("session_shape", "campaign", 0.8),
+        ),
+    ),
+    (
+        (
+            re.compile(r"\bbase[- ]building,? survival game with action[- ]rpg elements\b"),
+            re.compile(r"\bhack (?:and|&) slash(?:ing)? hordes of enemies\b"),
+            re.compile(r"\bbuild up your base\b"),
+            re.compile(r"\bresearch new inventions\b"),
+        ),
+        (
+            ("combat_presence", "dominant", 0.82),
+            ("combat_style", "hybrid", 0.84),
+            ("combat_structure", "crowd_control", 0.82),
+            ("progression_model", "buildcraft", 0.86),
+            ("progression_model", "gear_chase", 0.82),
+            ("entity_interaction", "construction_placement", 0.86),
+            ("rules_goals", "build_and_optimize", 0.88),
+            ("rules_goals", "survive_waves", 0.82),
+            ("content_model", "premium_replayable", 0.8),
         ),
     ),
     (
@@ -969,7 +1364,11 @@ _GLOBAL_LABEL_RULES: dict[str, tuple[tuple[str, str, float], ...]] = {
     "hub based": (("world_topology", "hub_and_spoke", 0.78),),
     "hub-based": (("world_topology", "hub_and_spoke", 0.78),),
     "roguelike": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
+    "rogue like": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
+    "rogue-like": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
     "roguelite": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
+    "rogue lite": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
+    "rogue-lite": (("world_topology", "run_based", 0.86), ("session_shape", "roguelite_run", 0.82)),
     "mmo": (
         ("world_topology", "persistent_shared_world", 0.9),
         ("mode_profile", "mmo", 0.94),
@@ -1022,6 +1421,15 @@ _GLOBAL_LABEL_RULES: dict[str, tuple[tuple[str, str, float], ...]] = {
     "historical": (("setting", "historical", 0.88),),
     "magic": (("combat_style", "magic", 0.84),),
     "crafting": (("progression_model", "buildcraft", 0.84),),
+    "word game": (
+        ("challenge_model", "puzzle_gating", 0.88),
+        ("combat_presence", "none", 0.84),
+        ("interface_control", "cursor_driven", 0.78),
+    ),
+    "word-based": (
+        ("challenge_model", "puzzle_gating", 0.86),
+        ("combat_presence", "none", 0.82),
+    ),
     "character customization": (
         ("progression_model", "buildcraft", 0.82),
         ("progression_model", "skill_tree", 0.74),
@@ -1043,6 +1451,16 @@ _GLOBAL_LABEL_RULES: dict[str, tuple[tuple[str, str, float], ...]] = {
         ("combat_presence", "light", 0.68),
     ),
     "shooter": (("combat_style", "shooter", 0.88), ("combat_presence", "dominant", 0.8)),
+    "military": (
+        ("setting", "military", 0.9),
+        ("combat_tempo", "tactical", 0.8),
+    ),
+    "modern warfare": (
+        ("setting", "modern", 0.9),
+        ("setting", "military", 0.88),
+        ("world_topology", "mission_based", 0.82),
+        ("session_shape", "mission_session", 0.8),
+    ),
     "strategy": (
         ("combat_tempo", "tactical", 0.82),
         ("challenge_model", "tactical_optimization", 0.76),
@@ -1230,6 +1648,11 @@ _GLOBAL_LABEL_RULES: dict[str, tuple[tuple[str, str, float], ...]] = {
         ("progression_model", "relationship_social", 0.8),
         ("tone", "cozy", 0.88),
     ),
+    "farming": (
+        ("progression_model", "base_growth", 0.84),
+        ("world_density", "sandbox_light", 0.8),
+        ("tone", "cozy", 0.78),
+    ),
     "management": (
         ("progression_model", "base_growth", 0.8),
         ("session_shape", "sandbox_loop", 0.74),
@@ -1298,6 +1721,24 @@ _GLOBAL_LABEL_RULES: dict[str, tuple[tuple[str, str, float], ...]] = {
         ("mechanics_structure", "rhythm_timing", 0.92),
         ("rules_goals", "hit_beats", 0.9),
     ),
+    "brawler": (
+        ("combat_presence", "dominant", 0.88),
+        ("combat_style", "melee", 0.9),
+        ("combat_tempo", "combo_driven", 0.84),
+        ("world_topology", "level_based", 0.78),
+    ),
+    "beat em up": (
+        ("combat_presence", "dominant", 0.9),
+        ("combat_style", "melee", 0.92),
+        ("combat_tempo", "combo_driven", 0.86),
+        ("world_topology", "level_based", 0.82),
+    ),
+    "beat-'em-up": (
+        ("combat_presence", "dominant", 0.9),
+        ("combat_style", "melee", 0.92),
+        ("combat_tempo", "combo_driven", 0.86),
+        ("world_topology", "level_based", 0.82),
+    ),
     "visual novel": (
         ("hard_exclusions", "non_combat", 0.84),
         ("combat_presence", "none", 0.88),
@@ -1357,6 +1798,7 @@ _FACET_LABEL_RULES: dict[str, dict[str, tuple[tuple[str, str, float], ...]]] = {
 
 _STRICT_MIN_REQUIRED_HITS: dict[str, int] = {
     "open_world_fantasy_action_rpg": 5,
+    "beat_em_up": 3,
     "loot_action_rpg": 3,
     "mmo_action_rpg": 4,
 }
@@ -1424,6 +1866,7 @@ _KEYWORD_MATCH_WEIGHTS: dict[str, int] = {
     "real_time_tactics": 16,
     "pinball": 18,
     "rhythm": 18,
+    "retail_management": 18,
 }
 _MECHANICS_MATCH_WEIGHTS: dict[str, int] = {
     "quest_exploration_loop": 10,
@@ -1592,8 +2035,10 @@ class SimilarityBreakdownV2:
     relationship: str
     derived_similarity_score: int
     shared_world_topology: list[str]
+    shared_session_shape: list[str]
     shared_combat_style: list[str]
     shared_combat_structure: list[str]
+    shared_mode_profile: list[str]
     shared_progression_model: list[str]
     shared_traversal_verbs: list[str]
     shared_setting: list[str]
@@ -1809,8 +2254,6 @@ def _prefer_primary_archetype_candidate(
 
     candidates_by_archetype = {candidate.archetype: candidate for candidate in candidates}
     open_world_candidate = candidates_by_archetype.get("open_world_fantasy_action_rpg")
-    if not open_world_candidate:
-        return candidates
 
     fingerprint_sets = build_taxonomy_v2_fingerprint_sets_from_mapping(fingerprint)
     traversal_verbs = fingerprint_sets["traversal_verbs"]
@@ -1820,15 +2263,78 @@ def _prefer_primary_archetype_candidate(
     rules_goals = fingerprint_sets["rules_goals"]
     challenge_model = fingerprint_sets["challenge_model"]
     combat_structure = fingerprint_sets["combat_structure"]
+    combat_style = fingerprint_sets["combat_style"]
+    combat_tempo = fingerprint_sets["combat_tempo"]
     combat_presence = fingerprint_sets["combat_presence"]
     perspective = fingerprint_sets["perspective"]
     world_topology = fingerprint_sets["world_topology"]
+    world_density = fingerprint_sets["world_density"]
     session_shape = fingerprint_sets["session_shape"]
     setting = fingerprint_sets["setting"]
     tone = fingerprint_sets["tone"]
     narrative_topic = fingerprint_sets["narrative_topic"]
+    mechanics_structure = fingerprint_sets["mechanics_structure"]
+    mode_profile = fingerprint_sets["mode_profile"]
+    content_model = fingerprint_sets["content_model"]
+    interface_control = fingerprint_sets["interface_control"]
+    input_complexity = fingerprint_sets["input_complexity"]
+    keyword_layer = fingerprint_sets["keyword_layer"]
+    sports_theme = fingerprint_sets["sports_theme"]
+    vehicular_theme = fingerprint_sets["vehicular_theme"]
+    kingdom_decision_candidate = candidates_by_archetype.get("kingdom_decision_sim")
+    beat_em_up_signals = (
+        "level_based" in world_topology
+        and bool(perspective & {"side_scrolling", "third_person"})
+        and bool(combat_style & {"melee", "hybrid"})
+        and "match_session" not in session_shape
+        and (
+            "combo_driven" in combat_tempo
+            or bool(mode_profile & {"drop_in_coop", "party_coop"})
+            or bool(combat_structure & {"crowd_control", "party_management"})
+        )
+    )
+
+    if (
+        keyword_layer & {"deckbuilding"}
+        or progression_model & {"deck_growth"}
+        or interface_control & {"deck_management"}
+    ) and not sports_theme and not (
+        mechanics_structure & {"match_competition"}
+        or rules_goals & {"win_matches"}
+        or vehicular_theme
+    ):
+        filtered_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate.archetype not in {"sports_sim", "realistic_racer", "arcade_racer", "pinball", "party_game"}
+        ]
+        if filtered_candidates != candidates:
+            candidates = filtered_candidates
+            if len(candidates) < 2:
+                return candidates
+            candidates_by_archetype = {candidate.archetype: candidate for candidate in candidates}
 
     preferred_archetype: str | None = None
+
+    kingdom_decision_profile = (
+        kingdom_decision_candidate is not None
+        and "none" in combat_presence
+        and "campaign" in session_shape
+        and "authored_branching" in narrative_structure
+        and bool(interface_control & {"cursor_driven"})
+        and bool(entity_interaction & {"dialogue_choice"} or narrative_topic & {"branching_choices"})
+        and bool(
+            progression_model & {"base_growth"}
+            or rules_goals & {"build_and_optimize"}
+            or mechanics_structure & {"systemic_problem_solving"}
+        )
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+        and not (keyword_layer & {"retail_management"})
+    )
+    if kingdom_decision_profile:
+        preferred_archetype = "kingdom_decision_sim"
 
     soulslike_candidate = candidates_by_archetype.get("soulslike_action_rpg")
     soulslike_profile = (
@@ -1847,10 +2353,56 @@ def _prefer_primary_archetype_candidate(
     if soulslike_profile:
         preferred_archetype = "soulslike_action_rpg"
 
+    character_action_candidate = candidates_by_archetype.get("character_action")
+    character_action_profile = (
+        character_action_candidate is not None
+        and "third_person" in perspective
+        and "dominant" in combat_presence
+        and bool(combat_style & {"hybrid", "melee", "ranged"})
+        and bool(combat_tempo & {"twitch", "combo_driven"} or input_complexity & {"mastery_heavy"})
+        and bool(input_complexity & {"mastery_heavy"} or combat_structure & {"boss_centric"})
+        and "party_management" not in combat_structure
+        and "match_session" not in session_shape
+        and not (world_topology & {"open_world", "persistent_shared_world"})
+        and not (traversal_verbs & {"climbing", "gliding", "horseback"})
+        and not (challenge_model & {"soulslike"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if character_action_profile:
+        preferred_archetype = "character_action"
+
+    cinematic_action_candidate = candidates_by_archetype.get("cinematic_action_adventure")
+    authored_linear_cinematic_profile = (
+        cinematic_action_candidate is not None
+        and "third_person" in perspective
+        and "dominant" in combat_presence
+        and "authored_linear" in narrative_structure
+        and bool(world_topology & {"semi_open", "level_based"} or world_density & {"setpiece_driven"})
+        and bool(combat_style & {"hybrid", "melee", "ranged"})
+        and "open_world" not in world_topology
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if authored_linear_cinematic_profile and preferred_archetype is None:
+        preferred_archetype = "cinematic_action_adventure"
+
     western_candidate = candidates_by_archetype.get("western_narrative_rpg")
+    compact_topdown_adventure_signal = (
+        "open_world" in world_topology
+        and "isometric" in perspective
+        and bool(world_density & {"handcrafted_discovery"})
+        and bool(combat_presence & {"dominant", "moderate"} or combat_style & {"melee", "hybrid"})
+        and bool(mechanics_structure & {"quest_exploration_loop"} or progression_model & {"quest_driven"})
+        and "single_player" in mode_profile
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
     western_narrative_profile = (
         western_candidate is not None
-        and "third_person" in perspective
+        and bool(perspective & {"third_person", "first_person", "isometric"})
         and "quest_driven" in progression_model
         and bool(
             narrative_structure & {"authored_branching", "quest_web"}
@@ -1859,11 +2411,680 @@ def _prefer_primary_archetype_candidate(
         )
         and "party_management" not in combat_structure
         and not (challenge_model & {"soulslike"})
+        and not compact_topdown_adventure_signal
     )
     if western_narrative_profile:
         preferred_archetype = "western_narrative_rpg"
 
+    western_party_action_rpg_profile = (
+        western_candidate is not None
+        and "open_world" in world_topology
+        and "campaign" in session_shape
+        and "single_player" in mode_profile
+        and "party_management" in combat_structure
+        and bool(combat_style & {"hybrid", "melee", "party_tactics"})
+        and bool(
+            mechanics_structure & {"quest_exploration_loop"}
+            or rules_goals & {"solve_mysteries", "complete_quests"}
+            or narrative_topic & {"detective_mystery"}
+        )
+        and not sports_theme
+        and not vehicular_theme
+        and not (entity_interaction & {"creature_collection"})
+        and not (mechanics_structure & {"creature_collection"})
+    )
+    if western_party_action_rpg_profile:
+        preferred_archetype = "western_narrative_rpg"
+
+    party_based_crpg_candidate = candidates_by_archetype.get("party_based_crpg")
+    party_based_crpg_profile = (
+        party_based_crpg_candidate is not None
+        and bool(perspective & {"isometric", "tactical_overhead"})
+        and "campaign" in session_shape
+        and "party_management" in combat_structure
+        and "party_tactics" in combat_style
+        and "tactical" in combat_tempo
+        and bool(progression_model & {"quest_driven", "skill_tree"})
+        and bool(
+            entity_interaction & {"dialogue_choice", "party_control"}
+            or narrative_structure & {"authored_branching"}
+        )
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if party_based_crpg_profile:
+        preferred_archetype = "party_based_crpg"
+
+    monster_collect_candidate = candidates_by_archetype.get("monster_collect_rpg")
+    monster_collect_profile = (
+        monster_collect_candidate is not None
+        and "campaign" in session_shape
+        and "party_management" in combat_structure
+        and bool(combat_tempo & {"tactical"} or progression_model & {"skill_tree"})
+        and bool(
+            entity_interaction & {"creature_collection"}
+            or mechanics_structure & {"creature_collection"}
+            or rules_goals & {"capture_and_raise_companions"}
+            or narrative_topic & {"monster_bonding"}
+        )
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if monster_collect_profile:
+        preferred_archetype = "monster_collect_rpg"
+
+    jrpg_story_candidate = candidates_by_archetype.get("jrpg_story_rpg")
+    jrpg_story_profile = (
+        jrpg_story_candidate is not None
+        and "campaign" in session_shape
+        and bool(combat_structure & {"party_management"})
+        and bool(
+            combat_tempo & {"tactical"}
+            or (
+                progression_model & {"skill_tree", "quest_driven"}
+                and narrative_structure & {"authored_linear", "authored_branching"}
+            )
+        )
+        and bool(progression_model & {"skill_tree", "quest_driven"})
+        and bool(narrative_structure & {"authored_linear", "authored_branching"} or narrative_topic & {"heroic_journey"})
+        and "match_session" not in session_shape
+        and "none" not in combat_presence
+        and not sports_theme
+        and not vehicular_theme
+        and not (world_topology & {"mission_based"})
+        and not (entity_interaction & {"creature_collection"})
+        and not (mechanics_structure & {"creature_collection"})
+    )
+    if jrpg_story_profile and preferred_archetype is None:
+        preferred_archetype = "jrpg_story_rpg"
+
+    turn_based_tactics_candidate = candidates_by_archetype.get("turn_based_tactics")
+    tactical_rpg_candidate = candidates_by_archetype.get("tactical_rpg")
+    bleak_horror_tactical_rpg_profile = (
+        tactical_rpg_candidate is not None
+        and "campaign" in session_shape
+        and "party_management" in combat_structure
+        and "tactical" in fingerprint_sets["combat_tempo"]
+        and bool(combat_style & {"party_tactics"})
+        and bool(setting & {"horror"} or tone & {"bleak", "grotesque"})
+        and not (progression_model & {"skill_tree"})
+        and not (mode_profile & {"drop_in_coop", "party_coop"})
+        and not (world_density & {"systemic_sandbox"})
+    )
+    if bleak_horror_tactical_rpg_profile and preferred_archetype is None:
+        preferred_archetype = "tactical_rpg"
+
+    turn_based_dungeon_rpg_profile = (
+        tactical_rpg_candidate is not None
+        and "party_management" in combat_structure
+        and "party_tactics" in combat_style
+        and "tactical" in fingerprint_sets["combat_tempo"]
+        and bool(session_shape & {"campaign", "roguelite_run"})
+        and bool(world_topology & {"run_based", "mission_based"} or entity_interaction & {"inventory_loot"})
+        and bool(progression_model & {"skill_tree", "buildcraft", "metaprogression"})
+        and not (mode_profile & {"drop_in_coop", "party_coop"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if turn_based_dungeon_rpg_profile and preferred_archetype in {None, "jrpg_story_rpg"}:
+        preferred_archetype = "tactical_rpg"
+
+    grim_survival_expedition_horror_profile = (
+        candidates_by_archetype.get("survival_horror") is not None
+        and "horror" in setting
+        and "survival" in combat_style
+        and bool(tone & {"bleak", "grotesque"})
+        and bool(
+            progression_model & {"buildcraft", "base_growth"}
+            or world_density & {"systemic_sandbox"}
+            or combat_structure & {"party_management"}
+        )
+        and bool(
+            combat_style & {"party_tactics"}
+            or combat_tempo & {"tactical"}
+            or challenge_model & {"tactical_optimization", "sim_realism"}
+        )
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if grim_survival_expedition_horror_profile:
+        preferred_archetype = "survival_horror"
+
+    turn_based_tactics_profile = (
+        turn_based_tactics_candidate is not None
+        and tactical_rpg_candidate is not None
+        and bool(perspective & {"tactical_overhead", "isometric"})
+        and "party_management" in combat_structure
+        and "tactical" in fingerprint_sets["combat_tempo"]
+        and "party_tactics" in fingerprint_sets["combat_style"]
+        and bool(
+            world_topology & {"mission_based"}
+            or session_shape & {"mission_session"}
+            or progression_model & {"gear_chase"}
+            or entity_interaction & {"inventory_loot"}
+        )
+        and not (
+            entity_interaction & {"dialogue_choice"}
+            or narrative_structure & {"authored_branching"}
+            or narrative_topic & {"branching_choices"}
+        )
+    )
+    if turn_based_tactics_profile and preferred_archetype is None:
+        preferred_archetype = "turn_based_tactics"
+
+    rhythm_candidate = candidates_by_archetype.get("rhythm_game")
+    rhythm_profile = (
+        rhythm_candidate is not None
+        and "match_session" in session_shape
+        and bool(
+            keyword_layer & {"rhythm"}
+            or mechanics_structure & {"rhythm_timing"}
+            or rules_goals & {"hit_beats"}
+            or interface_control & {"timing_input"}
+        )
+    )
+    if rhythm_profile and preferred_archetype is None:
+        preferred_archetype = "rhythm_game"
+
+    card_battler_candidate = candidates_by_archetype.get("card_battler")
+    card_battler_profile = (
+        card_battler_candidate is not None
+        and bool(
+            keyword_layer & {"deckbuilding"}
+            or progression_model & {"deck_growth"}
+            or interface_control & {"deck_management"}
+            or mechanics_structure & {"deck_construction"}
+        )
+        and "tactical" in combat_tempo
+        and bool(session_shape & {"roguelite_run", "match_session"} or world_topology & {"run_based"})
+        and not sports_theme
+        and not vehicular_theme
+        and "dominant" not in combat_presence
+    )
+    if card_battler_profile and preferred_archetype is None:
+        preferred_archetype = "card_battler"
+
+    tower_defense_strategy_candidate = candidates_by_archetype.get("tower_defense_strategy")
+    tower_defense_strategy_profile = (
+        tower_defense_strategy_candidate is not None
+        and "tactical_optimization" in challenge_model
+        and bool(rules_goals & {"build_and_optimize", "survive_waves"})
+        and bool(combat_structure & {"crowd_control"} or mechanics_structure & {"settlement_building"})
+        and "first_person" not in perspective
+        and not (mode_profile & {"drop_in_coop", "party_coop"} and combat_presence & {"dominant"})
+        and not (combat_style & {"shooter", "melee", "hybrid"} and combat_tempo & {"fast", "twitch"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if tower_defense_strategy_profile and preferred_archetype is None:
+        preferred_archetype = "tower_defense_strategy"
+
+    precision_platformer_candidate = candidates_by_archetype.get("precision_platformer")
+    precision_platformer_profile = (
+        precision_platformer_candidate is not None
+        and "level_based" in world_topology
+        and "platforming" in traversal_verbs
+        and "precision_platforming" in challenge_model
+        and bool(perspective & {"side_scrolling"})
+        and "match_session" not in session_shape
+        and (
+            "dominant" not in combat_presence
+            or (
+                not (combat_structure & {"crowd_control", "boss_centric"})
+                and not (combat_style & {"melee", "hybrid", "magic", "ranged"})
+            )
+        )
+        and not sports_theme
+    )
+    if precision_platformer_profile and preferred_archetype is None:
+        preferred_archetype = "precision_platformer"
+
+    action_platformer_candidate = candidates_by_archetype.get("action_platformer")
+    action_platformer_profile = (
+        action_platformer_candidate is not None
+        and "level_based" in world_topology
+        and "platforming" in traversal_verbs
+        and bool(perspective & {"side_scrolling", "third_person"})
+        and bool(combat_presence & {"dominant", "light", "moderate"})
+        and bool(combat_structure & {"encounter_driven", "crowd_control", "boss_centric"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not beat_em_up_signals
+    )
+    if action_platformer_profile and preferred_archetype is None:
+        preferred_archetype = "action_platformer"
+
+    metroidvania_candidate = candidates_by_archetype.get("metroidvania")
+    metroidvania_profile = (
+        metroidvania_candidate is not None
+        and "single_player" in mode_profile
+        and "match_session" not in session_shape
+        and bool(traversal_verbs & {"platforming", "gliding"})
+        and bool(
+            world_topology & {"semi_open", "level_based"}
+            or world_density & {"handcrafted_discovery"}
+            or progression_model & {"metaprogression", "skill_tree"}
+        )
+        and not beat_em_up_signals
+        and not sports_theme
+    )
+    if metroidvania_profile and preferred_archetype is None:
+        preferred_archetype = "metroidvania"
+
+    exploration_survival_candidate = candidates_by_archetype.get("exploration_survival_adventure")
+    puzzle_exploration_adventure_profile = (
+        exploration_survival_candidate is not None
+        and bool(world_topology & {"open_world", "semi_open"})
+        and bool(challenge_model & {"puzzle_gating"})
+        and bool(mechanics_structure & {"environmental_puzzle_solving", "systemic_problem_solving"})
+        and bool(progression_model & {"quest_driven", "buildcraft", "metaprogression"})
+        and "campaign" in session_shape
+        and not sports_theme
+        and not vehicular_theme
+        and not (setting & {"horror"})
+    )
+    if puzzle_exploration_adventure_profile:
+        preferred_archetype = "exploration_survival_adventure"
+
+    sports_candidate = candidates_by_archetype.get("sports_sim")
+    sports_profile = (
+        sports_candidate is not None
+        and "match_session" in session_shape
+        and bool(mode_profile & {"pvp", "single_player"} or sports_theme)
+        and "party_coop" not in mode_profile
+        and bool(
+            sports_theme
+            or (
+                (
+                    "match_competition" in mechanics_structure
+                    or "win_matches" in rules_goals
+                )
+                and "dominant" not in combat_presence
+                and not (fingerprint_sets["combat_style"] & {"shooter", "stealth", "melee", "magic", "hybrid"})
+            )
+        )
+    )
+    if sports_profile and preferred_archetype is None:
+        preferred_archetype = "sports_sim"
+
+    creative_sandbox_candidate = candidates_by_archetype.get("creative_sandbox_adventure")
+    creative_sandbox_profile = (
+        creative_sandbox_candidate is not None
+        and bool(world_density & {"systemic_sandbox"})
+        and bool(progression_model & {"buildcraft"})
+        and bool(
+            entity_interaction & {"construction_placement"}
+            or mechanics_structure & {"settlement_building"}
+        )
+        and bool(mode_profile & {"single_player", "drop_in_coop", "party_coop", "mmo"} or session_shape & {"sandbox_loop"})
+        and "match_session" not in session_shape
+        and not (
+            perspective & {"third_person"}
+            and (
+                combat_style & {"melee", "hybrid", "ranged", "magic"}
+                or (
+                    mode_profile & {"mmo"}
+                    and input_complexity & {"mastery_heavy"}
+                )
+            )
+        )
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if creative_sandbox_profile:
+        preferred_archetype = "creative_sandbox_adventure"
+
+    mischief_sandbox_candidate = candidates_by_archetype.get("mischief_sandbox_sim")
+    mischief_sandbox_profile = (
+        mischief_sandbox_candidate is not None
+        and bool(world_density & {"systemic_sandbox"})
+        and bool(mechanics_structure & {"systemic_problem_solving"})
+        and bool(rules_goals & {"cause_mischief"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if mischief_sandbox_profile:
+        preferred_archetype = "mischief_sandbox_sim"
+
+    colony_sim_candidate = candidates_by_archetype.get("colony_sim")
+    colony_management_hybrid_profile = (
+        colony_sim_candidate is not None
+        and "colony_growth" in progression_model
+        and bool(world_density & {"systemic_sandbox", "city_dense"})
+        and bool(rules_goals & {"build_and_optimize"} or mechanics_structure & {"settlement_building", "real_time_command"})
+        and bool(challenge_model & {"sim_realism", "tactical_optimization"} or mechanics_structure & {"systemic_problem_solving"})
+        and "mmo" not in mode_profile
+        and not (candidates_by_archetype.get("management_tycoon") is not None and "first_person" not in perspective)
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if colony_management_hybrid_profile:
+        preferred_archetype = "colony_sim"
+
+    roguelite_fps_candidate = candidates_by_archetype.get("roguelite_fps")
+    roguelite_fps_profile = (
+        roguelite_fps_candidate is not None
+        and "first_person" in perspective
+        and "shooter" in combat_style
+        and "run_based" in world_topology
+        and "roguelite_run" in session_shape
+        and "dominant" in combat_presence
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+        and not colony_management_hybrid_profile
+    )
+    if roguelite_fps_profile:
+        preferred_archetype = "roguelite_fps"
+
+    shoot_em_up_candidate = candidates_by_archetype.get("shoot_em_up")
+    shoot_em_up_profile = (
+        shoot_em_up_candidate is not None
+        and "shooter" in combat_style
+        and "twitch" in combat_tempo
+        and "dominant" in combat_presence
+        and bool(session_shape & {"match_session", "campaign"})
+        and "first_person" not in perspective
+        and not (setting & {"military", "modern"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if shoot_em_up_profile:
+        preferred_archetype = "shoot_em_up"
+
+    co_op_action_roguelite_candidate = candidates_by_archetype.get("co_op_action_roguelite")
+    co_op_action_roguelite_profile = (
+        co_op_action_roguelite_candidate is not None
+        and "run_based" in world_topology
+        and "roguelite_run" in session_shape
+        and "dominant" in combat_presence
+        and bool(
+            mode_profile & {"drop_in_coop", "party_coop"}
+            or (
+                "single_player" in mode_profile
+                and "first_person" not in perspective
+                and bool(combat_tempo & {"fast", "combo_driven"} or combat_structure & {"boss_centric", "encounter_driven"})
+            )
+        )
+        and bool(
+            combat_style & {"melee", "hybrid", "shooter"}
+            or (
+                mode_profile & {"drop_in_coop", "party_coop"}
+                and (combat_structure & {"crowd_control", "encounter_driven"} or rules_goals & {"survive_waves"})
+            )
+        )
+        and bool(progression_model & {"metaprogression", "buildcraft", "gear_chase"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if co_op_action_roguelite_profile and preferred_archetype in {None, "loot_action_rpg"}:
+        preferred_archetype = "co_op_action_roguelite"
+
+    loot_action_rpg_candidate = candidates_by_archetype.get("loot_action_rpg")
+    loot_action_rpg_profile = (
+        loot_action_rpg_candidate is not None
+        and "dominant" in combat_presence
+        and bool(
+            combat_style & {"hybrid", "melee", "ranged", "magic"}
+            or combat_structure & {"encounter_driven", "crowd_control", "boss_centric"}
+        )
+        and bool(content_model & {"premium_replayable", "live_service", "mmo_persistent"})
+        and bool(progression_model & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree", "base_growth"})
+        and bool(
+            entity_interaction & {"inventory_loot", "construction_placement"}
+            or rules_goals & {"build_and_optimize", "complete_quests", "defeat_bosses"}
+        )
+        and bool(mode_profile & {"single_player", "drop_in_coop", "party_coop"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+        and not (
+            "open_world" in world_topology
+            and (
+                bool(traversal_verbs & {"horseback", "climbing", "gliding"})
+                or (
+                    "quest_driven" in progression_model
+                    and (
+                        "complete_quests" in rules_goals
+                        or bool(keyword_layer & {"open_world_exploration"})
+                    )
+                )
+            )
+        )
+    )
+    loot_action_rpg_supersede_story_profile = (
+        loot_action_rpg_profile
+        and (
+            "drop_in_coop" in mode_profile
+            or "construction_placement" in entity_interaction
+            or bool(rules_goals & {"build_and_optimize", "survive_waves"})
+            or bool(combat_structure & {"crowd_control"})
+        )
+    )
+    if loot_action_rpg_profile and (
+        preferred_archetype is None
+        or (
+            preferred_archetype in {"jrpg_story_rpg", "turn_based_tactics", "monster_collect_rpg"}
+            and loot_action_rpg_supersede_story_profile
+        )
+    ):
+        preferred_archetype = "loot_action_rpg"
+
+    military_fps_candidate = candidates_by_archetype.get("military_fps")
+    military_fps_profile = (
+        military_fps_candidate is not None
+        and "first_person" in perspective
+        and "shooter" in combat_style
+        and bool(combat_tempo & {"twitch", "tactical"})
+        and "mission_based" in world_topology
+        and bool(setting & {"military", "modern"})
+        and bool(mode_profile & {"pvp", "drop_in_coop"} or session_shape & {"mission_session", "match_session"})
+    )
+    if military_fps_profile and preferred_archetype is None:
+        preferred_archetype = "military_fps"
+
+    survival_horror_candidate = candidates_by_archetype.get("survival_horror")
+    psychological_horror_candidate = candidates_by_archetype.get("psychological_horror")
+    action_horror_candidate = candidates_by_archetype.get("action_horror")
+    co_op_horror_candidate = candidates_by_archetype.get("co_op_horror")
+    survival_horror_profile = (
+        survival_horror_candidate is not None
+        and psychological_horror_candidate is not None
+        and "horror" in setting
+        and "survival" in fingerprint_sets["combat_style"]
+        and "dominant" not in combat_presence
+        and "encounter_driven" in combat_structure
+        and bool(
+            mechanics_structure & {"stealth_infiltration", "environmental_puzzle_solving"}
+            or rules_goals & {"infiltrate_avoid_detection", "solve_mysteries"}
+            or narrative_topic & {"survival_escape", "detective_mystery"}
+        )
+    )
+    if survival_horror_profile and preferred_archetype is None:
+        preferred_archetype = "survival_horror"
+
+    co_op_horror_profile = (
+        co_op_horror_candidate is not None
+        and "horror" in setting
+        and "shooter" in combat_style
+        and "dominant" in combat_presence
+        and bool(mode_profile & {"drop_in_coop", "party_coop"})
+        and bool(combat_structure & {"crowd_control", "encounter_driven"})
+        and bool(session_shape & {"campaign", "mission_session"} or "match_session" not in session_shape)
+    )
+    if co_op_horror_profile and preferred_archetype is None:
+        preferred_archetype = "co_op_horror"
+
+    psychological_horror_profile = (
+        psychological_horror_candidate is not None
+        and "horror" in setting
+        and bool(tone & {"bleak", "grotesque", "melancholic"})
+        and "dominant" not in combat_presence
+        and bool(perspective & {"first_person", "third_person"})
+        and "match_session" not in session_shape
+        and bool(
+            keyword_layer & {"psychological_horror"}
+            or
+            narrative_topic & {"survival_escape", "detective_mystery"}
+            or narrative_structure & {"authored_linear", "authored_branching"}
+        )
+    )
+    if psychological_horror_profile and preferred_archetype is None:
+        preferred_archetype = "psychological_horror"
+
+    action_horror_profile = (
+        action_horror_candidate is not None
+        and "horror" in setting
+        and "dominant" in combat_presence
+        and bool(combat_style & {"shooter", "melee", "hybrid", "survival"})
+        and bool(combat_structure & {"crowd_control", "encounter_driven", "boss_centric"})
+        and "match_session" not in session_shape
+    )
+    if action_horror_profile and preferred_archetype is None:
+        preferred_archetype = "action_horror"
+
+    physics_roguelite_strategy_candidate = candidates_by_archetype.get("physics_roguelite_strategy")
+    merge_puzzle_candidate = candidates_by_archetype.get("merge_puzzle")
+    cinematic_puzzle_candidate = candidates_by_archetype.get("cinematic_puzzle_adventure")
+    hidden_object_candidate = candidates_by_archetype.get("hidden_object_puzzle")
+    visual_novel_candidate = candidates_by_archetype.get("visual_novel")
+    cinematic_puzzle_profile = (
+        cinematic_puzzle_candidate is not None
+        and "campaign" in session_shape
+        and "none" in combat_presence
+        and "puzzle_gating" in challenge_model
+        and bool(narrative_structure & {"authored_linear", "authored_branching"})
+        and bool(
+            mechanics_structure & {"environmental_puzzle_solving", "quest_exploration_loop"}
+            or world_density & {"setpiece_driven", "handcrafted_discovery"}
+        )
+        and not (rules_goals & {"solve_mysteries"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if cinematic_puzzle_profile and preferred_archetype is None:
+        preferred_archetype = "cinematic_puzzle_adventure"
+
+    visual_novel_profile = (
+        visual_novel_candidate is not None
+        and "none" in combat_presence
+        and bool(narrative_structure & {"authored_linear", "authored_branching"})
+        and bool(
+            entity_interaction & {"dialogue_choice"}
+            or narrative_structure & {"authored_branching"}
+            or narrative_topic & {"interpersonal_drama", "branching_choices"}
+            or (
+                bool(narrative_topic & {"detective_mystery"} or rules_goals & {"solve_mysteries"})
+                and not (mechanics_structure & {"environmental_puzzle_solving", "quest_exploration_loop"})
+                and not (world_density & {"setpiece_driven", "handcrafted_discovery"})
+            )
+        )
+        and "sandbox_loop" not in session_shape
+        and "relationship_social" not in progression_model
+        and "dominant" not in combat_presence
+    )
+    if visual_novel_profile and preferred_archetype in {None, "cinematic_puzzle_adventure"}:
+        preferred_archetype = "visual_novel"
+
+    physics_roguelite_strategy_profile = (
+        physics_roguelite_strategy_candidate is not None
+        and "run_based" in world_topology
+        and "roguelite_run" in session_shape
+        and "buildcraft" in progression_model
+        and "tactical_optimization" in challenge_model
+        and "physics_board_strategy" in keyword_layer
+        and bool(mechanics_structure & {"systemic_problem_solving", "score_attack"})
+    )
+    if physics_roguelite_strategy_profile and preferred_archetype is None:
+        preferred_archetype = "physics_roguelite_strategy"
+
+    merge_puzzle_profile = (
+        merge_puzzle_candidate is not None
+        and "match_session" in session_shape
+        and "puzzle_gating" in challenge_model
+        and "none" in combat_presence
+        and "build_and_optimize" in rules_goals
+        and bool(mechanics_structure & {"systemic_problem_solving", "score_attack"})
+    )
+    if merge_puzzle_profile and preferred_archetype is None:
+        preferred_archetype = "merge_puzzle"
+
+    hidden_object_profile = (
+        hidden_object_candidate is not None
+        and "puzzle_gating" in challenge_model
+        and "none" in combat_presence
+        and bool(
+            keyword_layer & {"point_and_click"}
+            or mechanics_structure & {"environmental_puzzle_solving", "systemic_problem_solving"}
+        )
+        and bool(
+            rules_goals & {"solve_mysteries"}
+            or narrative_topic & {"detective_mystery"}
+            or rules_goals & {"build_and_optimize"}
+            or visual_novel_candidate is not None
+        )
+    )
+    if hidden_object_profile and preferred_archetype is None:
+        preferred_archetype = "hidden_object_puzzle"
+
+    life_sim_candidate = candidates_by_archetype.get("life_sim")
+    farming_sim_candidate = candidates_by_archetype.get("farming_sim")
+    management_tycoon_candidate = candidates_by_archetype.get("management_tycoon")
+    farming_sim_profile = (
+        farming_sim_candidate is not None
+        and "base_growth" in progression_model
+        and bool(tone & {"cozy", "whimsical"})
+        and "dominant" not in combat_presence
+        and bool(world_density & {"sandbox_light", "handcrafted_discovery", "systemic_sandbox"})
+        and bool(session_shape & {"sandbox_loop", "campaign"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if farming_sim_profile and preferred_archetype is None:
+        preferred_archetype = "farming_sim"
+
+    life_sim_profile = (
+        life_sim_candidate is not None
+        and farming_sim_candidate is not None
+        and "relationship_social" in progression_model
+        and bool(tone & {"cozy", "whimsical"})
+        and "dominant" not in combat_presence
+        and "base_growth" not in progression_model
+        and bool(
+            fingerprint_sets["interface_control"] & {"cursor_driven"}
+            or entity_interaction & {"dialogue_choice", "cursor_driven_interaction"}
+            or narrative_structure & {"authored_branching"}
+        )
+    )
+    if life_sim_profile and preferred_archetype is None:
+        preferred_archetype = "life_sim"
+
+    management_tycoon_profile = (
+        management_tycoon_candidate is not None
+        and ("base_growth" in progression_model or keyword_layer & {"retail_management"})
+        and (
+            "none" in combat_presence
+            or (
+                keyword_layer & {"retail_management"}
+                and "dominant" not in combat_presence
+            )
+        )
+        and bool(session_shape & {"sandbox_loop", "campaign"})
+        and bool(rules_goals & {"build_and_optimize"} or mechanics_structure & {"systemic_problem_solving"})
+        and bool(world_density & {"systemic_sandbox", "sandbox_light"})
+        and not vehicular_theme
+        and not (interface_control & {"vehicle_control"})
+        and "open_world_exploration" not in keyword_layer
+    )
+    if management_tycoon_profile and preferred_archetype is None:
+        preferred_archetype = "management_tycoon"
+
     open_world_fantasy_profile = (
+        open_world_candidate is not None
+        and
         "open_world" in world_topology
         and bool(setting & {"high_fantasy", "dark_fantasy", "mythic"})
         and ("third_person" in perspective or bool(traversal_verbs & {"horseback", "climbing", "gliding"}))
@@ -1885,28 +3106,40 @@ def _prefer_primary_archetype_candidate(
     three_d_collectathon_candidate = candidates_by_archetype.get("3d_collectathon")
     three_d_collectathon_profile = (
         three_d_collectathon_candidate is not None
-        and "open_world" in world_topology
-        and "platforming" in traversal_verbs
-        and "third_person" in perspective
+        and bool(world_topology & {"open_world", "level_based"})
+        and bool(traversal_verbs & {"platforming", "parkour", "climbing"})
+        and bool(perspective & {"third_person", "first_person", "vr"})
+        and "persistent_shared_world" not in world_topology
+        and "mmo" not in mode_profile
         and "quest_driven" not in progression_model
         and "dark_fantasy" not in setting
         and "dialogue_choice" not in entity_interaction
+        and "cause_mischief" not in rules_goals
+        and "dominant" not in combat_presence
         and "match_session" not in session_shape
     )
     if three_d_collectathon_profile:
         preferred_archetype = "3d_collectathon"
 
     open_world_action_candidate = candidates_by_archetype.get("open_world_action_adventure")
+    compact_topdown_action_profile = open_world_action_candidate is not None and compact_topdown_adventure_signal
     open_world_action_profile = (
         open_world_action_candidate is not None
         and not open_world_fantasy_profile
-        and "open_world" in world_topology
-        and "third_person" in perspective
+        and (
+            (
+                "open_world" in world_topology
+                and "third_person" in perspective
+            )
+            or compact_topdown_action_profile
+        )
         and "party_management" not in combat_structure
-        and "dialogue_choice" not in entity_interaction
+        and ("dialogue_choice" not in entity_interaction or compact_topdown_action_profile)
         and not (setting & {"dark_fantasy"} and "soulslike" in challenge_model)
         and not (traversal_verbs & {"horseback", "climbing", "gliding"})
         and (
+            compact_topdown_action_profile
+            or
             "authored_linear" in narrative_structure
             or (
                 "quest_driven" not in progression_model
@@ -1918,6 +3151,19 @@ def _prefer_primary_archetype_candidate(
         preferred_archetype = "open_world_action_adventure"
 
     beat_em_up_candidate = candidates_by_archetype.get("beat_em_up")
+    beat_em_up_profile = (
+        beat_em_up_candidate is not None
+        and action_platformer_candidate is not None
+        and "dominant" in combat_presence
+        and beat_em_up_signals
+        and bool(mode_profile & {"drop_in_coop", "party_coop"} or combat_structure & {"encounter_driven", "party_management"})
+    )
+    if beat_em_up_profile and (
+        preferred_archetype is None
+        or preferred_archetype in {"action_horror", "jrpg_story_rpg", "traditional_fighter"}
+    ):
+        preferred_archetype = "beat_em_up"
+
     if (
         beat_em_up_candidate is not None
         and "open_world" in world_topology
@@ -3258,6 +4504,395 @@ def _apply_taxonomy_v2_co_signal_gates(
         provenance_by_field_value.get(field, {}).pop(value, None)
 
 
+def _apply_taxonomy_v2_false_positive_suppressions(
+    fingerprint: dict[str, list[str]],
+    confidence_by_field_value: dict[str, dict[str, float]],
+    source_count_by_field_value: dict[str, dict[str, int]],
+    provenance_by_field_value: dict[str, dict[str, set[str]]],
+) -> None:
+    def _remove(field: str, value: str) -> None:
+        fingerprint[field] = [item for item in fingerprint.get(field, []) if item != value]
+        confidence_by_field_value.get(field, {}).pop(value, None)
+        source_count_by_field_value.get(field, {}).pop(value, None)
+        provenance_by_field_value.get(field, {}).pop(value, None)
+
+    traversal = set(fingerprint.get("traversal_verbs", []))
+    perspective = set(fingerprint.get("perspective", []))
+    challenge_model = set(fingerprint.get("challenge_model", []))
+    sports_theme = set(fingerprint.get("sports_theme", []))
+    vehicular_theme = set(fingerprint.get("vehicular_theme", []))
+    combat_presence = set(fingerprint.get("combat_presence", []))
+    combat_style = set(fingerprint.get("combat_style", []))
+    combat_structure = set(fingerprint.get("combat_structure", []))
+    combat_tempo = set(fingerprint.get("combat_tempo", []))
+    world_topology = set(fingerprint.get("world_topology", []))
+    world_density = set(fingerprint.get("world_density", []))
+    session_shapes = set(fingerprint.get("session_shape", []))
+    progression_model = set(fingerprint.get("progression_model", []))
+    mode_profile = set(fingerprint.get("mode_profile", []))
+    setting = set(fingerprint.get("setting", []))
+    tone = set(fingerprint.get("tone", []))
+    art_style = set(fingerprint.get("art_style", []))
+    keyword_layer = set(fingerprint.get("keyword_layer", []))
+    narrative_topic = set(fingerprint.get("narrative_topic", []))
+    narrative_structure = set(fingerprint.get("narrative_structure", []))
+    interface_control = set(fingerprint.get("interface_control", []))
+    mechanics_structure = set(fingerprint.get("mechanics_structure", []))
+    rules_goals = set(fingerprint.get("rules_goals", []))
+    entity_interaction = set(fingerprint.get("entity_interaction", []))
+    content_model = set(fingerprint.get("content_model", []))
+
+    parkour_platformer_profile = (
+        bool(traversal & {"parkour", "platforming", "climbing"})
+        and bool(perspective & {"first_person", "vr"})
+        and "sim_realism" not in challenge_model
+        and not sports_theme
+        and bool(world_topology & {"level_based"} or traversal & {"parkour"})
+        and bool(combat_presence & {"none", "light"} or combat_style & {"shooter"})
+    )
+    if parkour_platformer_profile and vehicular_theme <= {"cars"}:
+        for field, value in (
+            ("traversal_verbs", "driving"),
+            ("vehicular_theme", "cars"),
+            ("interface_control", "vehicle_control"),
+            ("mechanics_structure", "vehicular_racing"),
+            ("rules_goals", "win_races"),
+        ):
+            _remove(field, value)
+
+    compact_metroidvania_profile = (
+        bool(perspective & {"side_scrolling"})
+        and bool(world_topology & {"semi_open", "level_based"})
+        and bool(traversal & {"platforming"})
+        and bool(progression_model & {"metaprogression"})
+        and "single_player" in mode_profile
+    )
+    if compact_metroidvania_profile and not (mode_profile & {"party_coop", "drop_in_coop"}):
+        for field, value in (
+            ("combat_style", "party_tactics"),
+            ("combat_structure", "party_management"),
+            ("mechanics_structure", "party_management_loop"),
+            ("entity_interaction", "party_control"),
+        ):
+            _remove(field, value)
+        if (
+            "horror" in setting
+            and not (keyword_layer & {"psychological_horror"})
+            and not (tone & {"bleak", "melancholic"})
+            and not (narrative_topic & {"survival_escape"})
+        ):
+            _remove("setting", "horror")
+            _remove("tone", "grotesque")
+
+    retro_horror_platformer_profile = (
+        bool(perspective & {"side_scrolling"})
+        and bool(traversal & {"platforming"})
+        and bool(combat_presence & {"dominant", "moderate"})
+        and "single_player" in mode_profile
+        and bool(setting & {"horror"} or tone & {"bleak", "grotesque"} or art_style & {"retro", "pixel_art"})
+    )
+    if retro_horror_platformer_profile and not (world_topology & {"open_world", "persistent_shared_world"}):
+        for field, value in (
+            ("progression_model", "buildcraft"),
+            ("world_density", "systemic_sandbox"),
+            ("mechanics_structure", "systemic_problem_solving"),
+            ("keyword_layer", "open_world_exploration"),
+        ):
+            _remove(field, value)
+
+    replayable_loot_arpg_profile = (
+        bool(combat_presence & {"dominant"})
+        and bool(combat_style & {"hybrid", "melee", "magic", "ranged"})
+        and bool(mode_profile & {"single_player", "drop_in_coop", "party_coop"})
+        and "match_session" not in set(fingerprint.get("session_shape", []))
+        and bool(progression_model & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree", "base_growth"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if replayable_loot_arpg_profile and confidence_by_field_value.get("mode_profile", {}).get("pvp", 0.0) <= 0.72:
+        _remove("mode_profile", "pvp")
+
+    kingdom_decision_profile = (
+        "campaign" in set(fingerprint.get("session_shape", []))
+        and "none" in combat_presence
+        and "authored_branching" in narrative_structure
+        and "cursor_driven" in interface_control
+        and bool(entity_interaction & {"dialogue_choice"} or narrative_topic & {"branching_choices"})
+        and bool(
+            progression_model & {"base_growth"}
+            or mechanics_structure & {"systemic_problem_solving"}
+            or rules_goals & {"build_and_optimize"}
+        )
+    )
+    if kingdom_decision_profile:
+        for field, value in (
+            ("combat_presence", "dominant"),
+            ("combat_presence", "light"),
+            ("combat_style", "melee"),
+            ("combat_style", "shooter"),
+            ("combat_style", "magic"),
+            ("combat_style", "hybrid"),
+            ("combat_structure", "boss_centric"),
+            ("combat_structure", "encounter_driven"),
+            ("perspective", "third_person"),
+            ("progression_model", "buildcraft"),
+        ):
+            _remove(field, value)
+
+    precision_no_combat_platformer_profile = (
+        bool(perspective & {"side_scrolling"})
+        and bool(traversal & {"platforming"})
+        and "level_based" in world_topology
+        and bool(challenge_model & {"precision_platforming"})
+        and "match_session" not in session_shapes
+        and not sports_theme
+    )
+    precision_action_noise_profile = (
+        precision_no_combat_platformer_profile
+        and not (combat_structure & {"crowd_control", "boss_centric"})
+        and not (combat_style & {"melee", "hybrid", "magic", "ranged"})
+    )
+    if precision_action_noise_profile:
+        for field, value in (
+            ("perspective", "first_person"),
+            ("combat_style", "shooter"),
+            ("combat_presence", "dominant"),
+            ("combat_structure", "encounter_driven"),
+            ("hard_exclusions", "fps_only"),
+            ("world_topology", "open_world"),
+            ("world_topology", "semi_open"),
+            ("world_density", "handcrafted_discovery"),
+            ("progression_model", "metaprogression"),
+            ("keyword_layer", "open_world_exploration"),
+        ):
+            _remove(field, value)
+
+    detective_isometric_crpg_profile = (
+        bool(perspective & {"isometric"})
+        and "campaign" in session_shapes
+        and bool(
+            entity_interaction & {"dialogue_choice"}
+            or narrative_structure & {"authored_branching"}
+            or narrative_topic & {"detective_mystery", "branching_choices"}
+        )
+        and bool(rules_goals & {"solve_mysteries"} or progression_model & {"quest_driven"})
+        and not (
+            world_density & {"handcrafted_discovery"}
+            and mechanics_structure & {"quest_exploration_loop"}
+            and world_topology & {"open_world"}
+            and combat_presence & {"dominant", "moderate"}
+        )
+        and not sports_theme
+    )
+    if detective_isometric_crpg_profile:
+        for field, value in (
+            ("world_topology", "open_world"),
+            ("setting", "high_fantasy"),
+            ("combat_presence", "dominant"),
+            ("combat_style", "hybrid"),
+            ("keyword_layer", "open_world_exploration"),
+        ):
+            _remove(field, value)
+
+    card_battler_story_profile = (
+        bool(progression_model & {"deck_growth"})
+        and bool(entity_interaction & {"card_play"} or mechanics_structure & {"deck_construction"})
+        and bool(mode_profile & {"pvp"} or session_shapes & {"match_session"})
+    )
+    if card_battler_story_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("entity_interaction", "party_control"),
+            ("mechanics_structure", "party_management_loop"),
+            ("hard_exclusions", "jrpg_first"),
+        ):
+            _remove(field, value)
+
+    colony_tactical_profile = (
+        bool(world_density & {"systemic_sandbox"})
+        and bool(progression_model & {"base_growth", "colony_growth"})
+        and bool(entity_interaction & {"construction_placement"} or mechanics_structure & {"settlement_building"})
+    )
+    if colony_tactical_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("entity_interaction", "party_control"),
+            ("mechanics_structure", "party_management_loop"),
+            ("hard_exclusions", "jrpg_first"),
+        ):
+            _remove(field, value)
+
+    creative_sandbox_profile = (
+        bool(world_density & {"systemic_sandbox"})
+        and bool(progression_model & {"buildcraft"})
+        and bool(
+            entity_interaction & {"construction_placement"}
+            or mechanics_structure & {"settlement_building"}
+        )
+        and bool(mode_profile & {"single_player", "drop_in_coop", "party_coop", "mmo"} or session_shapes & {"sandbox_loop"})
+        and "match_session" not in session_shapes
+        and not (
+            perspective & {"third_person"}
+            and (
+                combat_style & {"melee", "hybrid", "ranged", "magic"}
+                or (
+                    mode_profile & {"mmo"}
+                    and input_complexity & {"mastery_heavy"}
+                )
+            )
+        )
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if creative_sandbox_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("combat_structure", "boss_centric"),
+            ("hard_exclusions", "jrpg_first"),
+            ("soft_penalties", "sim_heavy"),
+            ("world_density", "handcrafted_discovery"),
+            ("perspective", "side_scrolling"),
+        ):
+            _remove(field, value)
+
+    mischief_sandbox_profile = (
+        bool(world_density & {"systemic_sandbox"})
+        and bool(mechanics_structure & {"systemic_problem_solving"})
+        and bool(rules_goals & {"cause_mischief"})
+        and "match_session" not in session_shapes
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if mischief_sandbox_profile:
+        for field, value in (
+            ("combat_style", "party_tactics"),
+            ("combat_structure", "party_management"),
+            ("entity_interaction", "party_control"),
+            ("mechanics_structure", "party_management_loop"),
+            ("combat_presence", "dominant"),
+            ("hard_exclusions", "platformer_first"),
+            ("soft_penalties", "sim_heavy"),
+        ):
+            _remove(field, value)
+
+    tactical_action_roguelite_profile = (
+        bool(mode_profile & {"drop_in_coop", "single_player"})
+        and bool(world_topology & {"run_based"})
+        and bool(session_shapes & {"roguelite_run"})
+        and bool(combat_presence & {"dominant"})
+        and bool(combat_structure & {"crowd_control"} or rules_goals & {"survive_waves"})
+    )
+    if tactical_action_roguelite_profile:
+        for field, value in (
+            ("hard_exclusions", "overhead_strategy_first"),
+            ("progression_model", "base_growth"),
+            ("world_density", "systemic_sandbox"),
+            ("challenge_model", "sim_realism"),
+        ):
+            _remove(field, value)
+
+    shoot_em_up_profile = (
+        bool(combat_style & {"shooter"})
+        and bool(combat_tempo & {"twitch"})
+        and bool(session_shapes & {"match_session", "campaign"})
+        and bool(rules_goals & {"clear_stages", "score_attack"} or mechanics_structure & {"score_attack"})
+    )
+    if shoot_em_up_profile:
+        for field, value in (
+            ("hard_exclusions", "historical_first"),
+            ("hard_exclusions", "match_based_only"),
+            ("soft_penalties", "sim_heavy"),
+        ):
+            _remove(field, value)
+
+    action_base_defense_arpg_profile = (
+        bool(combat_presence & {"dominant"})
+        and bool(mode_profile & {"single_player", "drop_in_coop", "party_coop"})
+        and "match_session" not in session_shapes
+        and bool(progression_model & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree"})
+        and bool(
+            entity_interaction & {"construction_placement", "inventory_loot"}
+            or rules_goals & {"build_and_optimize", "survive_waves"}
+        )
+        and bool(combat_structure & {"crowd_control", "encounter_driven"} or rules_goals & {"survive_waves"})
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if action_base_defense_arpg_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("entity_interaction", "party_control"),
+            ("mechanics_structure", "party_management_loop"),
+            ("hard_exclusions", "jrpg_first"),
+            ("challenge_model", "sim_realism"),
+        ):
+            _remove(field, value)
+
+    action_horror_rpg_profile = (
+        bool(perspective & {"third_person", "first_person"})
+        and bool(combat_presence & {"dominant"})
+        and bool(combat_style & {"melee", "hybrid", "magic", "ranged"})
+        and bool(combat_structure & {"boss_centric", "encounter_driven"})
+        and bool(progression_model & {"gear_chase", "loot_rarity", "buildcraft"})
+        and bool(setting & {"horror", "dark_fantasy"} or tone & {"bleak", "grotesque"})
+        and bool(content_model & {"premium_replayable"} or world_topology & {"semi_open", "hub_and_spoke"})
+        and not (entity_interaction & {"party_control"} or mechanics_structure & {"party_management_loop"})
+    )
+    if action_horror_rpg_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("hard_exclusions", "jrpg_first"),
+        ):
+            _remove(field, value)
+
+    co_op_horror_tactical_profile = (
+        bool(setting & {"horror"})
+        and bool(combat_style & {"shooter"})
+        and bool(combat_tempo & {"tactical"})
+        and bool(combat_structure & {"party_management"})
+        and bool(combat_structure & {"crowd_control", "encounter_driven"})
+        and bool(mode_profile & {"drop_in_coop", "party_coop"})
+    )
+    if co_op_horror_tactical_profile:
+        for field, value in (
+            ("combat_structure", "party_management"),
+            ("entity_interaction", "party_control"),
+            ("mechanics_structure", "party_management_loop"),
+            ("progression_model", "skill_tree"),
+            ("hard_exclusions", "jrpg_first"),
+        ):
+            _remove(field, value)
+
+    console_party_jrpg_profile = (
+        "campaign" in session_shapes
+        and "single_player" in mode_profile
+        and "party_management" in combat_structure
+        and "tactical" in combat_tempo
+        and "skill_tree" in progression_model
+        and "authored_linear" in narrative_structure
+        and not (world_density & {"systemic_sandbox"})
+        and not (entity_interaction & {"construction_placement", "card_play", "creature_collection"})
+        and not (mechanics_structure & {"settlement_building", "deck_construction"})
+    )
+    if console_party_jrpg_profile and not (
+        perspective & {"third_person", "first_person"}
+        and combat_presence & {"dominant"}
+        and setting & {"horror", "dark_fantasy"}
+        and progression_model & {"gear_chase", "loot_rarity"}
+    ):
+        _remove("combat_presence", "none")
+        _remove("challenge_model", "sim_realism")
+        _remove("soft_penalties", "sim_heavy")
+        if (
+            "horror" in setting
+            and "dark_fantasy" not in setting
+            and "grotesque" not in tone
+            and not (combat_presence & {"dominant"})
+            and not (perspective & {"third_person", "first_person"})
+        ):
+            _remove("setting", "horror")
+
+
 def _aggregate_evidence(
     evidence: Iterable[TaxonomyV2EvidenceRecord],
 ) -> tuple[
@@ -3309,6 +4944,12 @@ def _aggregate_evidence(
         source_count_by_field_value,
         provenance_by_field_value,
     )
+    _apply_taxonomy_v2_false_positive_suppressions(
+        fingerprint,
+        confidence_by_field_value,
+        source_count_by_field_value,
+        provenance_by_field_value,
+    )
 
     return fingerprint, confidence_by_field_value, source_count_by_field_value, provenance_by_field_value
 
@@ -3331,7 +4972,10 @@ def infer_derived_v2_evidence(
     narrative_topic = set(fingerprint.get("narrative_topic", []))
     mechanics_structure = set(fingerprint.get("mechanics_structure", []))
     combat_presence = set(fingerprint.get("combat_presence", []))
+    progression_model = set(fingerprint.get("progression_model", []))
     rules_goals = set(fingerprint.get("rules_goals", []))
+    entity_interaction = set(fingerprint.get("entity_interaction", []))
+    content_model = set(fingerprint.get("content_model", []))
     has_dominant_profile = "dominant" in combat_presence or bool(
         combat_styles & {"melee", "ranged", "magic", "hybrid", "stealth", "party_tactics", "shooter", "survival"}
     )
@@ -3355,6 +4999,30 @@ def infer_derived_v2_evidence(
             source_field="mode_profile",
             confidence=0.72,
             evidence_text="derived from MMO mode evidence",
+        )
+        if record is not None:
+            evidence.append(record)
+
+    if (
+        "premium_replayable" not in content_model
+        and not (content_model & {"live_service", "mmo_persistent"})
+        and "match_session" not in session_shapes
+        and "pvp" not in mode_profile
+        and has_dominant_profile
+        and bool(progression_model & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree", "base_growth"})
+        and bool(
+            rules_goals & {"build_and_optimize", "complete_quests", "defeat_bosses"}
+            or entity_interaction & {"inventory_loot", "construction_placement"}
+            or world_topology & {"semi_open", "open_world", "hub_and_spoke"}
+        )
+    ):
+        record = _make_evidence(
+            "content_model",
+            "premium_replayable",
+            source="inference",
+            source_field="progression_model",
+            confidence=0.84,
+            evidence_text="derived from replayable buildcraft and loot progression profile",
         )
         if record is not None:
             evidence.append(record)
@@ -3435,7 +5103,17 @@ def infer_derived_v2_evidence(
         if record is not None:
             evidence.append(record)
 
-    if "shooter" in combat_styles and mode_profile & {"pvp", "pvpve"} and "match_session" not in session_shapes:
+    if (
+        "shooter" in combat_styles
+        and mode_profile & {"pvp", "pvpve"}
+        and "match_session" not in session_shapes
+        and "campaign" not in session_shapes
+        and not (
+            mode_profile & {"drop_in_coop", "party_coop"}
+            and "horror" in fingerprint.get("setting", [])
+            and "crowd_control" in fingerprint.get("combat_structure", [])
+        )
+    ):
         record = _make_evidence(
             "session_shape",
             "match_session",
@@ -3447,7 +5125,23 @@ def infer_derived_v2_evidence(
         if record is not None:
             evidence.append(record)
 
-    if "driving" in fingerprint.get("traversal_verbs", []) and "match_session" not in session_shapes:
+    transport_sim_profile = (
+        "driving" in fingerprint.get("traversal_verbs", [])
+        and "sim_realism" in fingerprint.get("challenge_model", [])
+        and "vehicle_control" in fingerprint.get("interface_control", [])
+        and "win_races" not in fingerprint.get("rules_goals", [])
+        and "vehicular_racing" not in fingerprint.get("mechanics_structure", [])
+    )
+
+    if (
+        "driving" in fingerprint.get("traversal_verbs", [])
+        and "match_session" not in session_shapes
+        and not transport_sim_profile
+        and not (
+            "campaign" in session_shapes
+            and ("shooter" in combat_styles or mode_profile & {"drop_in_coop", "party_coop"})
+        )
+    ):
         record = _make_evidence(
             "session_shape",
             "match_session",
@@ -3652,6 +5346,25 @@ def infer_derived_v2_evidence(
             source_field="rules_goals",
             confidence=0.74,
             evidence_text="derived from third-person action profile focused on defeating bosses",
+        )
+        if record is not None:
+            evidence.append(record)
+
+    if (
+        (
+            "rhythm_timing" in mechanics_structure
+            or "hit_beats" in rules_goals
+            or "timing_input" in fingerprint.get("interface_control", [])
+        )
+        and not (fingerprint.get("input_complexity", []) and set(fingerprint.get("input_complexity", [])) & {"moderate", "mastery_heavy"})
+    ):
+        record = _make_evidence(
+            "input_complexity",
+            "moderate",
+            source="inference",
+            source_field="mechanics_structure",
+            confidence=0.84,
+            evidence_text="derived from rhythm-timing input demands",
         )
         if record is not None:
             evidence.append(record)
@@ -4049,8 +5762,12 @@ def build_similarity_breakdown_v2(
     candidate_fingerprint = build_taxonomy_v2_fingerprint_sets(candidate)
 
     shared_world_topology = sorted(anchor_fingerprint["world_topology"] & candidate_fingerprint["world_topology"])
+    shared_session_shape = sorted(anchor_fingerprint["session_shape"] & candidate_fingerprint["session_shape"])
     shared_combat_style = sorted(anchor_fingerprint["combat_style"] & candidate_fingerprint["combat_style"])
+    shared_combat_tempo = sorted(anchor_fingerprint["combat_tempo"] & candidate_fingerprint["combat_tempo"])
     shared_combat_structure = sorted(anchor_fingerprint["combat_structure"] & candidate_fingerprint["combat_structure"])
+    shared_mode_profile = sorted(anchor_fingerprint["mode_profile"] & candidate_fingerprint["mode_profile"])
+    shared_content_model = sorted(anchor_fingerprint["content_model"] & candidate_fingerprint["content_model"])
     shared_progression_model = sorted(anchor_fingerprint["progression_model"] & candidate_fingerprint["progression_model"])
     shared_traversal_verbs = sorted(anchor_fingerprint["traversal_verbs"] & candidate_fingerprint["traversal_verbs"])
     shared_setting = sorted(anchor_fingerprint["setting"] & candidate_fingerprint["setting"])
@@ -4174,6 +5891,29 @@ def build_similarity_breakdown_v2(
         shared_challenge_model=shared_challenge_model,
     )
     if relationship is None:
+        cross_horror_bridge = (
+            anchor_archetype in {"action_horror", "survival_horror"}
+            and (
+                candidate_archetype in {"action_horror", "survival_horror", "psychological_horror"}
+                or bool(candidate_secondaries & {"action_horror", "survival_horror", "psychological_horror"})
+            )
+            and bool(set(shared_setting) & {"horror"})
+            and bool(
+                set(shared_tone) & {"bleak", "grotesque", "melancholic"}
+                or shared_narrative_topic
+                or shared_mode_profile
+            )
+            and bool(
+                set(shared_perspective) & {"third_person", "first_person"}
+                or (
+                    set(candidate_fingerprint["perspective"]) & {"third_person", "first_person"}
+                    and set(anchor_fingerprint["perspective"]) & {"third_person", "first_person"}
+                )
+            )
+        )
+        if cross_horror_bridge:
+            relationship = "bridge_neighbor"
+    if relationship is None:
         return None
 
     studio_bridge = (
@@ -4202,6 +5942,273 @@ def build_similarity_breakdown_v2(
         shared_mechanics_structure
         or (shared_keyword_layer and shared_rules_goals)
         or (shared_keyword_layer and shared_entity_interaction)
+    )
+    low_combat_anchor = bool(anchor_fingerprint["combat_presence"] & {"none"}) or not (
+        anchor_fingerprint["combat_style"] or anchor_fingerprint["combat_structure"]
+    )
+    low_combat_candidate = bool(candidate_fingerprint["combat_presence"] & {"none"}) or not (
+        candidate_fingerprint["combat_style"] or candidate_fingerprint["combat_structure"]
+    )
+    low_combat_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and (low_combat_anchor or low_combat_candidate)
+        and (
+            (shared_session_shape and shared_mode_profile)
+            or (shared_interface_control and (shared_rules_goals or shared_mechanics_structure or shared_narrative_topic))
+            or (shared_sports_theme and (shared_session_shape or shared_mode_profile))
+            or (shared_vehicular_theme and (shared_session_shape or shared_mode_profile))
+            or (
+                shared_narrative_topic
+                and shared_interface_control
+                and (shared_session_shape or shared_visual_presentation or shared_art_style)
+            )
+            or (
+                shared_session_shape
+                and (
+                    shared_visual_presentation
+                    or shared_art_style
+                    or shared_pacing
+                    or shared_interface_control
+                    or shared_rules_goals
+                )
+            )
+        )
+    )
+    loot_action_rpg_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "loot_action_rpg"
+        and (candidate_archetype == "loot_action_rpg" or "loot_action_rpg" in candidate_secondaries)
+        and bool(anchor_fingerprint["combat_presence"] & {"dominant"})
+        and bool(candidate_fingerprint["combat_presence"] & {"dominant"})
+        and bool(shared_mode_profile)
+        and bool(shared_combat_style or shared_progression_model)
+        and bool(
+            shared_content_model
+            or shared_rules_goals
+            or shared_entity_interaction
+            or (
+                anchor_fingerprint["progression_model"] & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree", "base_growth"}
+                and candidate_fingerprint["progression_model"] & {"buildcraft", "gear_chase", "loot_rarity", "skill_tree", "base_growth"}
+            )
+        )
+    )
+    farming_sim_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "farming_sim"
+        and (candidate_archetype == "farming_sim" or "farming_sim" in candidate_secondaries)
+        and bool(anchor_fingerprint["combat_presence"] & {"none"})
+        and bool(candidate_fingerprint["combat_presence"] & {"none"})
+        and bool(shared_mode_profile)
+        and bool(
+            shared_tone
+            or shared_challenge_model
+            or (
+                anchor_fingerprint["progression_model"] & {"base_growth", "relationship_social"}
+                and candidate_fingerprint["progression_model"] & {"base_growth", "relationship_social"}
+            )
+            or (
+                anchor_fingerprint["world_density"] & {"sandbox_light"}
+                and candidate_fingerprint["world_density"] & {"sandbox_light"}
+            )
+        )
+    )
+    creative_sandbox_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "creative_sandbox_adventure"
+        and (
+            candidate_archetype == "creative_sandbox_adventure"
+            or "creative_sandbox_adventure" in candidate_secondaries
+        )
+        and bool(anchor_fingerprint["world_density"] & {"systemic_sandbox"})
+        and bool(candidate_fingerprint["world_density"] & {"systemic_sandbox"})
+        and bool(
+            shared_progression_model
+            or (
+                anchor_fingerprint["progression_model"] & {"buildcraft"}
+                and candidate_fingerprint["progression_model"] & {"buildcraft"}
+            )
+        )
+        and bool(
+            shared_entity_interaction
+            or shared_mechanics_structure
+            or shared_rules_goals
+            or (
+                anchor_fingerprint["entity_interaction"] & {"construction_placement"}
+                and candidate_fingerprint["entity_interaction"] & {"construction_placement"}
+            )
+        )
+    )
+    jrpg_story_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "jrpg_story_rpg"
+        and (candidate_archetype == "jrpg_story_rpg" or "jrpg_story_rpg" in candidate_secondaries)
+        and "none" not in candidate_fingerprint["combat_presence"]
+        and bool(set(shared_session_shape) & {"campaign"})
+        and bool(
+            set(shared_combat_structure) & {"party_management"}
+            or set(shared_combat_tempo) & {"tactical"}
+            or set(shared_progression_model) & {"skill_tree", "quest_driven"}
+            or (
+                anchor_fingerprint["combat_structure"] & {"party_management"}
+                and candidate_fingerprint["combat_structure"] & {"party_management"}
+            )
+        )
+    )
+    metroidvania_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "metroidvania"
+        and (candidate_archetype == "metroidvania" or "metroidvania" in candidate_secondaries)
+        and bool(set(shared_traversal_verbs) & {"platforming"})
+        and bool(
+            set(shared_world_topology) & {"semi_open", "level_based", "open_world"}
+            or set(shared_progression_model) & {"metaprogression", "skill_tree"}
+        )
+        and bool(
+            set(shared_perspective) & {"side_scrolling"}
+            or set(shared_mode_profile) & {"single_player"}
+        )
+    )
+    precision_platformer_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "precision_platformer"
+        and (candidate_archetype == "precision_platformer" or "precision_platformer" in candidate_secondaries)
+        and bool(set(shared_world_topology) & {"level_based"})
+        and bool(set(shared_perspective) & {"side_scrolling"})
+        and bool(set(shared_traversal_verbs) & {"platforming"})
+        and bool(
+            set(shared_challenge_model) & {"precision_platforming"}
+            or shared_mode_profile
+            or (
+                set(anchor_fingerprint["input_complexity"]) & {"mastery_heavy"}
+                and set(candidate_fingerprint["input_complexity"]) & {"mastery_heavy"}
+            )
+        )
+    )
+    hidden_object_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "hidden_object_puzzle"
+        and (candidate_archetype == "hidden_object_puzzle" or "hidden_object_puzzle" in candidate_secondaries)
+        and bool(anchor_fingerprint["combat_presence"] & {"none"})
+        and bool(candidate_fingerprint["combat_presence"] & {"none"})
+        and bool(set(shared_challenge_model) & {"puzzle_gating"})
+        and bool(
+            shared_mode_profile
+            or shared_interface_control
+            or shared_keyword_layer
+            or shared_mechanics_structure
+            or shared_rules_goals
+            or shared_narrative_topic
+        )
+    )
+    collectathon_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "3d_collectathon"
+        and (candidate_archetype == "3d_collectathon" or "3d_collectathon" in candidate_secondaries)
+        and bool(set(shared_perspective) & {"third_person"})
+        and bool(set(shared_traversal_verbs) & {"platforming", "climbing", "parkour"})
+        and bool(
+            set(shared_world_topology) & {"level_based", "open_world"}
+            or shared_mode_profile
+            or shared_keyword_layer
+            or shared_mechanics_structure
+        )
+    )
+    visual_novel_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "visual_novel"
+        and (candidate_archetype == "visual_novel" or "visual_novel" in candidate_secondaries)
+        and bool(anchor_fingerprint["combat_presence"] & {"none"})
+        and bool(candidate_fingerprint["combat_presence"] & {"none"})
+        and bool(set(shared_session_shape) & {"campaign"})
+        and bool(
+            shared_interface_control
+            or shared_narrative_topic
+            or shared_mode_profile
+            or shared_entity_interaction
+            or (
+                set(anchor_fingerprint["narrative_structure"]) & {"authored_linear", "authored_branching"}
+                and set(candidate_fingerprint["narrative_structure"]) & {"authored_linear", "authored_branching"}
+            )
+        )
+    )
+    kingdom_decision_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "kingdom_decision_sim"
+        and (
+            candidate_archetype == "kingdom_decision_sim"
+            or "kingdom_decision_sim" in candidate_secondaries
+        )
+        and bool(anchor_fingerprint["combat_presence"] & {"none"})
+        and bool(candidate_fingerprint["combat_presence"] & {"none"})
+        and bool(set(shared_session_shape) & {"campaign"})
+        and bool(
+            shared_interface_control
+            or shared_entity_interaction
+            or shared_narrative_topic
+            or shared_progression_model
+            or shared_rules_goals
+            or shared_mechanics_structure
+            or (
+                set(anchor_fingerprint["narrative_structure"]) & {"authored_branching"}
+                and set(candidate_fingerprint["narrative_structure"]) & {"authored_branching"}
+            )
+        )
+    )
+    co_op_horror_identity_bridge = (
+        relationship in {"same", "strong_neighbor", "strong_secondary"}
+        and anchor_archetype == "co_op_horror"
+        and (candidate_archetype == "co_op_horror" or "co_op_horror" in candidate_secondaries)
+        and bool(set(shared_mode_profile) & {"drop_in_coop", "party_coop"})
+        and bool(set(shared_setting) & {"horror"})
+        and bool(
+            set(shared_combat_style) & {"shooter"}
+            or set(shared_combat_structure) & {"crowd_control", "encounter_driven"}
+            or (
+                anchor_fingerprint["combat_style"] & {"shooter"}
+                and candidate_fingerprint["combat_style"] & {"shooter"}
+            )
+        )
+        and bool(
+            set(shared_session_shape) & {"campaign", "mission_session", "roguelite_run"}
+            or set(shared_combat_structure) & {"crowd_control", "encounter_driven"}
+        )
+    )
+    action_horror_identity_bridge = (
+        anchor_archetype == "action_horror"
+        and (
+            candidate_archetype in {"action_horror", "survival_horror", "psychological_horror"}
+            or bool(candidate_secondaries & {"action_horror", "survival_horror", "psychological_horror"})
+        )
+        and bool(set(shared_setting) & {"horror"})
+        and bool(
+            set(shared_tone) & {"bleak", "grotesque"}
+            or shared_narrative_topic
+            or shared_mode_profile
+        )
+        and bool(
+            set(shared_perspective) & {"third_person", "first_person"}
+            or shared_combat_style
+            or (
+                set(candidate_fingerprint["perspective"]) & {"third_person", "first_person"}
+                and set(anchor_fingerprint["perspective"]) & {"third_person", "first_person"}
+            )
+        )
+    )
+    survival_horror_identity_bridge = (
+        anchor_archetype == "survival_horror"
+        and (
+            candidate_archetype in {"survival_horror", "psychological_horror", "action_horror"}
+            or bool(candidate_secondaries & {"survival_horror", "psychological_horror", "action_horror"})
+        )
+        and bool(set(shared_setting) & {"horror"})
+        and bool(shared_mode_profile or shared_session_shape)
+        and bool(
+            shared_combat_style
+            or shared_rules_goals
+            or shared_narrative_topic
+            or shared_challenge_model
+            or bool(set(shared_tone) & {"bleak", "grotesque"})
+        )
     )
     thematic_action_bridge = bool(
         shared_setting
@@ -4303,6 +6310,20 @@ def build_similarity_breakdown_v2(
         not shared_world_topology
         and not studio_bridge
         and not derived_identity_bridge
+        and not low_combat_identity_bridge
+        and not loot_action_rpg_identity_bridge
+        and not farming_sim_identity_bridge
+        and not creative_sandbox_identity_bridge
+        and not jrpg_story_identity_bridge
+        and not metroidvania_identity_bridge
+        and not precision_platformer_identity_bridge
+        and not hidden_object_identity_bridge
+        and not collectathon_identity_bridge
+        and not visual_novel_identity_bridge
+        and not kingdom_decision_identity_bridge
+        and not co_op_horror_identity_bridge
+        and not action_horror_identity_bridge
+        and not survival_horror_identity_bridge
         and not thematic_action_bridge
         and not cinematic_fantasy_bridge
         and not same_soulslike_lane
@@ -4310,16 +6331,49 @@ def build_similarity_breakdown_v2(
     ):
         return None
     if not (shared_combat_style or shared_combat_structure or shared_mechanics_structure):
-        if not open_world_fantasy_identity_bridge:
+        if not (
+            open_world_fantasy_identity_bridge
+            or low_combat_identity_bridge
+            or loot_action_rpg_identity_bridge
+            or farming_sim_identity_bridge
+            or creative_sandbox_identity_bridge
+            or jrpg_story_identity_bridge
+            or metroidvania_identity_bridge
+            or precision_platformer_identity_bridge
+            or hidden_object_identity_bridge
+            or collectathon_identity_bridge
+            or visual_novel_identity_bridge
+            or kingdom_decision_identity_bridge
+            or co_op_horror_identity_bridge
+            or action_horror_identity_bridge
+            or survival_horror_identity_bridge
+        ):
             return None
     if not (
-        shared_progression_model
+        shared_session_shape
+        or shared_mode_profile
+        or shared_progression_model
         or shared_traversal_verbs
         or shared_setting
         or shared_mechanics_structure
         or shared_keyword_layer
     ):
-        if not open_world_fantasy_identity_bridge:
+        if not (
+            open_world_fantasy_identity_bridge
+            or low_combat_identity_bridge
+            or loot_action_rpg_identity_bridge
+            or farming_sim_identity_bridge
+            or creative_sandbox_identity_bridge
+            or metroidvania_identity_bridge
+            or precision_platformer_identity_bridge
+            or hidden_object_identity_bridge
+            or collectathon_identity_bridge
+            or visual_novel_identity_bridge
+            or kingdom_decision_identity_bridge
+            or co_op_horror_identity_bridge
+            or action_horror_identity_bridge
+            or survival_horror_identity_bridge
+        ):
             return None
     if (
         anchor_archetype == "open_world_fantasy_action_rpg"
@@ -4364,10 +6418,12 @@ def build_similarity_breakdown_v2(
     }
     score = relation_weights.get(relationship, 120)
     score += len(shared_world_topology) * 45
+    score += _weighted_token_score(shared_session_shape, {}, default=12)
     if shared_combat_style:
         score += 35
         score += max(0, len(shared_combat_style) - 1) * 12
     score += len(shared_combat_structure) * 24
+    score += _weighted_token_score(shared_mode_profile, {}, default=12)
     score += _weighted_token_score(shared_progression_model, get_taxonomy_v2_match_weights("progression_model"), default=10)
     score += _weighted_token_score(shared_traversal_verbs, get_taxonomy_v2_match_weights("traversal_verbs"), default=12)
     score += _weighted_token_score(shared_setting, get_taxonomy_v2_match_weights("setting"), default=12)
@@ -4378,6 +6434,32 @@ def build_similarity_breakdown_v2(
         score += 60
     if traversal_identity_bridge:
         score += 60
+    if loot_action_rpg_identity_bridge:
+        score += 72
+    if farming_sim_identity_bridge:
+        score += 64
+    if creative_sandbox_identity_bridge:
+        score += 70
+    if jrpg_story_identity_bridge:
+        score += 62
+    if metroidvania_identity_bridge:
+        score += 66
+    if precision_platformer_identity_bridge:
+        score += 62
+    if hidden_object_identity_bridge:
+        score += 60
+    if collectathon_identity_bridge:
+        score += 64
+    if visual_novel_identity_bridge:
+        score += 58
+    if kingdom_decision_identity_bridge:
+        score += 62
+    if co_op_horror_identity_bridge:
+        score += 70
+    if action_horror_identity_bridge:
+        score += 66
+    if survival_horror_identity_bridge:
+        score += 68
     if shared_traversal_verbs and shared_setting:
         score += 18
     derived_similarity_score = 0
@@ -4527,6 +6609,29 @@ def build_similarity_breakdown_v2(
         if "comedic" in candidate_fingerprint["tone"]:
             return None
 
+    if anchor_archetype == "jrpg_story_rpg":
+        anchor_requires_party_rpg_identity = bool(
+            anchor_fingerprint["combat_structure"] & {"party_management"}
+            or anchor_fingerprint["combat_tempo"] & {"tactical"}
+        )
+        candidate_party_rpg_identity_hits = sum(
+            1
+            for present in (
+                bool(candidate_fingerprint["combat_structure"] & {"party_management"}),
+                bool(candidate_fingerprint["combat_tempo"] & {"tactical"}),
+                "none" not in candidate_fingerprint["combat_presence"],
+            )
+            if present
+        )
+        if anchor_requires_party_rpg_identity and "none" in candidate_fingerprint["combat_presence"]:
+            return None
+        if (
+            candidate_archetype == anchor_archetype
+            and anchor_requires_party_rpg_identity
+            and candidate_party_rpg_identity_hits < 2
+        ):
+            score -= 90
+
     if anchor_archetype == "cinematic_action_adventure":
         if candidate_archetype == "open_world_fantasy_action_rpg" and cinematic_fantasy_bridge:
             score += 54
@@ -4564,6 +6669,8 @@ def build_similarity_breakdown_v2(
         reasons.append(_format_v2_match_reason("Shared traversal", shared_traversal_verbs))
     elif shared_progression_model:
         reasons.append(_format_v2_match_reason("Shared progression", shared_progression_model))
+    elif shared_session_shape:
+        reasons.append(_format_v2_match_reason("Shared session flow", shared_session_shape))
     elif shared_setting:
         reasons.append(_format_v2_match_reason("Shared setting", shared_setting))
     elif shared_mechanics_structure:
@@ -4576,6 +6683,8 @@ def build_similarity_breakdown_v2(
         reasons.append(_format_v2_match_reason("Shared combat structure", shared_combat_structure))
     if len(reasons) < 3 and shared_rules_goals:
         reasons.append(_format_v2_match_reason("Shared goals", shared_rules_goals))
+    elif len(reasons) < 3 and shared_mode_profile:
+        reasons.append(_format_v2_match_reason("Shared modes", shared_mode_profile))
     elif len(reasons) < 3 and shared_narrative_topic:
         reasons.append(_format_v2_match_reason("Shared narrative", shared_narrative_topic))
     elif len(reasons) < 3 and shared_interface_control:
@@ -4593,8 +6702,10 @@ def build_similarity_breakdown_v2(
         relationship=relationship,
         derived_similarity_score=derived_similarity_score,
         shared_world_topology=shared_world_topology,
+        shared_session_shape=shared_session_shape,
         shared_combat_style=shared_combat_style,
         shared_combat_structure=shared_combat_structure,
+        shared_mode_profile=shared_mode_profile,
         shared_progression_model=shared_progression_model,
         shared_traversal_verbs=shared_traversal_verbs,
         shared_setting=shared_setting,

@@ -1,6 +1,73 @@
 {
-  "version": "taxonomy_v2_graph_extensions_1",
+  "version": "taxonomy_v2_graph_extensions_15",
   "nodes": {
+    "open_world_action_adventure": {
+      "family": "action_adventure",
+      "required_axes": {
+        "world_topology": ["open_world"],
+        "perspective": ["third_person", "isometric"],
+        "combat_presence": ["moderate", "dominant"],
+        "progression_model": ["quest_driven"]
+      },
+      "preferred_axes": {
+        "world_density": ["handcrafted_discovery", "systemic_sandbox"],
+        "traversal_verbs": ["climbing", "parkour"],
+        "tone": ["heroic", "serious"]
+      },
+      "strong_neighbors": ["cinematic_action_adventure", "western_narrative_rpg", "3d_collectathon"],
+      "adjacent_neighbors": ["stealth_action_adventure", "open_world_fantasy_action_rpg", "metroidvania"],
+      "blocked_neighbors": ["city_builder", "life_sim", "grand_strategy", "sports_sim"],
+      "hard_exclusions": ["sports_sim", "non_combat"]
+    },
+    "3d_collectathon": {
+      "family": "platformer",
+      "required_axes": {
+        "perspective": ["third_person", "first_person", "vr"],
+        "traversal_verbs": ["platforming", "parkour"],
+        "world_topology": ["level_based", "semi_open", "open_world"]
+      },
+      "preferred_axes": {
+        "world_density": ["handcrafted_discovery"],
+        "tone": ["heroic", "whimsical"]
+      },
+      "strong_neighbors": ["action_platformer"],
+      "adjacent_neighbors": ["precision_platformer", "open_world_action_adventure"],
+      "blocked_neighbors": ["survival_horror", "military_fps", "grand_strategy", "city_builder"],
+      "hard_exclusions": ["grim_horror", "realistic_military"]
+    },
+    "precision_platformer": {
+      "family": "platformer",
+      "required_axes": {
+        "world_topology": ["level_based"],
+        "perspective": ["side_scrolling"],
+        "traversal_verbs": ["platforming"],
+        "challenge_model": ["precision_platforming"]
+      },
+      "preferred_axes": {
+        "input_complexity": ["mastery_heavy"],
+        "combat_presence": ["none", "light"]
+      },
+      "strong_neighbors": ["action_platformer", "metroidvania"],
+      "adjacent_neighbors": ["3d_collectathon"],
+      "blocked_neighbors": ["survival_horror", "military_fps", "grand_strategy", "city_builder"],
+      "hard_exclusions": ["match_based_only", "realistic_military"]
+    },
+    "western_narrative_rpg": {
+      "family": "rpg",
+      "required_axes": {
+        "session_shape": ["campaign"],
+        "perspective": ["third_person", "first_person", "isometric"],
+        "progression_model": ["quest_driven"],
+        "narrative_structure": ["authored_branching", "quest_web"]
+      },
+      "preferred_axes": {
+        "tone": ["serious", "heroic", "bleak"]
+      },
+      "strong_neighbors": ["open_world_fantasy_action_rpg", "party_based_crpg"],
+      "adjacent_neighbors": ["soulslike_action_rpg", "open_world_action_adventure", "jrpg_story_rpg"],
+      "blocked_neighbors": ["extraction_shooter", "survival_horror", "hero_shooter", "city_builder"],
+      "hard_exclusions": ["match_based_only", "sports_sim"]
+    },
     "traditional_fighter": {
       "family": "fighting_party",
       "required_axes": {
@@ -68,7 +135,9 @@
         "mode_profile": ["pvp", "single_player"]
       },
       "preferred_axes": {
-        "challenge_model": ["sim_realism"]
+        "challenge_model": ["sim_realism"],
+        "mechanics_structure": ["match_competition"],
+        "rules_goals": ["win_matches"]
       },
       "strong_neighbors": ["realistic_racer", "arcade_racer"],
       "adjacent_neighbors": [],
@@ -102,6 +171,135 @@
       "adjacent_neighbors": [],
       "blocked_neighbors": ["military_fps", "character_action", "survival_horror", "mmo_action_rpg"],
       "hard_exclusions": ["dominant_combat", "twitch_shooter"]
+    },
+    "cinematic_puzzle_adventure": {
+      "family": "puzzle",
+      "required_axes": {
+        "session_shape": ["campaign"],
+        "combat_presence": ["none"],
+        "challenge_model": ["puzzle_gating"],
+        "narrative_structure": ["authored_linear", "authored_branching"]
+      },
+      "preferred_axes": {
+        "mechanics_structure": ["environmental_puzzle_solving", "quest_exploration_loop"],
+        "world_density": ["setpiece_driven", "handcrafted_discovery"],
+        "tone": ["whimsical", "melancholic", "bleak"]
+      },
+      "strong_neighbors": ["hidden_object_puzzle"],
+      "adjacent_neighbors": ["cinematic_action_adventure", "visual_novel", "psychological_horror"],
+      "blocked_neighbors": ["military_fps", "traditional_fighter", "sports_sim", "mmo_action_rpg"],
+      "hard_exclusions": ["twitch_shooter", "dominant_combat", "match_based_only"]
+    },
+    "word_puzzle_strategy": {
+      "family": "puzzle",
+      "required_axes": {
+        "world_topology": ["run_based"],
+        "session_shape": ["roguelite_run"],
+        "challenge_model": ["puzzle_gating"],
+        "combat_presence": ["none"]
+      },
+      "preferred_axes": {
+        "challenge_model": ["tactical_optimization"],
+        "mechanics_structure": ["systemic_problem_solving", "score_attack"],
+        "progression_model": ["buildcraft", "metaprogression"],
+        "interface_control": ["cursor_driven"],
+        "keyword_layer": ["procedural_generation"]
+      },
+      "strong_neighbors": ["card_battler", "turn_based_tactics"],
+      "adjacent_neighbors": ["hidden_object_puzzle"],
+      "blocked_neighbors": ["character_action", "military_fps", "survival_horror", "life_sim"],
+      "hard_exclusions": ["dominant_combat", "point_and_click", "traffic_control"]
+    },
+    "merge_puzzle": {
+      "family": "puzzle",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "challenge_model": ["puzzle_gating"],
+        "combat_presence": ["none"],
+        "rules_goals": ["build_and_optimize"]
+      },
+      "preferred_axes": {
+        "mechanics_structure": ["systemic_problem_solving", "score_attack"],
+        "tone": ["cozy"],
+        "input_complexity": ["casual"]
+      },
+      "strong_neighbors": ["hidden_object_puzzle"],
+      "adjacent_neighbors": ["word_puzzle_strategy", "pinball"],
+      "blocked_neighbors": ["character_action", "military_fps", "survival_horror", "life_sim"],
+      "hard_exclusions": ["dominant_combat", "point_and_click", "traffic_control"]
+    },
+    "traffic_puzzle": {
+      "family": "puzzle",
+      "required_axes": {
+        "session_shape": ["match_session"],
+        "challenge_model": ["puzzle_gating"],
+        "combat_presence": ["none"],
+        "mechanics_structure": ["systemic_problem_solving"]
+      },
+      "preferred_axes": {
+        "interface_control": ["cursor_driven"],
+        "world_density": ["city_dense"],
+        "input_complexity": ["casual"]
+      },
+      "strong_neighbors": ["hidden_object_puzzle"],
+      "adjacent_neighbors": ["management_tycoon", "transport_sim"],
+      "blocked_neighbors": ["military_fps", "character_action", "survival_horror", "sports_sim"],
+      "hard_exclusions": ["dominant_combat", "point_and_click"]
+    },
+    "physics_roguelite_strategy": {
+      "family": "strategy",
+      "required_axes": {
+        "world_topology": ["run_based"],
+        "session_shape": ["roguelite_run"],
+        "progression_model": ["buildcraft"],
+        "challenge_model": ["tactical_optimization"],
+        "keyword_layer": ["physics_board_strategy"]
+      },
+      "preferred_axes": {
+        "mechanics_structure": ["systemic_problem_solving", "score_attack"],
+        "combat_tempo": ["tactical"],
+        "keyword_layer": ["procedural_generation"]
+      },
+      "strong_neighbors": ["card_battler", "pinball"],
+      "adjacent_neighbors": ["merge_puzzle", "turn_based_tactics"],
+      "blocked_neighbors": ["character_action", "military_fps", "survival_horror", "life_sim"],
+      "hard_exclusions": ["point_and_click", "open_world_fantasy"]
+    },
+    "tower_defense_strategy": {
+      "family": "strategy",
+      "required_axes": {
+        "challenge_model": ["tactical_optimization"],
+        "rules_goals": ["build_and_optimize", "survive_waves"],
+        "combat_structure": ["crowd_control"]
+      },
+      "preferred_axes": {
+        "session_shape": ["match_session", "roguelite_run"],
+        "mechanics_structure": ["systemic_problem_solving", "settlement_building"],
+        "progression_model": ["buildcraft", "metaprogression"],
+        "interface_control": ["cursor_driven"]
+      },
+      "strong_neighbors": ["turn_based_tactics"],
+      "adjacent_neighbors": ["card_battler", "city_builder", "physics_roguelite_strategy"],
+      "blocked_neighbors": ["military_fps", "character_action", "survival_horror", "sports_sim"],
+      "hard_exclusions": ["twitch_shooter", "realistic_military", "dominant_platforming"]
+    },
+    "psychological_horror": {
+      "family": "horror",
+      "required_axes": {
+        "setting": ["horror"],
+        "tone": ["bleak", "grotesque", "melancholic"],
+        "perspective": ["first_person", "third_person"],
+        "combat_presence": ["none", "light", "moderate"]
+      },
+      "preferred_axes": {
+        "keyword_layer": ["psychological_horror"],
+        "narrative_topic": ["survival_escape", "detective_mystery"],
+        "world_topology": ["linear"]
+      },
+      "strong_neighbors": ["survival_horror", "action_horror"],
+      "adjacent_neighbors": ["hidden_object_puzzle"],
+      "blocked_neighbors": ["sports_sim", "city_builder", "grand_strategy", "mmo_action_rpg"],
+      "hard_exclusions": ["match_based_only", "cozy_daily_loop", "realistic_military"]
     },
     "party_game": {
       "family": "fighting_party",
@@ -144,6 +342,204 @@
       "adjacent_neighbors": [],
       "blocked_neighbors": ["western_narrative_rpg", "city_builder", "survival_horror", "life_sim"],
       "hard_exclusions": ["grim_horror", "open_world_fantasy"]
+    },
+    "visual_novel": {
+      "family": "narrative",
+      "required_axes": {
+        "combat_presence": ["none"],
+        "session_shape": ["campaign"],
+        "narrative_structure": ["authored_linear", "authored_branching"],
+        "interface_control": ["cursor_driven"]
+      },
+      "preferred_axes": {
+        "narrative_topic": ["branching_choices"],
+        "progression_model": ["relationship_social"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": [],
+      "blocked_neighbors": ["military_fps", "character_action", "city_builder", "grand_strategy"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter"]
+    },
+    "kingdom_decision_sim": {
+      "family": "simulation",
+      "required_axes": {
+        "combat_presence": ["none"],
+        "session_shape": ["campaign"],
+        "narrative_structure": ["authored_branching"],
+        "interface_control": ["cursor_driven"]
+      },
+      "preferred_axes": {
+        "entity_interaction": ["dialogue_choice"],
+        "progression_model": ["base_growth"],
+        "mechanics_structure": ["systemic_problem_solving"],
+        "rules_goals": ["build_and_optimize"],
+        "narrative_topic": ["branching_choices"]
+      },
+      "strong_neighbors": ["management_tycoon", "visual_novel"],
+      "adjacent_neighbors": ["turn_based_tactics"],
+      "blocked_neighbors": ["military_fps", "character_action", "traditional_fighter", "co_op_horror"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter", "dominant_combat"]
+    },
+    "engineering_sandbox_sim": {
+      "family": "simulation",
+      "required_axes": {
+        "world_density": ["systemic_sandbox"],
+        "challenge_model": ["sim_realism"],
+        "rules_goals": ["build_and_optimize"],
+        "interface_control": ["vehicle_control"]
+      },
+      "preferred_axes": {
+        "session_shape": ["sandbox_loop", "campaign"],
+        "mechanics_structure": ["systemic_problem_solving"],
+        "vehicular_theme": ["spaceships"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": ["management_tycoon", "factory_builder"],
+      "blocked_neighbors": ["character_action", "survival_horror", "traditional_fighter", "sports_sim"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter"]
+    },
+    "creative_sandbox_adventure": {
+      "family": "simulation",
+      "required_axes": {
+        "world_density": ["systemic_sandbox"],
+        "progression_model": ["buildcraft"],
+        "entity_interaction": ["construction_placement"]
+      },
+      "preferred_axes": {
+        "mechanics_structure": ["settlement_building", "systemic_problem_solving"],
+        "rules_goals": ["build_and_optimize"],
+        "mode_profile": ["single_player", "drop_in_coop", "mmo"]
+      },
+      "strong_neighbors": ["engineering_sandbox_sim", "mmo_action_rpg"],
+      "adjacent_neighbors": ["farming_sim", "life_sim", "open_world_action_adventure"],
+      "blocked_neighbors": ["survival_horror", "traditional_fighter", "sports_sim", "military_fps"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter"]
+    },
+    "mischief_sandbox_sim": {
+      "family": "simulation",
+      "required_axes": {
+        "world_density": ["systemic_sandbox"],
+        "mechanics_structure": ["systemic_problem_solving"],
+        "rules_goals": ["cause_mischief"]
+      },
+      "preferred_axes": {
+        "tone": ["whimsical", "cozy"],
+        "challenge_model": ["sim_realism"],
+        "session_shape": ["sandbox_loop"],
+        "mode_profile": ["single_player", "drop_in_coop", "party_coop"]
+      },
+      "strong_neighbors": ["party_game", "life_sim"],
+      "adjacent_neighbors": ["3d_collectathon", "creative_sandbox_adventure"],
+      "blocked_neighbors": ["military_fps", "survival_horror", "traditional_fighter", "sports_sim"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter", "realistic_military"]
+    },
+    "transport_sim": {
+      "family": "simulation",
+      "required_axes": {
+        "traversal_verbs": ["driving"],
+        "challenge_model": ["sim_realism"],
+        "interface_control": ["vehicle_control"],
+        "combat_presence": ["none"]
+      },
+      "preferred_axes": {
+        "session_shape": ["campaign", "sandbox_loop"],
+        "progression_model": ["base_growth"],
+        "mechanics_structure": ["systemic_problem_solving"]
+      },
+      "strong_neighbors": [],
+      "adjacent_neighbors": ["management_tycoon"],
+      "blocked_neighbors": ["open_world_action_adventure", "survival_horror", "traditional_fighter", "sports_sim"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter"]
+    },
+    "co_op_action_roguelite": {
+      "family": "action_adventure",
+      "required_axes": {
+        "world_topology": ["run_based"],
+        "session_shape": ["roguelite_run"],
+        "mode_profile": ["drop_in_coop", "party_coop"],
+        "combat_presence": ["dominant"]
+      },
+      "preferred_axes": {
+        "combat_style": ["melee", "hybrid", "shooter"],
+        "progression_model": ["metaprogression"]
+      },
+      "strong_neighbors": ["beat_em_up", "character_action"],
+      "adjacent_neighbors": ["action_platformer"],
+      "blocked_neighbors": ["city_builder", "grand_strategy", "life_sim", "survival_horror"],
+      "hard_exclusions": ["non_combat", "sports_sim"]
+    },
+    "roguelite_fps": {
+      "family": "shooter",
+      "required_axes": {
+        "perspective": ["first_person"],
+        "combat_style": ["shooter"],
+        "world_topology": ["run_based"],
+        "session_shape": ["roguelite_run"],
+        "combat_presence": ["dominant"]
+      },
+      "preferred_axes": {
+        "progression_model": ["metaprogression", "buildcraft", "skill_tree"],
+        "mode_profile": ["single_player", "drop_in_coop"]
+      },
+      "strong_neighbors": ["co_op_action_roguelite", "arena_fps"],
+      "adjacent_neighbors": ["loot_action_rpg", "hero_shooter"],
+      "blocked_neighbors": ["city_builder", "grand_strategy", "life_sim", "sports_sim"],
+      "hard_exclusions": ["non_combat", "sports_sim", "match_based_only"]
+    },
+    "shoot_em_up": {
+      "family": "shooter",
+      "required_axes": {
+        "combat_style": ["shooter"],
+        "combat_tempo": ["twitch"],
+        "session_shape": ["match_session", "campaign"],
+        "combat_presence": ["dominant"]
+      },
+      "preferred_axes": {
+        "perspective": ["side_scrolling", "top_down"],
+        "mechanics_structure": ["score_attack"],
+        "rules_goals": ["clear_stages", "score_attack"],
+        "mode_profile": ["single_player", "drop_in_coop", "party_coop"]
+      },
+      "strong_neighbors": ["arena_fps"],
+      "adjacent_neighbors": ["party_game"],
+      "blocked_neighbors": ["sports_sim", "city_builder", "grand_strategy", "life_sim"],
+      "hard_exclusions": ["non_combat", "sports_sim"]
+    },
+    "side_scrolling_action_strategy": {
+      "family": "strategy",
+      "required_axes": {
+        "perspective": ["side_scrolling"],
+        "mechanics_structure": ["real_time_command"],
+        "progression_model": ["base_growth", "metaprogression"],
+        "combat_presence": ["moderate", "dominant"]
+      },
+      "preferred_axes": {
+        "session_shape": ["campaign"],
+        "mechanics_structure": ["settlement_building"],
+        "combat_style": ["melee", "ranged"]
+      },
+      "strong_neighbors": ["rts", "action_platformer"],
+      "adjacent_neighbors": ["management_tycoon", "beat_em_up"],
+      "blocked_neighbors": ["sports_sim", "survival_horror", "traditional_fighter", "city_builder"],
+      "hard_exclusions": ["non_combat", "sports_sim"]
+    },
+    "exploration_survival_adventure": {
+      "family": "action_adventure",
+      "required_axes": {
+        "world_topology": ["open_world", "semi_open"],
+        "keyword_layer": ["open_world_exploration"],
+        "mechanics_structure": ["systemic_problem_solving", "environmental_puzzle_solving"],
+        "progression_model": ["quest_driven"]
+      },
+      "preferred_axes": {
+        "challenge_model": ["puzzle_gating"],
+        "combat_style": ["survival"],
+        "world_density": ["handcrafted_discovery"]
+      },
+      "strong_neighbors": ["open_world_action_adventure"],
+      "adjacent_neighbors": ["metroidvania"],
+      "blocked_neighbors": ["hero_shooter", "city_builder", "grand_strategy", "sports_sim"],
+      "hard_exclusions": ["sports_sim", "twitch_shooter"]
     }
   }
 }

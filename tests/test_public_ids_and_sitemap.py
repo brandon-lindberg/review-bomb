@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.models.models import Game
-from app.public_ids import parse_legacy_numeric_id, resolve_entity_by_identifier
+from app.public_ids import parse_legacy_numeric_id, parse_slugged_identifier, resolve_entity_by_identifier
 from app.routers.stats import get_sitemap_data
 
 
@@ -47,12 +47,35 @@ def test_parse_legacy_numeric_id_accepts_positive_integers_only():
     assert parse_legacy_numeric_id("abc123") is None
 
 
+def test_parse_slugged_identifier_extracts_frontend_canonical_suffix():
+    assert parse_slugged_identifier("starfield-terran-armada--708a3ae61db948c9a249b1ef98ee25a9") == "708a3ae61db948c9a249b1ef98ee25a9"
+    assert parse_slugged_identifier("high-guard--18971") == "18971"
+    assert parse_slugged_identifier("abc123") == "abc123"
+
+
 @pytest.mark.asyncio
 async def test_resolve_entity_by_identifier_keeps_bare_public_id_lookup():
     entity = SimpleNamespace(id=7, public_id="abc123")
     db = FakeAsyncSession([FakeResult(scalar_one_or_none=entity)])
 
     resolved = await resolve_entity_by_identifier(db, Game, "abc123")
+
+    assert resolved is entity
+    statement = str(db.execute_calls[0][0])
+    assert "games.public_id" in statement
+    assert " OR " not in statement
+
+
+@pytest.mark.asyncio
+async def test_resolve_entity_by_identifier_supports_slugged_public_id_lookup():
+    entity = SimpleNamespace(id=8, public_id="708a3ae61db948c9a249b1ef98ee25a9")
+    db = FakeAsyncSession([FakeResult(scalar_one_or_none=entity)])
+
+    resolved = await resolve_entity_by_identifier(
+        db,
+        Game,
+        "starfield-terran-armada--708a3ae61db948c9a249b1ef98ee25a9",
+    )
 
     assert resolved is entity
     statement = str(db.execute_calls[0][0])

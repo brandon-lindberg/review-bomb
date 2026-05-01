@@ -32,6 +32,8 @@ class Settings(BaseSettings):
 
     # External APIs
     rapidapi_key: Optional[str] = None
+    openai_api_key: Optional[str] = None
+    openai_base_url: str = "https://api.openai.com/v1"
     opencritic_api_host: str = "opencritic-api.p.rapidapi.com"
     player_scraper_base_url: Optional[str] = None
     player_scraper_api_token: Optional[str] = None

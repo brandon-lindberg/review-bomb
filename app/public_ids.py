@@ -1,10 +1,13 @@
 """Helpers for non-sequential public identifiers."""
 
+import re
 from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+_SLUGGED_ENTITY_SEGMENT_RE = re.compile(r"^(?P<slug>.+)--(?P<identifier>[a-f0-9]{32}|\d+)$", re.IGNORECASE)
 
 
 def generate_public_id() -> str:
@@ -22,12 +25,24 @@ def parse_legacy_numeric_id(identifier: str) -> int | None:
     return parsed
 
 
+def parse_slugged_identifier(identifier: str) -> str:
+    """Extract the stable identifier from a frontend canonical route segment."""
+    trimmed = identifier.strip()
+    if not trimmed:
+        return ""
+    match = _SLUGGED_ENTITY_SEGMENT_RE.match(trimmed)
+    if not match:
+        return trimmed
+    return str(match.group("identifier") or "").strip()
+
+
 async def resolve_entity_by_identifier(db: AsyncSession, model, identifier: str):
     """
     Resolve by public_id first, with numeric id fallback for legacy URLs/API calls.
     """
-    clauses = [model.public_id == identifier]
-    legacy_id = parse_legacy_numeric_id(identifier)
+    stable_identifier = parse_slugged_identifier(identifier)
+    clauses = [model.public_id == stable_identifier]
+    legacy_id = parse_legacy_numeric_id(stable_identifier)
     if legacy_id is not None:
         clauses.append(model.id == legacy_id)
 

@@ -1,5 +1,5 @@
 {
-  "version": "phrase_matrix_v7",
+  "version": "phrase_matrix_v21",
   "rules": [
     {
       "id": "jrpg_party_journey",
@@ -10,8 +10,7 @@
       "patterns": [
         "\\bparty members\\b",
         "\\bturn[- ]based battles?\\b",
-        "\\bepic journey\\b",
-        "\\bsave the world\\b"
+        "\\bepic journey\\b"
       ],
       "emits": [
         [
@@ -33,6 +32,152 @@
           "narrative_topic",
           "heroic_journey",
           0.78
+        ]
+      ]
+    },
+    {
+      "id": "dating_sim_identity",
+      "scope": [
+        "visual_novel"
+      ],
+      "patterns": [
+        "\\bdating sim\\b",
+        "\\bromance routes?\\b",
+        "\\brotic visual novel\\b",
+        "\\bromance visual novel\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "narrative_structure",
+          "authored_branching",
+          0.86
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.86
+        ],
+        [
+          "narrative_topic",
+          "interpersonal_drama",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "kingdom_decision_identity",
+      "scope": [
+        "kingdom_decision_sim"
+      ],
+      "patterns": [
+        "\\bswipe (?:your [a-z ]+ )?(?:controller|fingers?) (?:either )?left or right\\b",
+        "\\bswipe right, swipe left\\b",
+        "\\bswipe through [a-z ]+ negotiations\\b",
+        "\\bswipe[ '’]?em up hit reigns\\b",
+        "\\bswipe[ '’]?em up series reigns\\b",
+        "\\bimpose your will upon the kingdom\\b",
+        "\\bgauntlet of requests from (?:your )?(?:advisors|peasants|allies|enemies)\\b",
+        "\\bsmash[- ]hit swipe[ '’]?em up reigns series\\b",
+        "\\bclaim the iron throne\\b",
+        "\\bbalance (?:the )?(?:church|people|army|treasury)\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "narrative_structure",
+          "authored_branching",
+          0.9
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.88
+        ],
+        [
+          "entity_interaction",
+          "dialogue_choice",
+          0.88
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.82
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.82
+        ],
+        [
+          "narrative_topic",
+          "branching_choices",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "console_style_jrpg_identity",
+      "scope": [
+        "jrpg_story_rpg"
+      ],
+      "patterns": [
+        "\\bconsole[- ]style role ?playing game\\b",
+        "\\bconsole style rpg\\b",
+        "\\bconsole style roleplaying game\\b",
+        "\\bretro-themed.*role ?playing game\\b",
+        "\\blove letter to the glory days of the console style rpg\\b",
+        "\\bturn[- ]based battle system\\b",
+        "\\bparty-based adventure\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.88
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.84
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.8
         ]
       ]
     },
@@ -71,6 +216,184 @@
       ]
     },
     {
+      "id": "action_jrpg_adventure_identity",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "jrpg_story_rpg",
+        "character_action"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bys series\\b",
+        "\\badol\\b",
+        "\\bfast[- ]paced battles?\\b",
+        "\\bfast[- ]paced combat\\b",
+        "\\baction rpg gameplay\\b",
+        "\\bmassive action rpg\\b",
+        "\\bflash dodge\\b",
+        "\\bflash guard\\b",
+        "\\bboost mode\\b",
+        "\\bplayable characters?\\b",
+        "\\bparty on\\b",
+        "\\baccept quests\\b",
+        "\\benter the grimwald nox\\b",
+        "\\bshipwrecked and stranded\\b",
+        "\\bform a village\\b",
+        "\\bquest through\\b",
+        "\\bexplore a brave new world\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.78
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.78
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "combo_driven",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.78
+        ],
+        [
+          "mode_profile",
+          "single_player",
+          0.82
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.82
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "tabletop_party_crpg_identity",
+      "scope": [
+        "party_based_crpg",
+        "turn_based_tactics",
+        "tactical_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bpen & paper rpgs?\\b",
+        "\\bpen and paper rpgs?\\b",
+        "\\btabletop gaming experience\\b",
+        "\\bttrpg\\b",
+        "\\bdungeons and dragons\\b",
+        "\\bd&d\\b",
+        "\\broll for initiative\\b",
+        "\\btake attacks of opportunity\\b",
+        "\\bnatural 20\\b",
+        "\\bgather your party\\b",
+        "\\bcreate and guide your party\\b",
+        "\\bparty of 4 adventurers\\b",
+        "\\bdeep tactical turn[- ]based combat\\b",
+        "\\bturn[- ]based combat\\b",
+        "\\borigin character\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "perspective",
+          "isometric",
+          0.82
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.9
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.9
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.9
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "entity_interaction",
+          "party_control",
+          0.86
+        ],
+        [
+          "entity_interaction",
+          "dialogue_choice",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "party_management_loop",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "complete_quests",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "authored_branching",
+          0.78
+        ]
+      ]
+    },
+    {
       "id": "sports_match_loop",
       "scope": [
         "sports_sim",
@@ -94,6 +417,42 @@
           "rules_goals",
           "win_matches",
           0.88
+        ]
+      ]
+    },
+    {
+      "id": "baseball_match_identity",
+      "scope": [
+        "sports_sim"
+      ],
+      "patterns": [
+        "\\bbaseball\\b",
+        "\\bbatting practice\\b",
+        "\\bhome run\\b",
+        "\\bpitch(?:er|ing)\\b",
+        "\\bteam and lineup\\b",
+        "\\blineup selection\\b"
+      ],
+      "emits": [
+        [
+          "sports_theme",
+          "baseball",
+          0.92
+        ],
+        [
+          "session_shape",
+          "match_session",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "match_competition",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.86
         ]
       ]
     },
@@ -160,6 +519,2370 @@
       ]
     },
     {
+      "id": "isolated_experimental_horror_loop",
+      "scope": [
+        "survival_horror",
+        "psychological_horror",
+        "action_horror",
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfirst[- ]person point ?& ?click survival horror\\b",
+        "\\bpoint[- ]and[- ]click horror adventure\\b",
+        "\\bpoint ?& ?click survival horror\\b",
+        "\\bshort horror game\\b",
+        "\\bshort dread[- ]driven\\b",
+        "\\bdread[- ]driven submarine horror\\b",
+        "\\bexperimental minimalist gameplay\\b",
+        "\\bfishing adventure with a sinister undercurrent\\b",
+        "\\bcosmic horror fishing adventure\\b",
+        "\\bdredge the depths\\b",
+        "\\bmysterious archipelago\\b",
+        "\\bremote isles\\b",
+        "\\bsell your catch\\b",
+        "\\bupgrade your boat\\b",
+        "\\bdefend your ship\\b",
+        "\\bharsh waters\\b",
+        "\\bantarctic\\b",
+        "\\btiny submarine\\b",
+        "\\bocean of blood\\b",
+        "\\bclaustrophobic\\b",
+        "\\blow[- ]res, high[- ]suspense\\b",
+        "\\bexperimental text adventures\\b",
+        "\\bcompilation tape of four experimental\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.92
+        ],
+        [
+          "tone",
+          "bleak",
+          0.86
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.82
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.78
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.78
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.82
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "solve_mysteries",
+          0.78
+        ],
+        [
+          "keyword_layer",
+          "psychological_horror",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "grim_survival_expedition_strategy",
+      "scope": [
+        "survival_horror",
+        "party_based_crpg",
+        "tactical_rpg",
+        "exploration_survival_adventure",
+        "creative_sandbox_adventure",
+        "jrpg_story_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bisometric survival management\\b",
+        "\\bdark isometric survival adventure\\b",
+        "\\bcursed land\\b",
+        "\\bmanage your caravan\\b",
+        "\\bupgrade your caravan\\b",
+        "\\bcare for your companions\\b",
+        "\\blead (?:a )?group of pilgrims\\b",
+        "\\blife[- ]or[- ]death decisions\\b",
+        "\\bpath toward paradise\\b",
+        "\\bgroup of civilians trying to survive\\b",
+        "\\bsurvive in a besieged city\\b",
+        "\\black of food, medicine\\b",
+        "\\bhostile scavengers\\b",
+        "\\bscavenge and explore\\b",
+        "\\bhunker down\\b",
+        "\\bever[- ]changing free[- ]roam world\\b",
+        "\\bcaravan leader\\b",
+        "\\btraveling company\\b",
+        "\\btrade, fight, and explore\\b",
+        "\\btravel with your caravan\\b",
+        "\\bharsh landscape\\b",
+        "\\bstrategic choices directly affect\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.86
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.82
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.82
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.84
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.8
+        ],
+        [
+          "entity_interaction",
+          "party_control",
+          0.78
+        ],
+        [
+          "tone",
+          "bleak",
+          0.84
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "loot_action_rpg_replayable_loop",
+      "scope": [
+        "loot_action_rpg",
+        "mmo_action_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\blegendary loot\\b",
+        "\\bhunt epic loot\\b",
+        "\\bendless replayability\\b",
+        "\\bdungeon crawling\\b",
+        "\\brandomized levels\\b",
+        "\\blevel randomi[sz]ation\\b",
+        "\\bfully randomized world\\b",
+        "\\bbountiful treasure\\b",
+        "\\bmastery classes?\\b",
+        "\\bcountless abilities to master\\b",
+        "\\bcharacter customi[sz]ation\\b",
+        "\\bskill trees?\\b",
+        "\\bpowerful artifacts\\b",
+        "\\bpowerful artefacts\\b",
+        "\\bcharacter classes?\\b",
+        "\\b(?:with|from) (?:\\d+|one|two|three|four|five|six) classes to choose from\\b",
+        "\\bhero from (?:\\d+|one|two|three|four|five|six) character classes\\b",
+        "\\bmonster hordes\\b",
+        "\\bhack and slash\\b",
+        "\\bover \\d+ different powers\\b",
+        "\\bnew game plus\\b",
+        "\\bseasonal content\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "dominant",
+          0.8
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.78
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.86
+        ],
+        [
+          "progression_model",
+          "gear_chase",
+          0.9
+        ],
+        [
+          "progression_model",
+          "loot_rarity",
+          0.84
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.82
+        ],
+        [
+          "entity_interaction",
+          "inventory_loot",
+          0.82
+        ],
+        [
+          "content_model",
+          "premium_replayable",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "word_puzzle_roguelite_loop",
+      "scope": [
+        "word_puzzle_strategy"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\broguelike\\b",
+        "\\bboggle\\b",
+        "\\bword[- ]crafting\\b",
+        "\\bword[- ]based\\b",
+        "\\bword game\\b",
+        "\\bword combos?\\b",
+        "\\bwrite words?\\b",
+        "\\bwriting words\\b",
+        "\\bspell words?\\b",
+        "\\bevery letter\\b",
+        "\\bletter tiles?\\b",
+        "\\bletter synergies?\\b",
+        "\\bsynerg(?:y|ies)\\b",
+        "\\bword synergies?\\b",
+        "\\bgame[- ]altering combos?\\b",
+        "\\bseeded runs?\\b",
+        "\\btime[- ]attack boards?\\b",
+        "\\bcourse of a run\\b",
+        "\\bshifting rules, layouts and objectives\\b",
+        "\\bbooster cards\\b",
+        "\\bpower cards\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "run_based",
+          0.9
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.88
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.9
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "score_attack",
+          0.84
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.82
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.78
+        ],
+        [
+          "keyword_layer",
+          "procedural_generation",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "dice_deckbuilding_roguelike_loop",
+      "scope": [
+        "card_battler",
+        "physics_roguelite_strategy"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bdice[- ]deck[- ]building roguelike\\b",
+        "\\bdeck[- ]building,? turn[- ]based roguelike\\b",
+        "\\broguelike deckbuilder about rolling dice\\b",
+        "\\bfast[- ]paced deckbuilding roguelike\\b",
+        "\\bdeck[- ]building roguelike\\b",
+        "\\bdeckbuilding roguelike\\b",
+        "\\bdice instead of cards\\b",
+        "\\bnot cards,? but dice\\b",
+        "\\bdice pool\\b",
+        "\\bdice manipulation\\b",
+        "\\bmana dice\\b",
+        "\\bdice slingers\\b",
+        "\\bevery roll shapes your fate\\b",
+        "\\bturn[- ]based deckbuilding roguelike\\b",
+        "\\btactical turn[- ]based roguelike\\b",
+        "\\bdraft from over \\d+ powerful spells\\b",
+        "\\brolling dice\\b",
+        "\\bpowerful dice\\b",
+        "\\bpush[- ]your[- ]luck\\b",
+        "\\bpassive items\\b",
+        "\\bpowerful synergies\\b",
+        "\\brisk it all hoping for a good roll\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "run_based",
+          0.88
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.88
+        ],
+        [
+          "progression_model",
+          "deck_growth",
+          0.92
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.88
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.86
+        ],
+        [
+          "interface_control",
+          "deck_management",
+          0.88
+        ],
+        [
+          "keyword_layer",
+          "deckbuilding",
+          0.9
+        ],
+        [
+          "keyword_layer",
+          "physics_board_strategy",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "deck_construction",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "entity_interaction",
+          "card_play",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "merge_puzzle_loop",
+      "scope": [
+        "merge_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bdrop,? stack,? and merge\\b",
+        "\\bmerge matching\\b",
+        "\\bnarrative[- ]rich .* merge game\\b",
+        "\\btown[- ]building merge game\\b",
+        "\\bcommunity[- ]building sim\\b",
+        "\\bmerge the items\\b",
+        "\\bmatch items to transform them\\b",
+        "\\bmatch people to unite them\\b",
+        "\\brebuild ithaca\\b",
+        "\\bspace[- ]themed suika game\\b",
+        "\\bcombine planets\\b",
+        "\\bcombine planets to create even bigger ones\\b",
+        "\\bplanets of various sizes\\b",
+        "\\bcolliding them to create even larger planets\\b",
+        "\\bmatch two identical\\b",
+        "\\bcombine two small fruits\\b",
+        "\\bcreate big watermelons\\b",
+        "\\bcollide the same kind of fruit\\b",
+        "\\boverflow(?:ing)? from the box\\b",
+        "\\bincreasingly larger\\b",
+        "\\bhighest score possible\\b",
+        "\\bhigh score chases?\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "match_session",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.86
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "score_attack",
+          0.82
+        ],
+        [
+          "input_complexity",
+          "casual",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "physics_roguelite_strategy_loop",
+      "scope": [
+        "physics_roguelite_strategy"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bclaw machine roguelike deckbuilder\\b",
+        "\\broguelike deckbuilder\\b",
+        "\\bpachinko roguelike\\b",
+        "\\bphysics[- ]driven roguelike\\b",
+        "\\bitems can link together to form chain reactions\\b",
+        "\\barranged into specific formations to create seals\\b",
+        "\\bitems can enchant each other\\b",
+        "\\bitems can resonate with each other\\b",
+        "\\bslot machine\\b",
+        "\\bpinball physics\\b",
+        "\\bbuild powerful combos\\b",
+        "\\bgame[- ]changing relics\\b",
+        "\\bpowerful orbs and relics\\b",
+        "\\bdifferent every time\\b",
+        "\\bpress your luck\\b",
+        "\\brandomized castle\\b",
+        "\\bbuild the perfect pachinko board\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "run_based",
+          0.9
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.88
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.86
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "score_attack",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "physics_board_strategy",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "procedural_generation",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "cozy_farming_life_loop",
+      "scope": [
+        "farming_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcozy farming\\b",
+        "\\bfarming adventure\\b",
+        "\\bcultivat(?:e|ing) (?:your )?(?:floating )?farm\\b",
+        "\\bgrow crops\\b",
+        "\\bharvest crops\\b",
+        "\\btend crops\\b",
+        "\\bplant crops\\b",
+        "\\bcozy third[- ]person gardening\\b",
+        "\\brestore a forbidden abbey garden\\b",
+        "\\bgrow and identify real plants\\b",
+        "\\bthrough the seasons\\b",
+        "\\bpersonal garden\\b",
+        "\\bcatch fish\\b",
+        "\\bfish for\\b",
+        "\\bpeaceful islands?\\b",
+        "\\bdiscover islands?\\b",
+        "\\bfarm life\\b",
+        "\\bwylde flowers\\b",
+        "\\bhelp out her grandma and the family farm\\b",
+        "\\bfarm by day,? and cast spells by night\\b",
+        "\\bcraft your cottagecore life\\b",
+        "\\bbond with your coven\\b",
+        "\\bfairhaven\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "sandbox_light",
+          0.88
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.84
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.9
+        ],
+        [
+          "tone",
+          "cozy",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "farm_inheritance_cozy_life_loop",
+      "scope": [
+        "farming_sim",
+        "life_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\binherited your grandfather'?s old farm(?: plot)?\\b",
+        "\\bbegin your new life\\b",
+        "\\bset out to begin your new life\\b",
+        "\\braise animals\\b",
+        "\\bhelp rebuild the community\\b",
+        "\\btake care of your own island\\b",
+        "\\bsail with your boat\\b",
+        "\\btropical archipelago\\b",
+        "\\bharvest your own crops\\b",
+        "\\bfarm, fish, and craft\\b",
+        "\\bfarm and fish\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "sandbox_light",
+          0.9
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.86
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.92
+        ],
+        [
+          "progression_model",
+          "relationship_social",
+          0.82
+        ],
+        [
+          "tone",
+          "cozy",
+          0.92
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "alchemy_shop_crafting_management_loop",
+      "scope": [
+        "management_tycoon",
+        "life_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bpotion craft\\b",
+        "\\balchemist simulator\\b",
+        "\\bbrew potions\\b",
+        "\\btools and ingredients\\b",
+        "\\binvent new recipes\\b",
+        "\\battract customers\\b",
+        "\\bexperiment to your heart'?s content\\b",
+        "\\bwhole shop\\b",
+        "\\bmedieval manuscripts\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.84
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.84
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.88
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.84
+        ],
+        [
+          "tone",
+          "cozy",
+          0.72
+        ]
+      ]
+    },
+    {
+      "id": "cozy_fishing_town_restoration_loop",
+      "scope": [
+        "farming_sim",
+        "life_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\brookie angler\\b",
+        "\\bhone your fishing skills\\b",
+        "\\bnourish relationships\\b",
+        "\\brestore (?:a )?remote town'?s fractured community\\b",
+        "\\bslice[- ]of[- ]life fishing rpg\\b",
+        "\\bteam up with friends, family, and neighbours\\b",
+        "\\bfulfill(?:ing)? your partner'?s final wish\\b",
+        "\\bserene backdrop\\b",
+        "\\bfishing skills\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "sandbox_light",
+          0.88
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.82
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.88
+        ],
+        [
+          "progression_model",
+          "relationship_social",
+          0.88
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.76
+        ],
+        [
+          "tone",
+          "cozy",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "metroidvania_explicit_identity",
+      "scope": [
+        "metroidvania",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bmetroidvania\\b",
+        "\\bwholesome metroidvania\\b",
+        "\\bfragmented world\\b",
+        "\\bhand[- ]painted islands?\\b",
+        "\\binterconnected world\\b",
+        "\\bbacktrack\\b",
+        "\\buncover secrets\\b",
+        "\\bnew abilities\\b",
+        "\\bability[- ]gated\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "semi_open",
+          0.92
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.86
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.88
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.9
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "compact_metroidvania_exploration",
+      "scope": [
+        "metroidvania",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bmission of exploration\\b",
+        "\\bsmall cluster of four planets\\b",
+        "\\bcollect special powers\\b",
+        "\\bspecial powers\\b",
+        "\\bdefeat menacing bosses\\b",
+        "\\balien underworld\\b",
+        "\\bsqueeze through tight passages\\b",
+        "\\btight passages\\b",
+        "\\bstompy mech\\b",
+        "\\bcrashed spaceship\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "semi_open",
+          0.9
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.84
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.88
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "boss_centric",
+          0.8
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "psychological_horror_dual_reality",
+      "scope": [
+        "psychological_horror",
+        "survival_horror",
+        "action_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bpsychological horror\\b",
+        "\\bspirit realm\\b",
+        "\\breal world and the spirit realm\\b",
+        "\\bdual[- ]reality\\b",
+        "\\bdeserted resort\\b",
+        "\\buncover dark secrets\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.92
+        ],
+        [
+          "tone",
+          "melancholic",
+          0.88
+        ],
+        [
+          "tone",
+          "bleak",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.84
+        ],
+        [
+          "world_topology",
+          "linear",
+          0.84
+        ],
+        [
+          "world_topology",
+          "level_based",
+          0.8
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.78
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.74
+        ],
+        [
+          "keyword_layer",
+          "psychological_horror",
+          0.9
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "first_person_horror_walking_sim",
+      "scope": [
+        "psychological_horror",
+        "action_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfirst[- ]person game with a touch of 80s horror movies\\b",
+        "\\bwalking simulator with extra mechanics\\b",
+        "\\bcountryside cabin\\b",
+        "\\bface the beaver\\b",
+        "\\bhide[- ]and[- ]seek and chase mechanics\\b",
+        "\\briver and the dam\\b",
+        "\\bsmall mistake on vacation can lead to big trouble\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "first_person",
+          0.88
+        ],
+        [
+          "setting",
+          "horror",
+          0.86
+        ],
+        [
+          "tone",
+          "bleak",
+          0.78
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "world_topology",
+          "linear",
+          0.8
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.76
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.78
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "psychological_horror",
+          0.82
+        ],
+        [
+          "hard_exclusions",
+          "non_combat",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "fixed_camera_survival_horror_investigation",
+      "scope": [
+        "survival_horror",
+        "psychological_horror",
+        "action_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfixed[- ]camera survival horror\\b",
+        "\\byou cannot fight\\b",
+        "\\bstay alert, hide, breathe slowly\\b",
+        "\\bhide, breathe slowly\\b",
+        "\\bexplore cursed places\\b",
+        "\\bunseen spirits\\b",
+        "\\blost souls linger\\b",
+        "\\btrue horror story\\b",
+        "\\bconfront the monsters\\b",
+        "\\bsolve puzzles\\b",
+        "\\bdeep fog\\b",
+        "\\bdisturbing monsters\\b",
+        "\\bresident evil 2\\b",
+        "\\braccoon city\\b",
+        "\\bflesh eating zombies\\b",
+        "\\bleon kennedy\\b",
+        "\\bclaire redfield\\b",
+        "\\btense exploration\\b",
+        "\\bpuzzle solving gameplay\\b",
+        "\\bunimaginable horrors\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.92
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.88
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.84
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.84
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.8
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.78
+        ],
+        [
+          "tone",
+          "bleak",
+          0.84
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "haunted_village_escape_puzzle_horror",
+      "scope": [
+        "survival_horror",
+        "psychological_horror",
+        "action_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcursed village\\b",
+        "\\bliving nightmare\\b",
+        "\\bhaunted dollhouses\\b",
+        "\\bsolve eerie puzzles\\b",
+        "\\bempty schools\\b",
+        "\\bforgotten shrines\\b",
+        "\\brots in silence and shadows\\b",
+        "\\bescape a twisted nightmare\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.9
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.8
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.86
+        ],
+        [
+          "world_topology",
+          "level_based",
+          0.78
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.8
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.76
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.84
+        ],
+        [
+          "tone",
+          "bleak",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "organization_puzzle_loop",
+      "scope": [
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bkeeping a warehouse\\b",
+        "\\bremember where you put everything\\b",
+        "\\bwarehouse running\\b",
+        "\\bwarehouse worker\\b",
+        "\\borgani[sz](?:e|ing|ed)\\b",
+        "\\bperfectly organi[sz]ing\\b",
+        "\\bpacking orders?\\b",
+        "\\bpack orders?\\b",
+        "\\bunpack(?:ing)?\\b",
+        "\\bpulling possessions out of boxes\\b",
+        "\\bfitting (?:them|items) into a new home\\b",
+        "\\bnew home\\b",
+        "\\bhome decoration\\b",
+        "\\bsort items\\b",
+        "\\bsort through mementos\\b",
+        "\\bdecorate the scrapbook\\b",
+        "\\bscrapbook(?:ing)? game\\b",
+        "\\bblock[- ]fitting puzzle\\b",
+        "\\bsort(?:ing)?\\b",
+        "\\bfit items\\b",
+        "\\bservice hatch\\b"
+      ],
+      "emits": [
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.84
+        ],
+        [
+          "entity_interaction",
+          "cursor_driven_interaction",
+          0.82
+        ],
+        [
+          "entity_interaction",
+          "inventory_loot",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "bento_pattern_puzzle_loop",
+      "scope": [
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bbento(?: lunches?| dishes?)\\b",
+        "\\barrang(?:e|ing) (?:them|beautiful bento lunches?)\\b",
+        "\\belaborate lunchbox\\b",
+        "\\bsticking to the recipe\\b",
+        "\\bprepare tasty bento dishes\\b",
+        "\\bcooking puzzle game\\b",
+        "\\bpattern-matching puzzle game\\b",
+        "\\bculinary brain-teaser\\b",
+        "\\bprepare japanese lunch boxes\\b",
+        "\\brecreate over \\d+ puzzling recipes\\b"
+      ],
+      "emits": [
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.82
+        ],
+        [
+          "entity_interaction",
+          "cursor_driven_interaction",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.82
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.78
+        ],
+        [
+          "tone",
+          "cozy",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "repair_restoration_puzzle_loop",
+      "scope": [
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bantique restorer\\b",
+        "\\brepair old[- ]school objects\\b",
+        "\\brestore beloved possessions\\b",
+        "\\btaking things apart and putting (?:them|ourselves) back together\\b",
+        "\\bhelp townsfolk save their most beloved possessions\\b",
+        "\\bhelp the town'?s inhabitants save their most beloved possessions\\b",
+        "\\brepair (?:broken )?objects\\b",
+        "\\bglobe[- ]trotting antique restorer\\b"
+      ],
+      "emits": [
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.8
+        ],
+        [
+          "entity_interaction",
+          "cursor_driven_interaction",
+          0.78
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.76
+        ],
+        [
+          "tone",
+          "cozy",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "cozy_repair_shop_life_loop",
+      "scope": [
+        "life_sim",
+        "farming_sim",
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfamily'?s repair shop\\b",
+        "\\bgrandpa'?s old shop\\b",
+        "\\bfix up your customer'?s treasured belongings\\b",
+        "\\bfix up the prized possessions\\b",
+        "\\bforest folk\\b",
+        "\\bpiece together antiques\\b",
+        "\\bantiques, heirlooms\\b",
+        "\\bmake your family shop all your own\\b",
+        "\\bdecorations, furniture\\b",
+        "\\bpaint yourself a masterpiece\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "sandbox_light",
+          0.86
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.84
+        ],
+        [
+          "progression_model",
+          "relationship_social",
+          0.84
+        ],
+        [
+          "tone",
+          "cozy",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.82
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "restaurant_management_business_loop",
+      "scope": [
+        "management_tycoon"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\brestaurant management game\\b",
+        "\\bmanage (?:your|the) (?:family )?pizzeria\\b",
+        "\\bmanage your own pizza shop\\b",
+        "\\bpizzeria manager\\b",
+        "\\bpizza shop\\b",
+        "\\bpizza tycoon\\b",
+        "\\bchallenge(?:s)? of the pizza business\\b",
+        "\\bowner of the world'?s most successful pizza chain\\b",
+        "\\brestaurant manager\\b",
+        "\\brestaurant business\\b",
+        "\\bupgrade your (?:shop|restaurant)\\b",
+        "\\bunique menus\\b",
+        "\\binnovative recipes\\b",
+        "\\bkitchen equipment\\b",
+        "\\bfulfill pizza orders\\b",
+        "\\bmake (?:a )?pizza (?:they|nobody) can(?:not|n't) refuse\\b",
+        "\\bcompete against your pizza rival\\b",
+        "\\bacquire supreme cooking skills\\b",
+        "\\bdesign unique menus\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.9
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.84
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.88
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "restaurant_management",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "baseball_sports_sim_identity",
+      "scope": [
+        "sports_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bbaseball\\b",
+        "\\bmlb the show\\b",
+        "\\broad to the show\\b",
+        "\\bdiamond dynasty\\b",
+        "\\bfranchise experiences\\b",
+        "\\bdeeper franchise\\b",
+        "\\bmost immersive mlb\\b",
+        "\\bstep up and take control\\b",
+        "\\bswing for the fences\\b",
+        "\\bworld series champions\\b",
+        "\\bmajor league\\b",
+        "\\bbig leagues\\b",
+        "\\bballpark\\b",
+        "\\bstadium\\b",
+        "\\bhit,? pitch,? throw,? and slide\\b",
+        "\\bbaseball dreams\\b",
+        "\\bbaseball fans\\b",
+        "\\bplay[- ]by[- ]play commentary\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "match_session",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "single_player",
+          0.82
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "match_competition",
+          0.84
+        ],
+        [
+          "sports_theme",
+          "baseball",
+          0.94
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "first_person_platforming_speedrun",
+      "scope": [
+        "3d_collectathon",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfirst[- ]person platformer\\b",
+        "\\bspeed and fast reactions?\\b",
+        "\\brace and blast your way\\b",
+        "\\bdeadly arenas\\b",
+        "\\btime trials?\\b",
+        "\\bfastest times\\b",
+        "\\bparkour\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.84
+        ],
+        [
+          "perspective",
+          "first_person",
+          0.9
+        ],
+        [
+          "traversal_verbs",
+          "parkour",
+          0.9
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.7
+        ]
+      ]
+    },
+    {
+      "id": "third_person_collectathon_platformer_identity",
+      "scope": [
+        "3d_collectathon",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\b3d collect[- ]a[- ]thon platformer\\b",
+        "\\b3d platformer\\b",
+        "\\b3d mario adventure\\b",
+        "\\b3d adventure\\b",
+        "\\bcollect moons\\b",
+        "\\bcollectible progression\\b",
+        "\\bhuge 3d kingdoms\\b",
+        "\\bworlds? to explore\\b",
+        "\\bexploration is key\\b",
+        "\\bpacked with secrets\\b",
+        "\\bsecrets and surprises\\b",
+        "\\bnew platforming abilities\\b",
+        "\\bjump,? glide,? and dive\\b",
+        "\\bbattle for bikini bottom\\b",
+        "\\bspongebob,? patrick and sandy\\b",
+        "\\bsave bikini bottom\\b",
+        "\\bfaithfully remade\\b",
+        "\\bspongetastic\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.86
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.82
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.88
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.9
+        ],
+        [
+          "visual_presentation",
+          "third_person_3d",
+          0.84
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "single_player",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "clear_stages",
+          0.78
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "parkour_platforming_time_trial",
+      "scope": [
+        "3d_collectathon",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bvr platforming game\\b",
+        "\\bsuperhuman abilities\\b",
+        "\\bfastest times\\b",
+        "\\btime trials?\\b",
+        "\\bparkour\\b",
+        "\\bmove across the environment\\b",
+        "\\btraverse the environment\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.86
+        ],
+        [
+          "traversal_verbs",
+          "parkour",
+          0.94
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.9
+        ],
+        [
+          "perspective",
+          "first_person",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "first_person_parkour_runner_action",
+      "scope": [
+        "3d_collectathon",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfree[- ]runner\\b",
+        "\\bfree runner\\b",
+        "\\bfree[- ]running\\b",
+        "\\bfreerunning\\b",
+        "\\bfluid,? first[- ]person action\\b",
+        "\\bfirst[- ]person action\\b",
+        "\\bexplore every corner\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "first_person",
+          0.92
+        ],
+        [
+          "traversal_verbs",
+          "parkour",
+          0.92
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.72
+        ]
+      ]
+    },
+    {
+      "id": "modern_military_shooter_package",
+      "scope": [
+        "military_fps"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bco[- ]op campaign\\b",
+        "\\bcompetitive multiplayer\\b",
+        "\\bround[- ]based zombies\\b",
+        "\\bmodern warfare\\b",
+        "\\bblack ops\\b",
+        "\\bspecial ops\\b",
+        "\\bmilitary operations?\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "mission_based",
+          0.9
+        ],
+        [
+          "perspective",
+          "first_person",
+          0.88
+        ],
+        [
+          "session_shape",
+          "mission_session",
+          0.86
+        ],
+        [
+          "combat_style",
+          "shooter",
+          0.88
+        ],
+        [
+          "setting",
+          "modern",
+          0.86
+        ],
+        [
+          "setting",
+          "military",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "twitch",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "retro_2d_action_platformer_identity",
+      "scope": [
+        "action_platformer",
+        "precision_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\b2d platformer\\b",
+        "\\baction/platform game\\b",
+        "\\baction platform game\\b",
+        "\\bside[- ]scrolling platformer\\b",
+        "\\bclassic platformer\\b",
+        "\\bcult action platform game\\b",
+        "\\biconic 1988 platformer\\b",
+        "\\bofficial remake\\b",
+        "\\barcade machines in 1989\\b",
+        "\\bremastered\\b",
+        "\\bjump straight back\\b",
+        "\\bwalk,? jump,? swim,? climb and spit\\b",
+        "\\brun,? jump,? and slap\\b",
+        "\\bunderpants bungee jump\\b",
+        "\\bcolorful 2d platformer\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.88
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.9
+        ],
+        [
+          "visual_presentation",
+          "side_scrolling_2d",
+          0.82
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.76
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.74
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "clear_stages",
+          0.82
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "precision_platformer_explicit_challenge_loop",
+      "scope": [
+        "precision_platformer",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bprecision platformer\\b",
+        "\\bsingle[- ]screen challenges\\b",
+        "\\bbrainteasing precision platformer\\b",
+        "\\bside[- ]scrolling precision platformer\\b",
+        "\\b50 unique levels\\b",
+        "\\b30 levels with more than \\d+ mechanics\\b",
+        "\\bavoiding treacherous traps\\b",
+        "\\busing the environment to your advantage\\b",
+        "\\blocal co[- ]op\\b",
+        "\\brun and leap through\\b",
+        "\\bdaring and adventurous heroine\\b",
+        "\\bcreative levels\\b",
+        "\\bunique mechanics\\b",
+        "\\bvaried challenges\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.9
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.9
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.92
+        ],
+        [
+          "challenge_model",
+          "precision_platforming",
+          0.9
+        ],
+        [
+          "input_complexity",
+          "mastery_heavy",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "mister_chickums_arcade_action_platformer",
+      "scope": [
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bgo!? go!? mister chickums\\b",
+        "\\bmr\\.? chickums'? precious eggs\\b",
+        "\\bclassic single[- ]screen platformer\\b",
+        "\\barcade hits from the 80s\\b",
+        "\\bspanking all along the way\\b",
+        "\\bcolorful pixel art biomes\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.9
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.9
+        ],
+        [
+          "visual_presentation",
+          "side_scrolling_2d",
+          0.82
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "clear_stages",
+          0.84
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "bubble_bobble_single_screen_action_platformer",
+      "scope": [
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bbubble bobble\\b",
+        "\\bbub and bob\\b",
+        "\\bbubble dragons\\b",
+        "\\bjump your bubble dragons through 100 levels\\b",
+        "\\bclassic platforming franchise\\b",
+        "\\bbubble[- ]based challenge\\b",
+        "\\bco[- ]op for up to 4 players\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.9
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.88
+        ],
+        [
+          "visual_presentation",
+          "side_scrolling_2d",
+          0.82
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.8
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.78
+        ],
+        [
+          "mode_profile",
+          "party_coop",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.82
+        ],
+        [
+          "rules_goals",
+          "clear_stages",
+          0.84
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "platform_fighter_identity",
+      "scope": [
+        "traditional_fighter",
+        "party_game"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bplatform fighter\\b",
+        "\\bplatform fighting game\\b",
+        "\\bfighting game inspired by the best platform fighters\\b",
+        "\\b2d platform fighting game\\b",
+        "\\bknock your opponents out\\b",
+        "\\bknock opponents out\\b",
+        "\\bknock[- ]offs\\b",
+        "\\bring[- ]outs?\\b",
+        "\\bduke it out\\b",
+        "\\bbattle arena\\b",
+        "\\bnew fighters,? stages\\b",
+        "\\bfighters collide\\b",
+        "\\bchaotic local platform fighter\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.82
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.88
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.9
+        ],
+        [
+          "combat_structure",
+          "duel_focused",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "pvp",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "party_coop",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "match_competition",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.86
+        ],
+        [
+          "input_complexity",
+          "mastery_heavy",
+          0.82
+        ],
+        [
+          "input_complexity",
+          "casual",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "retro_military_bug_war_fps",
+      "scope": [
+        "military_fps",
+        "arena_fps"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bstarship troopers\\b",
+        "\\bmobile infantry\\b",
+        "\\bfirst[- ]person retro shooter\\b",
+        "\\bretro shooter\\b",
+        "\\block and load\\b",
+        "\\bjoin the fight for humanity\\b",
+        "\\bunited citizen federation\\b",
+        "\\bmobile infantry arsenal\\b",
+        "\\bburn,? dismember and cripple\\b",
+        "\\bwould you like to know more\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "mission_based",
+          0.88
+        ],
+        [
+          "session_shape",
+          "mission_session",
+          0.84
+        ],
+        [
+          "perspective",
+          "first_person",
+          0.94
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "shooter",
+          0.9
+        ],
+        [
+          "combat_tempo",
+          "twitch",
+          0.82
+        ],
+        [
+          "setting",
+          "military",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "side_scrolling_brawler_loop",
+      "scope": [
+        "beat_em_up"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bbrawler\\b",
+        "\\bbeat[- ]'?em[- ]up\\b",
+        "\\bhack,? slash,? and smash\\b",
+        "\\b2d brawler\\b",
+        "\\b2d brawler meets story-rich action rpg\\b",
+        "\\bbeat[- ]'?em[- ]up adventure\\b",
+        "\\bbrawling adventure\\b",
+        "\\bbrand[- ]new brawling adventure\\b",
+        "\\bscott pilgrim and ramona flowers\\b",
+        "\\bstreets of toronto\\b",
+        "\\brival gangs\\b",
+        "\\bvegans,? the robots,? and the demons\\b",
+        "\\bpound punks into the dirt\\b",
+        "\\blift[- ]off combos\\b",
+        "\\bdouble[- ]team maneuvers\\b",
+        "\\bknuckle[- ]busting techniques\\b",
+        "\\bfour friends can play locally or online\\b",
+        "\\bventure out .* with up to three other\\b",
+        "\\bside[- ]scrolling action\\b",
+        "\\bside[- ]scrolling action rpg\\b",
+        "\\bstreet[- ]fighting\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "level_based",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "combo_driven",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "crowd_control",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "drop_in_coop",
+          0.8
+        ],
+        [
+          "mode_profile",
+          "party_coop",
+          0.78
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "age_of_wonders_4x_expansion_identity",
+      "scope": [
+        "4x_strategy",
+        "grand_strategy",
+        "turn_based_tactics"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bage of wonders 4\\b",
+        "\\brise from ruin\\b",
+        "\\bforge a mighty realm\\b",
+        "\\bnomad culture\\b",
+        "\\bwithering worlds\\b",
+        "\\bwithered worlds\\b",
+        "\\bmagical tomes\\b",
+        "\\benvironmental challenges\\b",
+        "\\blocations to conquer and explore\\b",
+        "\\bnew culture,? form,? wildlife\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "tactical_overhead",
+          0.88
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.86
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.78
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ],
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.82
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.8
+        ]
+      ]
+    },
+    {
       "id": "city_builder_optimization",
       "scope": [
         "city_builder",
@@ -171,13 +2894,55 @@
         "\\bmanage resources\\b",
         "\\bgrow your city\\b",
         "\\bexpand your colony\\b",
-        "\\bissue commands\\b"
+        "\\bcolony sim \\+ fps roguelite hybrid\\b",
+        "\\bcolony sim and fps roguelite hybrid\\b",
+        "\\bshape a grand colony\\b",
+        "\\bbuild a prosperous totalitarian state\\b",
+        "\\benforce policies\\b",
+        "\\bchoices will shape society\\b",
+        "\\bmold your populace\\b",
+        "\\bfear, happiness, hunger, and loyalty\\b",
+        "\\bpropaganda, surveillance towers\\b",
+        "\\bpublic executions\\b",
+        "\\bissue commands\\b",
+        "\\bcity[- ]building game\\b",
+        "\\bsandbox city[- ]building game\\b",
+        "\\bvertical architecture\\b",
+        "\\bwater physics\\b",
+        "\\bterraforming\\b",
+        "\\blumberpunk beavers\\b",
+        "\\bbeaver factions\\b",
+        "\\briver control\\b",
+        "\\bdeadly droughts\\b",
+        "\\blead the industrial revolution\\b",
+        "\\bbuild cities\\b",
+        "\\bproduction chains\\b"
       ],
       "emits": [
+        [
+          "world_density",
+          "city_dense",
+          0.86
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.84
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.84
+        ],
         [
           "mechanics_structure",
           "real_time_command",
           0.82
+        ],
+        [
+          "mechanics_structure",
+          "settlement_building",
+          0.84
         ],
         [
           "rules_goals",
@@ -187,6 +2952,11 @@
         [
           "progression_model",
           "base_growth",
+          0.8
+        ],
+        [
+          "progression_model",
+          "colony_growth",
           0.8
         ]
       ]
@@ -249,6 +3019,73 @@
                 ]
             ]
         },
+    {
+      "id": "poker_table_card_game",
+      "scope": [
+        "card_battler"
+      ],
+      "patterns": [
+        "\\bpoker\\b",
+        "\\btexas hold[ ’']?em\\b",
+        "\\bno limit texas hold[ ’']?em\\b",
+        "\\bvideo poker\\b",
+        "\\bhigh[- ]stakes battle of cards\\b",
+        "\\bcards, bets, and trash talk\\b",
+        "\\bbuild the rep, prestige, and bankroll\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.86
+        ],
+        [
+          "session_shape",
+          "match_session",
+          0.88
+        ],
+        [
+          "progression_model",
+          "deck_growth",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "match_competition",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "card_play",
+          0.9
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.86
+        ],
+        [
+          "entity_interaction",
+          "card_play",
+          0.9
+        ],
+        [
+          "interface_control",
+          "deck_management",
+          0.78
+        ],
+        [
+          "input_complexity",
+          "casual",
+          0.78
+        ]
+      ]
+    },
     {
       "id": "totk_open_air_problem_solving",
       "scope": [
@@ -322,6 +3159,310 @@
       ]
     },
     {
+      "id": "party_based_action_adventure_rpg",
+      "scope": [
+        "western_narrative_rpg",
+        "beat_em_up",
+        "party_based_crpg"
+      ],
+      "patterns": [
+        "\\bparty[- ]based beat[ ‘'’]?em up rpg\\b",
+        "\\bparty[- ]based beat[ ‘'’]?em up role[- ]playing game\\b",
+        "\\bparty[- ]based action adventure rpg\\b",
+        "\\bparty[- ]based action adventure role[- ]playing game\\b",
+        "\\bfour volunteers to solve the mystery\\b",
+        "\\bsolve the mystery of an abandoned village\\b",
+        "\\bsettle an island long abandoned\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.84
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.84
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "isometric",
+          0.78
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.86
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.84
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "quest_web",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "solve_mysteries",
+          0.84
+        ],
+        [
+          "narrative_topic",
+          "detective_mystery",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "western_choice_action_rpg_foundation",
+      "scope": [
+        "western_narrative_rpg",
+        "open_world_fantasy_action_rpg",
+        "party_based_crpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bforge (?:this|the|a) new world[’']?s destiny\\b",
+        "\\bforge the destiny of a new world\\b",
+        "\\bbefriend or betray companions\\b",
+        "\\bbefriend or betray companions and entire factions\\b",
+        "\\bdiplomacy, deception and force\\b",
+        "\\bliving, evolving world\\b",
+        "\\bremote island seeping with magic\\b",
+        "\\bcompanions and entire factions\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.84
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.82
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.82
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.86
+        ],
+        [
+          "narrative_structure",
+          "quest_web",
+          0.86
+        ],
+        [
+          "entity_interaction",
+          "dialogue_choice",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.82
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.8
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "party_leadership_fantasy_action_rpg",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "western_narrative_rpg",
+        "party_based_crpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bselect and lead a group of characters\\b",
+        "\\blead a group of characters\\b",
+        "\\bharrowing battles against\\b",
+        "\\bhigh dragons\\b",
+        "\\bdemonic forces\\b",
+        "\\bvisceral, heroic combat\\b",
+        "\\byou are the inquisitor\\b",
+        "\\bsavior of thedas\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.82
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.86
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.86
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.82
+        ],
+        [
+          "narrative_structure",
+          "quest_web",
+          0.78
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "isometric_party_crpg_voyage",
+      "scope": [
+        "party_based_crpg",
+        "western_narrative_rpg",
+        "turn_based_tactics",
+        "tactical_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bchase a rogue god\\b",
+        "\\bpursue a rogue god\\b",
+        "\\bcaptain your own ship\\b",
+        "\\bcaptain your ship\\b",
+        "\\bdangerous voyage of discovery\\b",
+        "\\bdeadfire archipelago\\b",
+        "\\bdelve deeply into the story you create\\b",
+        "\\bbend the world to your will\\b",
+        "\\bturn[- ]based mode\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "isometric",
+          0.84
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.88
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "narrative_structure",
+          "quest_web",
+          0.84
+        ],
+        [
+          "entity_interaction",
+          "dialogue_choice",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "party_management_loop",
+          0.84
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.78
+        ]
+      ]
+    },
+    {
       "id": "survival_crafting_sandbox_profile",
       "scope": [
         "open_world_fantasy_action_rpg",
@@ -381,6 +3522,79 @@
           "world_density",
           "systemic_sandbox",
           0.82
+        ]
+      ]
+    },
+    {
+      "id": "wow_expansion_mmo_identity",
+      "scope": [
+        "mmo_action_rpg",
+        "open_world_fantasy_action_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bworldsoul saga\\b",
+        "\\blegendary kingdom of quel'?thalas\\b",
+        "\\bnew and reimagined zones\\b",
+        "\\bsearch of new allies\\b",
+        "\\bbattle against xal'?atath\\b",
+        "\\beversong woods\\b",
+        "\\bzul'?aman\\b",
+        "\\bharandar\\b",
+        "\\bvoidstorm\\b",
+        "\\bazeroth\\b",
+        "\\bworld of warcraft\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "persistent_shared_world",
+          0.94
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.82
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "mmo",
+          0.96
+        ],
+        [
+          "content_model",
+          "mmo_persistent",
+          0.92
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.82
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.78
         ]
       ]
     },
@@ -610,6 +3824,2621 @@
           "narrative_topic",
           "heroic_journey",
           0.84
+        ]
+      ]
+    },
+    {
+      "id": "visual_novel_identity",
+      "scope": [
+        "visual_novel"
+      ],
+      "patterns": [
+        "\\bvisual novel\\b",
+        "\\binteractive fiction\\b",
+        "\\bcharacter routes?\\b",
+        "\\broute[- ]based storytelling\\b",
+        "\\bbranching romance\\b",
+        "\\bspecial administrative region\\b",
+        "\\baqua eden\\b",
+        "\\bartificial island off the coast of japan\\b",
+        "\\bcasinos and more are legal\\b",
+        "\\bheads? to the island\\b",
+        "\\banti[- ]gravity shoes\\b",
+        "\\bflying circus\\b",
+        "\\bcoach for players\\b",
+        "\\bfour charismatic girls\\b",
+        "\\bfollow their adventures\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.92
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.86
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "detective_mystery_adventure_identity",
+      "scope": [
+        "visual_novel",
+        "hidden_object_puzzle",
+        "western_narrative_rpg"
+      ],
+      "patterns": [
+        "\\bmystery[- ]adventure\\b",
+        "\\binvestigative adventure\\b",
+        "\\bre-examine a murder\\b",
+        "\\bpowers of deduction\\b",
+        "\\bestablish a hypothesis\\b",
+        "\\buse logic to break through lies\\b",
+        "\\binterrogate suspects\\b",
+        "\\bhunt for clues\\b",
+        "\\bpiece together (?:chilling )?conundrums\\b",
+        "\\buncover new clues\\b",
+        "\\binvestigate crime scenes\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.88
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.84
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "solve_mysteries",
+          0.88
+        ],
+        [
+          "narrative_topic",
+          "detective_mystery",
+          0.88
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "retail_management_identity",
+      "scope": [
+        "management_tycoon"
+      ],
+      "patterns": [
+        "\\bmanagement sim\\b",
+        "\\bstore management game\\b",
+        "\\bshop management game\\b",
+        "\\bshopkeeping\\b",
+        "\\bshopkeeper\\b",
+        "\\bdiscount supermarket\\b",
+        "\\bsupermarket\\b",
+        "\\bshop layout\\b",
+        "\\bdesign your shop\\b",
+        "\\borganize shelves\\b",
+        "\\bset prices\\b",
+        "\\brestock your shelves\\b",
+        "\\bcheck customers out\\b",
+        "\\btrade deals\\b",
+        "\\bentrepreneur\\b"
+      ],
+      "emits": [
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.82
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.82
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.86
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "retail_management",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.84
+        ]
+      ]
+    },
+    {
+      "id": "coop_horde_shooter_identity",
+      "scope": [
+        "co_op_horror",
+        "action_horror"
+      ],
+      "patterns": [
+        "\\b(?:4-player|four-player) cooperative\\b",
+        "\\bco-?op third[- ]person shooter\\b",
+        "\\bco-?op first[- ]person shooter\\b",
+        "\\bteam up with three friends\\b",
+        "\\bmassive swarms of (?:zombies|undead)\\b",
+        "\\bhordes of (?:zombies|ridden)\\b",
+        "\\bnarrative campaign\\b",
+        "\\bundead apocalypse\\b",
+        "\\bzombie-ravaged\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.9
+        ],
+        [
+          "combat_style",
+          "shooter",
+          0.9
+        ],
+        [
+          "combat_structure",
+          "crowd_control",
+          0.88
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "drop_in_coop",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "party_coop",
+          0.84
+        ],
+        [
+          "setting",
+          "horror",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "legends_coop_survival_action_dlc",
+      "scope": [
+        "open_world_action_adventure",
+        "co_op_action_roguelite"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcooperative multiplayer mode\\b",
+        "\\bfantastical, supernatural setting\\b",
+        "\\btwo[- ]player story missions\\b",
+        "\\bfour[- ]player survival matches\\b",
+        "\\bcharacter classes\\b",
+        "\\btake down waves of increasingly difficult enemies\\b",
+        "\\bfight to control territory\\b",
+        "\\bactivate a blessing\\b",
+        "\\bactivate a curse\\b",
+        "\\bdemonic, giant versions\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.78
+        ],
+        [
+          "world_topology",
+          "run_based",
+          0.78
+        ],
+        [
+          "session_shape",
+          "mission_session",
+          0.86
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.76
+        ],
+        [
+          "mode_profile",
+          "drop_in_coop",
+          0.9
+        ],
+        [
+          "mode_profile",
+          "party_coop",
+          0.88
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "crowd_control",
+          0.86
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.76
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.74
+        ],
+        [
+          "setting",
+          "mythic",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "samurai_open_world_revenge_adventure",
+      "scope": [
+        "open_world_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bstandalone experience set in 1600s rural japan\\b",
+        "\\bnew warrior rises\\b",
+        "\\bhaunted, lone mercenary\\b",
+        "\\bthirsty for revenge\\b",
+        "\\brugged landscapes of northern japan\\b",
+        "\\bhunting those who killed her family\\b",
+        "\\bquest across ezo\\b",
+        "\\bdiscover unlikely allies\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.88
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.86
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.84
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.82
+        ],
+        [
+          "setting",
+          "historical",
+          0.82
+        ],
+        [
+          "tone",
+          "serious",
+          0.8
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "engineering_vehicle_sandbox",
+      "scope": [
+        "engineering_sandbox_sim"
+      ],
+      "patterns": [
+        "\\borbital mechanics\\b",
+        "\\bbuild rockets?\\b",
+        "\\bdesign rockets?\\b",
+        "\\bspace program\\b",
+        "\\bphysics[- ]driven flight\\b",
+        "\\baerospace\\b",
+        "\\bvehicle[- ]building sandbox\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.9
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.9
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.9
+        ],
+        [
+          "interface_control",
+          "vehicle_control",
+          0.84
+        ],
+        [
+          "vehicular_theme",
+          "spaceships",
+          0.84
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "truck_transport_sim",
+      "scope": [
+        "transport_sim"
+      ],
+      "patterns": [
+        "\\btruck simulator\\b",
+        "\\bcargo delivery\\b",
+        "\\bhauling cargo\\b",
+        "\\blong-haul\\b",
+        "\\bdeliver freight\\b",
+        "\\bfreight jobs\\b",
+        "\\broad network\\b",
+        "\\bheavy machinery\\b",
+        "\\bheavy machines\\b",
+        "\\bforklifts?\\b",
+        "\\bcranes?\\b",
+        "\\bwheel loaders?\\b",
+        "\\bheavy trucks?\\b",
+        "\\boff-road missions\\b",
+        "\\bdisaster recovery company\\b",
+        "\\brebuilding roads and bridges\\b",
+        "\\brestore and develop the port\\b",
+        "\\boperate heavy machinery\\b",
+        "\\bport infrastructure\\b",
+        "\\blogistics vehicles\\b"
+      ],
+      "emits": [
+        [
+          "traversal_verbs",
+          "driving",
+          0.92
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.88
+        ],
+        [
+          "interface_control",
+          "vehicle_control",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.8
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "open_space_combat_trading_sim",
+      "scope": [
+        "transport_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bspace combat simulator\\b",
+        "\\bold[- ]school space combat\\b",
+        "\\bfight, trade, mine, and explore the galaxy\\b",
+        "\\bopen galaxy at your own pace\\b",
+        "\\btravel star systems\\b",
+        "\\bintense space battles\\b",
+        "\\bnew ships?\\b",
+        "\\bupgrade your gear\\b",
+        "\\bbounty hunter\\b",
+        "\\bthriving merchant\\b",
+        "\\bdangerous dogfights\\b",
+        "\\bopen[- ]world universe\\b"
+      ],
+      "emits": [
+        [
+          "traversal_verbs",
+          "driving",
+          0.82
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.84
+        ],
+        [
+          "interface_control",
+          "vehicle_control",
+          0.9
+        ],
+        [
+          "vehicular_theme",
+          "spaceships",
+          0.92
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.82
+        ],
+        [
+          "combat_style",
+          "shooter",
+          0.78
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.86
+        ],
+        [
+          "setting",
+          "sci_fi",
+          0.88
+        ],
+        [
+          "progression_model",
+          "gear_chase",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "traffic_routing_puzzle_sim",
+      "scope": [
+        "traffic_puzzle",
+        "hidden_object_puzzle"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bsolve traffic jams\\b",
+        "\\bdirect traffic jams\\b",
+        "\\bmove cars through busy cityscapes\\b",
+        "\\bbusy cityscapes\\b",
+        "\\btraffic lights\\b",
+        "\\bevery vehicle to its destination\\b",
+        "\\btricky intersections\\b",
+        "\\bunpredictable crosswalks\\b",
+        "\\bavoid accidents\\b",
+        "\\bfewest lives possible\\b"
+      ],
+      "emits": [
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.9
+        ],
+        [
+          "interface_control",
+          "cursor_driven",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.88
+        ],
+        [
+          "session_shape",
+          "match_session",
+          0.8
+        ],
+        [
+          "world_density",
+          "city_dense",
+          0.76
+        ],
+        [
+          "hard_exclusions",
+          "traffic_control",
+          0.9
+        ]
+      ]
+    },
+    {
+      "id": "mischief_creature_disruption_sim",
+      "scope": [
+        "mischief_sandbox_sim"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcontrol a cheeky little fly\\b",
+        "\\bturns a peaceful classroom into total chaos\\b",
+        "\\bmake every student lose their patience\\b",
+        "\\banger meter\\b",
+        "\\bdodge furious swats\\b",
+        "\\boutsmart angry hands\\b",
+        "\\bchaos you create\\b",
+        "\\bstay in the air long enough\\b"
+      ],
+      "emits": [
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.86
+        ],
+        [
+          "rules_goals",
+          "cause_mischief",
+          0.92
+        ],
+        [
+          "session_shape",
+          "sandbox_loop",
+          0.8
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.72
+        ],
+        [
+          "input_complexity",
+          "casual",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "tower_defense_strategy_loop",
+      "scope": [
+        "tower_defense_strategy",
+        "turn_based_tactics"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\btower defense\\b",
+        "\\btower defence\\b",
+        "\\broguelite tower defense\\b",
+        "\\broguelike tower defense\\b",
+        "\\bbuild towers\\b",
+        "\\bplace towers\\b",
+        "\\bupgrade towers\\b",
+        "\\bset traps\\b",
+        "\\bplace traps\\b",
+        "\\bmaze[- ]building walls\\b",
+        "\\bbuild a maze\\b",
+        "\\bdefend against waves\\b",
+        "\\bwaves of enemies\\b",
+        "\\bwaves of monsters\\b",
+        "\\bboon cards\\b"
+      ],
+      "emits": [
+        [
+          "challenge_model",
+          "tactical_optimization",
+          0.9
+        ],
+        [
+          "combat_structure",
+          "crowd_control",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "survive_waves",
+          0.9
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "settlement_building",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.8
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.74
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.72
+        ]
+      ]
+    },
+    {
+      "id": "solo_action_roguelite_loop",
+      "scope": [
+        "co_op_action_roguelite",
+        "loot_action_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\brandomly generated action rpg\\b",
+        "\\brandomly generated\\b",
+        "\\bprocedurally generated\\b",
+        "\\brogue[- ]like elements\\b",
+        "\\brogue[- ]lite elements\\b",
+        "\\broguelike elements\\b",
+        "\\broguelite elements\\b",
+        "\\bfast[- ]paced action\\b",
+        "\\bfast paced action\\b",
+        "\\bfast[- ]paced dungeon crawler\\b",
+        "\\brogue[- ]like dungeon crawler\\b",
+        "\\brogue[- ]lite dungeon crawler\\b",
+        "\\bdodge at the perfect time\\b",
+        "\\bgame[- ]changing relics\\b",
+        "\\bold relics\\b",
+        "\\bunique escape attempt\\b",
+        "\\beach run\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "run_based",
+          0.9
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "fast",
+          0.82
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.84
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.78
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.76
+        ],
+        [
+          "content_model",
+          "premium_replayable",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "roguelite_metroidvania_loop",
+      "scope": [
+        "metroidvania",
+        "action_platformer",
+        "co_op_action_roguelite"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bmetroidvania x roguelite\\b",
+        "\\bmetroidvania[- ]roguelite\\b",
+        "\\bmetroidvania[- ]roguelike\\b",
+        "\\bmetroidvania roguelite\\b",
+        "\\bmetroidvania roguelike\\b",
+        "\\broguelite metroidvania\\b",
+        "\\broguelike metroidvania\\b",
+        "\\breplayable metroidvania\\b",
+        "\\broguelite,? metroidvania inspired\\b",
+        "\\bprocedurally generated adventure platformer\\b",
+        "\\bprocedurally[- ]generated labyrinth\\b",
+        "\\bprocedurally[- ]generated dungeons\\b",
+        "\\bauto[- ]generated dungeons\\b",
+        "\\bever[- ]changing caverns\\b",
+        "\\bever[- ]changing castle\\b",
+        "\\brandomized power[- ]ups\\b",
+        "\\bbring back loot\\b",
+        "\\bbuild new facilities\\b",
+        "\\bplatformer with roguelike\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "semi_open",
+          0.88
+        ],
+        [
+          "world_topology",
+          "run_based",
+          0.86
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.9
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.82
+        ],
+        [
+          "visual_presentation",
+          "side_scrolling_2d",
+          0.78
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.8
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.88
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.74
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "procedural_generation",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "rhythm_action_hybrid_identity",
+      "scope": [
+        "rhythm_game",
+        "action_platformer",
+        "beat_em_up"
+      ],
+      "patterns": [
+        "\\baction[- ]rhythm\\b",
+        "\\brhythm combat\\b",
+        "\\braucous rhythm combat\\b",
+        "\\bworld syncs to the music\\b",
+        "\\bmusic[- ]based action\\b",
+        "\\bmusic based action\\b",
+        "\\bmusic[- ]based battles\\b",
+        "\\bmusic based battles\\b",
+        "\\bmusical battles\\b",
+        "\\binputs? to the rhythm\\b",
+        "\\bpump his heart in time\\b"
+      ],
+      "emits": [
+        [
+          "keyword_layer",
+          "rhythm",
+          0.92
+        ],
+        [
+          "mechanics_structure",
+          "rhythm_timing",
+          0.92
+        ],
+        [
+          "rules_goals",
+          "hit_beats",
+          0.9
+        ],
+        [
+          "interface_control",
+          "timing_input",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.84
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.8
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.78
+        ],
+        [
+          "session_shape",
+          "match_session",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "topdown_zelda_like_action_adventure",
+      "scope": [
+        "open_world_action_adventure",
+        "exploration_survival_adventure",
+        "western_narrative_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bzelda[- ]lite\\b",
+        "\\bisometric action game\\b",
+        "\\bisometric action adventure\\b",
+        "\\b2d action[- ]adventure\\b",
+        "\\b16[- ]bit classics\\b",
+        "\\b8[- ]bit and 16[- ]bit classics\\b",
+        "\\bancient ruins\\b",
+        "\\breaping souls of the dead\\b",
+        "\\brealm untouched by death\\b",
+        "\\bepic rpg odyssey\\b",
+        "\\bsail across the countless islands\\b",
+        "\\bcountless islands of the shadow sea\\b",
+        "\\blong[- ]lost god\\b",
+        "\\bbattle giant titans\\b",
+        "\\bred town explorer\\b",
+        "\\blost souls\\b",
+        "\\bcolossal tyrants\\b",
+        "\\bbeautiful, vast and ruined world\\b",
+        "\\blost legends\\b",
+        "\\bhidden secrets\\b",
+        "\\bfind hidden paths\\b",
+        "\\bexplore dungeons\\b",
+        "\\bvast and ruined world\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.84
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.88
+        ],
+        [
+          "perspective",
+          "isometric",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.84
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.78
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.8
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.78
+        ],
+        [
+          "art_style",
+          "retro",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "spellcraft_puzzle_adventure",
+      "scope": [
+        "hidden_object_puzzle",
+        "exploration_survival_adventure",
+        "creative_sandbox_adventure",
+        "open_world_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bsemi[- ]open world puzzle adventure\\b",
+        "\\bfirst[- ]person metroidvania puzzle game\\b",
+        "\\bmetroidvania puzzle game\\b",
+        "\\bpuzzle adventure\\b",
+        "\\bspell[- ]crafting\\b",
+        "\\bdesign your own spells\\b",
+        "\\bcreate unique spells\\b",
+        "\\bcombine magical runes\\b",
+        "\\bmagical runes\\b",
+        "\\bsolve puzzles your way\\b",
+        "\\bsolve environmental puzzles\\b",
+        "\\bmultiple solutions\\b",
+        "\\btransform objects\\b",
+        "\\bmanipulate time\\b",
+        "\\bmore brains than brawn\\b",
+        "\\bportal, zelda and metroid\\b",
+        "\\bzelda and metroid\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "semi_open",
+          0.86
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.84
+        ],
+        [
+          "world_density",
+          "systemic_sandbox",
+          0.78
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.9
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "solve_mysteries",
+          0.78
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "open_world_exploration",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "coop_action_roguelite_loop",
+      "scope": [
+        "co_op_action_roguelite"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bco[- ]op roguelike\\b",
+        "\\bco[- ]op roguelite\\b",
+        "\\bcooperative roguelike\\b",
+        "\\bcooperative roguelite\\b",
+        "\\baction rogue[- ]lite\\b",
+        "\\baction rogue[- ]like\\b",
+        "\\brogue[- ]like dungeon crawler\\b",
+        "\\brogue[- ]lite dungeon crawler\\b",
+        "\\bhack[- ]and[- ]slash dungeon crawler\\b",
+        "\\bonline co[- ]op dungeon crawler\\b",
+        "\\bprocedurally generated dungeons\\b",
+        "\\bbuild synergies\\b",
+        "\\bcombat rooms\\b",
+        "\\bgame[- ]changing relics\\b",
+        "\\bever[- ]increasing challenges\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "run_based",
+          0.9
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.88
+        ],
+        [
+          "mode_profile",
+          "drop_in_coop",
+          0.9
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.84
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.82
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "side_scrolling_action_strategy_loop",
+      "scope": [
+        "side_scrolling_action_strategy"
+      ],
+      "patterns": [
+        "\\bside[- ]scrolling strategy\\b",
+        "\\bcommand troops\\b",
+        "\\bcommand your warriors\\b",
+        "\\breal[- ]time troop command\\b",
+        "\\bbuild and defend your settlement\\b",
+        "\\braid and build\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "side_scrolling",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "real_time_command",
+          0.9
+        ],
+        [
+          "progression_model",
+          "base_growth",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.82
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.76
+        ],
+        [
+          "mechanics_structure",
+          "settlement_building",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "exploration_survival_adventure_loop",
+      "scope": [
+        "exploration_survival_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bmutation[- ]based\\b",
+        "\\bgain mutations\\b",
+        "\\balien ecosystem\\b",
+        "\\bhostile ecosystem\\b",
+        "\\bevade predators\\b",
+        "\\bsolve traversal problems\\b",
+        "\\bsolve environmental puzzles\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "open_world_exploration",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.88
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.78
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.76
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.8
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "turn_based_survival_expedition",
+      "scope": [
+        "exploration_survival_adventure",
+        "turn_based_tactics",
+        "tactical_rpg",
+        "kingdom_decision_sim"
+      ],
+      "patterns": [
+        "\\bturn[- ]based playable comic book\\b",
+        "\\bsurviving in an alien ocean\\b",
+        "\\balien ocean\\b",
+        "\\bforage, salvage, and cultivate\\b",
+        "\\bfind your way home\\b",
+        "\\bturn[- ]based narrative roguelike\\b",
+        "\\bmanage their resources and party members\\b",
+        "\\broad to oregon\\b",
+        "\\btrials and tribulations of the road\\b",
+        "\\bresource management and interactive fiction\\b",
+        "\\bspace survival epic\\b",
+        "\\bdeath is one wrong decision away\\b",
+        "\\bunderwater adventure game set on an alien ocean planet\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.82
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.8
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.86
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.84
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.8
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.84
+        ],
+        [
+          "rules_goals",
+          "build_and_optimize",
+          0.78
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "turn_based_dungeon_party_roguelike",
+      "scope": [
+        "tactical_rpg",
+        "turn_based_tactics",
+        "party_based_crpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bturn[- ]based dungeon[- ]crawling roguelike rpg\\b",
+        "\\bturn[- ]based dungeon crawler\\b",
+        "\\bturn[- ]based roguelike rpg\\b",
+        "\\bdungeon[- ]crawling roguelike\\b",
+        "\\bdungeon explorer\\b",
+        "\\bmanage resources and party members\\b",
+        "\\bparty members\\b",
+        "\\bpermadeath\\b",
+        "\\bprocedurally generated dungeons\\b",
+        "\\bauto[- ]generated dungeons\\b",
+        "\\bavoiding treacherous traps\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "session_shape",
+          "roguelite_run",
+          0.8
+        ],
+        [
+          "world_topology",
+          "run_based",
+          0.78
+        ],
+        [
+          "perspective",
+          "tactical_overhead",
+          0.78
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.9
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.9
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.9
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.78
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.78
+        ],
+        [
+          "entity_interaction",
+          "inventory_loot",
+          0.76
+        ],
+        [
+          "tone",
+          "bleak",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "pokemon_master_monster_collecting_loop",
+      "scope": [
+        "monster_collect_rpg",
+        "jrpg_story_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcapture wild pok[eé]mon\\b",
+        "\\bpok[eé]mon master\\b",
+        "\\bbuild your pok[eé]mon collection\\b",
+        "\\bjourney to the sinnoh region\\b",
+        "\\badventures in pok[eé]mon brilliant diamond\\b",
+        "\\bpok[eé]mon shining pearl\\b",
+        "\\bremakes of diamond and pearl\\b",
+        "\\bpokemon home storage system\\b",
+        "\\btrain them,? and battle\\b",
+        "\\bdiscover wild pok[eé]mon\\b",
+        "\\bexplore the kanto region\\b",
+        "\\bearn your gym badges\\b",
+        "\\bbattle your way to success\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.88
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "entity_interaction",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "rules_goals",
+          "capture_and_raise_companions",
+          0.92
+        ],
+        [
+          "narrative_topic",
+          "monster_bonding",
+          0.86
+        ]
+      ]
+    },
+    {
+      "id": "monster_hunter_stories_rider_bonding_loop",
+      "scope": [
+        "monster_collect_rpg",
+        "jrpg_story_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bmonster hunter stories\\b",
+        "\\bmonster hunter stories rpg series\\b",
+        "\\bbecome a rider\\b",
+        "\\briders and rathalos\\b",
+        "\\btwin rathalos\\b",
+        "\\bbond with monsters\\b",
+        "\\braising and bonding with\\b",
+        "\\bmonster hunter world\\b",
+        "\\bnext evolution of the monster\\b",
+        "\\brathalos\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.82
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.88
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.8
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.8
+        ],
+        [
+          "mechanics_structure",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "entity_interaction",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "rules_goals",
+          "capture_and_raise_companions",
+          0.9
+        ],
+        [
+          "narrative_topic",
+          "monster_bonding",
+          0.9
+        ],
+        [
+          "tone",
+          "heroic",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "frog_collecting_tactical_roster_loop",
+      "scope": [
+        "monster_collect_rpg",
+        "tactical_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bfrog[- ]obsessed comedy adventure\\b",
+        "\\btactical frog battles\\b",
+        "\\bfrog[- ]hopping tactical battler\\b",
+        "\\bcollect,? buy and trade frogs\\b",
+        "\\bbuild an unbeatable roster\\b",
+        "\\bmotherfrogger\\b",
+        "\\bbonnie bear saves frogtime\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.88
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.82
+        ],
+        [
+          "mechanics_structure",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "entity_interaction",
+          "creature_collection",
+          0.94
+        ],
+        [
+          "rules_goals",
+          "capture_and_raise_companions",
+          0.9
+        ],
+        [
+          "narrative_topic",
+          "monster_bonding",
+          0.84
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "third_person_fairytale_cinematic_adventure",
+      "scope": [
+        "cinematic_action_adventure",
+        "open_world_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bdark fairytale\\b",
+        "\\bthird[- ]person adventure\\b",
+        "\\bunique blend of fantasy and sci[- ]fi\\b",
+        "\\btravels the desert\\b",
+        "\\bpet lizard companion\\b",
+        "\\blost oasis\\b",
+        "\\bmelee and ranged combat\\b",
+        "\\bsecret underground military base\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.9
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.84
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.86
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.82
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "setting",
+          "sci_fi",
+          0.82
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "cinematic_companion_puzzle_adventure",
+      "scope": [
+        "cinematic_puzzle_adventure",
+        "hidden_object_puzzle",
+        "exploration_survival_adventure",
+        "cinematic_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcinematic puzzle journey\\b",
+        "\\bcinematic puzzle adventure\\b",
+        "\\bcompanion mui\\b",
+        "\\bloyal companion mui\\b",
+        "\\bunbreakable bond\\b",
+        "\\bnew, ancient mystery\\b",
+        "\\bhidden depths\\b",
+        "\\bforces reshaping their world\\b",
+        "\\bstruggling not just for survival\\b",
+        "\\bepic sci[- ]fi saga\\b",
+        "\\bcenturies and galaxies\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_topology",
+          "linear",
+          0.82
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.82
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.88
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.88
+        ],
+        [
+          "mechanics_structure",
+          "systemic_problem_solving",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "setting",
+          "sci_fi",
+          0.86
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "companion_action_adventure_exploration",
+      "scope": [
+        "cinematic_action_adventure",
+        "open_world_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bstory[- ]driven action adventure\\b",
+        "\\baction[- ]adventure combining exploration\\b",
+        "\\bexploration with fast[- ]paced combat\\b",
+        "\\bfast[- ]paced combat\\b",
+        "\\bspirit companions\\b",
+        "\\btiny spirit companions\\b",
+        "\\bthe rot\\b",
+        "\\byoung spirit guide\\b",
+        "\\bsacred mountain shrine\\b",
+        "\\bforge friendships with robotic companions\\b",
+        "\\brobotic companions\\b",
+        "\\bmakers of metroid prime\\b",
+        "\\bone of the last remaining humans\\b",
+        "\\bfar eden\\b",
+        "\\baction[- ]adventure masterfully crafted\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.86
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.82
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.82
+        ],
+        [
+          "combat_tempo",
+          "twitch",
+          0.78
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.82
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "character_driven_dark_puzzle_adventure",
+      "scope": [
+        "cinematic_puzzle_adventure",
+        "hidden_object_puzzle",
+        "cinematic_action_adventure",
+        "psychological_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcomedic adventure with dark mysteries\\b",
+        "\\bfind her way home\\b",
+        "\\bprogress by solving puzzles\\b",
+        "\\boutsmarting enemies in minigames\\b",
+        "\\btalking animals\\b",
+        "\\bunravel the mystery of .* identity\\b",
+        "\\bstitch back your lost memory\\b",
+        "\\bmind reading system\\b",
+        "\\bthoughts into playable spaces\\b",
+        "\\bcharacter[- ]driven indie stories\\b",
+        "\\bslow[- ]burning darkness\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_topology",
+          "linear",
+          0.8
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.78
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.78
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.88
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.86
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.86
+        ],
+        [
+          "narrative_topic",
+          "detective_mystery",
+          0.82
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.78
+        ],
+        [
+          "tone",
+          "melancholic",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "short_atmospheric_research_facility_adventure",
+      "scope": [
+        "cinematic_puzzle_adventure",
+        "cinematic_action_adventure",
+        "hidden_object_puzzle",
+        "exploration_survival_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\batmospheric narrative experience\\b",
+        "\\bself[- ]contained, atmospheric narrative\\b",
+        "\\bfocused on exploration and discovery\\b",
+        "\\blight logic puzzles\\b",
+        "\\bstory[- ]driven adventure focused on exploration\\b",
+        "\\bunderground research facility\\b",
+        "\\bunderground labs\\b",
+        "\\bmysterious incident\\b",
+        "\\btries to escape\\b",
+        "\\bovercome environmental obstacles\\b",
+        "\\buncover hidden secrets\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.82
+        ],
+        [
+          "world_topology",
+          "linear",
+          0.84
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.82
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.78
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.86
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ],
+        [
+          "setting",
+          "sci_fi",
+          0.8
+        ]
+      ]
+    },
+    {
+      "id": "legacy_of_kain_cinematic_action_identity",
+      "scope": [
+        "cinematic_action_adventure",
+        "character_action"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\blegacy of kain\\b",
+        "\\bdark world of nosgoth\\b",
+        "\\bvampire kain\\b",
+        "\\bbetrayed lieutenant raziel\\b",
+        "\\bwield legendary blades\\b",
+        "\\bsupernatural abilities\\b",
+        "\\bconflict,? intrigue,? prophecy\\b",
+        "\\bheart of darkness collection\\b",
+        "\\bsoul reaver\\b",
+        "\\bepic conflict of kain and raziel\\b",
+        "\\bcastlevania:? lords of shadow\\b",
+        "\\blords of shadow\\b",
+        "\\bend of days\\b",
+        "\\bdark and malevolent force\\b",
+        "\\bshattered land\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.88
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.88
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.84
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.82
+        ],
+        [
+          "setting",
+          "dark_fantasy",
+          0.86
+        ],
+        [
+          "tone",
+          "bleak",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "darksiders_apocalyptic_hack_slash_adventure",
+      "scope": [
+        "open_world_fantasy_action_rpg",
+        "cinematic_action_adventure",
+        "character_action"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bdarksiders iii\\b",
+        "\\bapocalyptic earth\\b",
+        "\\bhack[- ]n[- ]slash action adventure\\b",
+        "\\bassume the role of fury\\b",
+        "\\bseven deadly sins\\b",
+        "\\bfour horsemen\\b",
+        "\\benigmatic of the four horsemen\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "world_topology",
+          "open_world",
+          0.86
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.82
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.88
+        ],
+        [
+          "combat_style",
+          "melee",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "combo_driven",
+          0.78
+        ],
+        [
+          "progression_model",
+          "buildcraft",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.82
+        ],
+        [
+          "setting",
+          "dark_fantasy",
+          0.84
+        ],
+        [
+          "tone",
+          "bleak",
+          0.78
+        ]
+      ]
+    },
+    {
+      "id": "anime_3d_bullet_hell_character_action",
+      "scope": [
+        "character_action",
+        "shoot_em_up"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\banime[- ]style 3d action game\\b",
+        "\\bbullet hell\\b",
+        "\\bdodge hails of projectiles\\b",
+        "\\bunleash combos\\b",
+        "\\bclose[- ]quarters and ranged attacks\\b",
+        "\\bdodge,? parry,? and counter\\b",
+        "\\barchdemons\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.9
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.88
+        ],
+        [
+          "combat_tempo",
+          "twitch",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "boss_centric",
+          0.78
+        ],
+        [
+          "input_complexity",
+          "mastery_heavy",
+          0.84
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.78
+        ],
+        [
+          "tone",
+          "heroic",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "stylish_character_action_mastery",
+      "scope": [
+        "character_action",
+        "shoot_em_up"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bcharacter action games?\\b",
+        "\\bstylish action\\b",
+        "\\bover[- ]the[- ]top stylish action\\b",
+        "\\bfast[- ]paced sword[- ]fighting\\b",
+        "\\bdual[- ]stick shooting\\b",
+        "\\bdash,? evade,? and smash\\b",
+        "\\bcorporate spy\\b",
+        "\\binfiltrate the mega corporation\\b",
+        "\\bhostile takeover\\b",
+        "\\bgun[- ]wielding witch\\b",
+        "\\bbrain punk future\\b",
+        "\\belite psionics\\b",
+        "\\bpsychokinesis\\b",
+        "\\bnew himuka\\b",
+        "\\byuito and kasane\\b",
+        "\\bderanged mutants known as others\\b",
+        "\\bcountless enemies\\b",
+        "\\b100% pure all[- ]out action\\b",
+        "\\bultra[- ]responsive,? fast[- ]paced\\b",
+        "\\bninja gaiden 4\\b",
+        "\\bdefinitive ninja hack & slash franchise\\b",
+        "\\bdefinitive ninja action[- ]adventure franchise\\b",
+        "\\bhigh[- ]octane blend of style\\b",
+        "\\bno[- ]holds[- ]barred combat\\b",
+        "\\bintense,? high[- ]octane action\\b",
+        "\\bdark dragon\\b",
+        "\\bhayabusa and raven ninja clans\\b",
+        "\\byakumo'?s .?solitaire.? scythe\\b",
+        "\\bjakotsumon.? serpent gauntlets\\b",
+        "\\bnew weapons\\b",
+        "\\bnew trials\\b",
+        "\\babyssal road\\b",
+        "\\bhack and slash your way\\b",
+        "\\bfast[- ]paced combat\\b",
+        "\\bslick animations\\b",
+        "\\bflashy combat techniques\\b",
+        "\\butawarerumono\\b",
+        "\\bdevil may cry 5\\b",
+        "\\bover[- ]the[- ]top action series\\b",
+        "\\bhigh[- ]octane stylized action\\b",
+        "\\bdevil hunter\\b",
+        "\\bplayable character:? vergil\\b",
+        "\\bfate/extella\\b",
+        "\\bfate/extella link\\b",
+        "\\bheroic spirits\\b",
+        "\\bhack and slash their way\\b",
+        "\\bbattlefields of se\\.ra\\.ph\\b",
+        "\\bnier:? automata\\b",
+        "\\bandroids 2b,? 9s and a2\\b",
+        "\\bmachine[- ]driven dystopia\\b",
+        "\\bmachine lifeforms\\b",
+        "\\bplatinumgames\\b",
+        "\\bpost[- ]apocalyptic action rpg\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.84
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.84
+        ],
+        [
+          "world_topology",
+          "mission_based",
+          0.82
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.84
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.9
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.86
+        ],
+        [
+          "combat_tempo",
+          "twitch",
+          0.86
+        ],
+        [
+          "combat_tempo",
+          "combo_driven",
+          0.84
+        ],
+        [
+          "combat_structure",
+          "boss_centric",
+          0.78
+        ],
+        [
+          "input_complexity",
+          "mastery_heavy",
+          0.86
+        ],
+        [
+          "tone",
+          "heroic",
+          0.74
+        ]
+      ]
+    },
+    {
+      "id": "interconnected_cavern_action_adventure",
+      "scope": [
+        "metroidvania",
+        "action_platformer"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\binterconnected caverns\\b",
+        "\\bbeneath the ice and earth\\b",
+        "\\bvast snowcean\\b",
+        "\\blo[- ]fi action[- ]adventure\\b",
+        "\\bpower plant is offline\\b",
+        "\\bwater treatment plant\\b",
+        "\\bcryo\\b",
+        "\\brescue friend,? foe,? and stranger\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.82
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.9
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.86
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.82
+        ],
+        [
+          "progression_model",
+          "metaprogression",
+          0.86
+        ],
+        [
+          "perspective",
+          "side_scrolling",
+          0.78
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.74
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.76
+        ]
+      ]
+    },
+    {
+      "id": "street_soccer_sports_sim_identity",
+      "scope": [
+        "sports_sim",
+        "party_game"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bstreet soccer\\b",
+        "\\b3v3 and 4v4 matches\\b",
+        "\\bcup mode\\b",
+        "\\btournament[- ]style gameplay\\b",
+        "\\bcustomizable soccer balls\\b",
+        "\\bneighborhood playground\\b",
+        "\\bcasual street soccer\\b",
+        "\\bmario strikers\\b",
+        "\\bbattle league football\\b",
+        "\\b5[- ]on[- ]5,? soccer[- ]like sport\\b",
+        "\\btackle,? pass,? and score\\b",
+        "\\bdo whatever it takes to win\\b",
+        "\\banything goes on this pitch\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "match_session",
+          0.94
+        ],
+        [
+          "mode_profile",
+          "pvp",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "match_competition",
+          0.88
+        ],
+        [
+          "rules_goals",
+          "win_matches",
+          0.9
+        ],
+        [
+          "sports_theme",
+          "soccer",
+          0.94
+        ],
+        [
+          "challenge_model",
+          "sim_realism",
+          0.72
+        ]
+      ]
+    },
+    {
+      "id": "magic_school_tactical_jrpg_identity",
+      "scope": [
+        "jrpg_story_rpg",
+        "tactical_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bikenfell\\b",
+        "\\bturn[- ]based tactical rpg\\b",
+        "\\btroublesome magic students\\b",
+        "\\btiming mechanics\\b",
+        "\\bpower your spells\\b",
+        "\\bblock attacks\\b",
+        "\\btwisted halls of a vast magic school\\b",
+        "\\bfight challenging monsters and bosses\\b",
+        "\\buncover dark secrets\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.88
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.84
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.82
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.84
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.82
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.8
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.78
+        ],
+        [
+          "tone",
+          "heroic",
+          0.72
+        ]
+      ]
+    },
+    {
+      "id": "tales_series_party_action_jrpg",
+      "scope": [
+        "jrpg_story_rpg",
+        "open_world_fantasy_action_rpg"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\btales of zestiria\\b",
+        "\\btales of berseria returns\\b",
+        "\\btales of berseria\\b",
+        "\\btales of vesperia\\b",
+        "\\bvelvet\\b",
+        "\\bsorey\\b",
+        "\\byuri lowell\\b",
+        "\\bblastia\\b",
+        "\\bformer imperial knight\\b",
+        "\\bshepherd\\b",
+        "\\bsheperd\\b",
+        "\\bseraphim\\b",
+        "\\bmalevolence\\b",
+        "\\beccentric companions\\b",
+        "\\bsail through the archipelago\\b",
+        "\\bkingdom of midgand\\b",
+        "\\bquest for self[- ]discovery\\b",
+        "\\bworld torn by war\\b",
+        "\\bsacred kingdom\\b",
+        "\\benhanced graphics and optimized gameplay\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.86
+        ],
+        [
+          "combat_style",
+          "party_tactics",
+          0.88
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.84
+        ],
+        [
+          "combat_tempo",
+          "tactical",
+          0.78
+        ],
+        [
+          "combat_structure",
+          "party_management",
+          0.9
+        ],
+        [
+          "entity_interaction",
+          "party_control",
+          0.86
+        ],
+        [
+          "progression_model",
+          "quest_driven",
+          0.84
+        ],
+        [
+          "progression_model",
+          "skill_tree",
+          0.78
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.84
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.78
+        ],
+        [
+          "setting",
+          "high_fantasy",
+          0.82
         ]
       ]
     }

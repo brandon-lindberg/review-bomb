@@ -31,6 +31,17 @@ Usage:
     python -m app taxonomy-audit    Show raw source labels that do not map to canonical facets
     python -m app similar-debug     Explain why a game does or does not qualify for similar games
     python -m app taxonomy-v2-backfill Compute and store Similar Games Taxonomy V2 fingerprints
+    python -m app taxonomy-v2-gpt54-enrich Run one-off GPT-5.4 taxonomy enrichment for hidden titles
+    python -m app taxonomy-v2-gpt54-similar-preview Ask GPT-5.4 for direct similar-game examples
+    python -m app taxonomy-v2-gpt54-evaluate-stage Ask GPT-5.4 to rank staged similar-game candidates
+    python -m app taxonomy-v2-gpt54-repair-stage Repair weak staged similar-game candidates with GPT-5.4
+    python -m app taxonomy-v2-gpt54-filter-stage Filter stage rows to only publish good/excellent non-weak matches
+    python -m app taxonomy-v2-gpt54-build-alignment-corpus Build training rows and mismatch report from GPT-vs-live outputs
+    python -m app taxonomy-v2-gpt54-build-gold-corpus Freeze a versioned gold corpus from GPT-vs-live compare rows
+    python -m app taxonomy-v2-gpt54-split-gold-corpus Deterministically split a gold corpus into repair/validation sets
+    python -m app taxonomy-v2-gpt54-audit-gold-corpus Audit current native output against the frozen gold corpus
+    python -m app taxonomy-v2-gpt54-build-gold-fix-backlog Build prioritized native fix backlog rows from gold-audit artifacts
+    python -m app taxonomy-v2-gpt54-drift-report Build prioritized current drift report from gold-audit artifacts
     python -m app taxonomy-v2-debug    Inspect the Similar Games Taxonomy V2 fingerprint for one game
     python -m app taxonomy-v2-label-audit Audit raw label coverage against Similar Games Taxonomy V2
     python -m app taxonomy-v2-text-audit  Audit recurring text phrases by Similar Games Taxonomy V2 status
@@ -50,8 +61,11 @@ Usage:
 
 import argparse
 import asyncio
+import json
 import sys
+from collections import Counter
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
@@ -128,9 +142,15 @@ async def _load_similarity_v3_target_game_ids(
     *,
     dirty_only: bool = False,
     game_identifier: str | None = None,
+    game_identifiers: list[str] | None = None,
     limit: int | None = None,
 ) -> list[int]:
     from app.services.game_similarity_v3 import load_similarity_v3_target_games
+
+    if game_identifiers:
+        async with async_session_maker() as db:
+            games, _missing = await _resolve_target_games_from_identifiers(db, Game, game_identifiers)
+        return [game.id for game in games if game is not None and game.id is not None]
 
     async with async_session_maker() as db:
         games = await load_similarity_v3_target_games(
@@ -191,8 +211,242 @@ def _should_update_release_date_from_metacritic(
     return False
 
 
-async def _resolve_target_game_with_title_fallback(db, Game, identifier: str):
-    from sqlalchemy import func, select
+def _load_game_identifiers_from_input(path_value: str) -> list[str]:
+    path = Path(path_value)
+    if not path.exists():
+        raise FileNotFoundError(f"Input file not found: {path}")
+
+    suffix = path.suffix.lower()
+    identifiers: list[str] = []
+
+    def _append_identifier(value: object) -> None:
+        if value is None:
+            return
+        text = str(value).strip()
+        if text:
+            identifiers.append(text)
+
+    if suffix == ".jsonl":
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            payload = json.loads(line)
+            if isinstance(payload, str):
+                _append_identifier(payload)
+                continue
+            if not isinstance(payload, dict):
+                continue
+            for key in ("public_id", "anchor_public_id", "game_identifier", "game", "title"):
+                if key in payload:
+                    _append_identifier(payload.get(key))
+                    break
+        return identifiers
+
+    if suffix == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, list):
+            for item in payload:
+                if isinstance(item, dict):
+                    for key in ("public_id", "anchor_public_id", "game_identifier", "game", "title"):
+                        if key in item:
+                            _append_identifier(item.get(key))
+                            break
+                else:
+                    _append_identifier(item)
+            return identifiers
+
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        _append_identifier(line)
+    return identifiers
+
+
+def _load_jsonl_rows_by_public_id(paths: list[str]) -> tuple[dict[str, dict[str, object]], list[str]]:
+    rows_by_public_id: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for raw_path in paths:
+        path = Path(raw_path)
+        if not path.exists():
+            print(f"Warning: input file not found: {path}")
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                public_id = str(row.get("public_id") or "").strip()
+                if not public_id:
+                    continue
+                if public_id not in rows_by_public_id:
+                    order.append(public_id)
+                rows_by_public_id[public_id] = row
+    return rows_by_public_id, order
+
+
+def _write_jsonl_rows(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for row in rows:
+            handle.write(json.dumps(row, ensure_ascii=True) + "\n")
+
+
+def _select_public_ids(
+    order: list[str],
+    rows_by_public_id: dict[str, dict[str, object]],
+    *,
+    requested_games: list[str] | None = None,
+) -> list[str]:
+    selected_public_ids = [public_id for public_id in order if public_id in rows_by_public_id]
+    if requested_games:
+        requested = {str(value).strip() for value in requested_games if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+    return selected_public_ids
+
+
+async def _load_taxonomy_v2_gpt54_gold_current_state(
+    public_ids: list[str],
+) -> dict[str, dict[str, object]]:
+    from app.models.models import GameSimilarityV3Neighbor
+    from app.services.game_similarity_v3 import SIMILARITY_V3_VERSION
+
+    state_by_public_id = {
+        public_id: {
+            "anchor_found": False,
+            "taxonomy_v2_status": None,
+            "taxonomy_v2_primary_archetype": None,
+            "taxonomy_v2_secondary_archetypes": [],
+            "similarity_v3_status": None,
+            "similarity_v3_version": None,
+            "live_titles": [],
+        }
+        for public_id in public_ids
+    }
+    if not public_ids:
+        return state_by_public_id
+
+    async with async_session_maker() as db:
+        anchor_rows = (
+            await db.execute(
+                select(
+                    Game.id,
+                    Game.public_id,
+                    Game.taxonomy_v2_status,
+                    Game.taxonomy_v2_primary_archetype,
+                    Game.taxonomy_v2_secondary_archetypes,
+                    Game.similarity_v3_status,
+                    Game.similarity_v3_version,
+                ).where(Game.public_id.in_(public_ids))
+            )
+        ).all()
+        anchor_id_to_public_id: dict[int, str] = {}
+        for (
+            game_id,
+            public_id,
+            taxonomy_v2_status,
+            taxonomy_v2_primary_archetype,
+            taxonomy_v2_secondary_archetypes,
+            similarity_v3_status,
+            similarity_v3_version,
+        ) in anchor_rows:
+            state_by_public_id[public_id] = {
+                "anchor_found": True,
+                "taxonomy_v2_status": taxonomy_v2_status,
+                "taxonomy_v2_primary_archetype": taxonomy_v2_primary_archetype,
+                "taxonomy_v2_secondary_archetypes": list(taxonomy_v2_secondary_archetypes or []),
+                "similarity_v3_status": similarity_v3_status,
+                "similarity_v3_version": similarity_v3_version,
+                "live_titles": [],
+            }
+            anchor_id_to_public_id[int(game_id)] = public_id
+
+        if anchor_id_to_public_id:
+            neighbor_rows = (
+                await db.execute(
+                    select(GameSimilarityV3Neighbor.anchor_game_id, Game.title)
+                    .join(Game, Game.id == GameSimilarityV3Neighbor.candidate_game_id)
+                    .where(
+                        GameSimilarityV3Neighbor.anchor_game_id.in_(list(anchor_id_to_public_id)),
+                        GameSimilarityV3Neighbor.similarity_version == SIMILARITY_V3_VERSION,
+                    )
+                    .order_by(
+                        GameSimilarityV3Neighbor.anchor_game_id.asc(),
+                        GameSimilarityV3Neighbor.rank.asc(),
+                    )
+                )
+            ).all()
+            for anchor_game_id, candidate_title in neighbor_rows:
+                public_id = anchor_id_to_public_id.get(int(anchor_game_id))
+                if public_id is None:
+                    continue
+                state_by_public_id[public_id]["live_titles"].append(str(candidate_title))
+
+    return state_by_public_id
+
+
+def _merge_identifier_inputs(*identifier_groups: list[str] | None) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for group in identifier_groups:
+        for identifier in group or []:
+            normalized = str(identifier).strip()
+            if not normalized:
+                continue
+            marker = normalized.casefold()
+            if marker in seen:
+                continue
+            seen.add(marker)
+            merged.append(normalized)
+    return merged
+
+
+async def _resolve_target_games_from_identifiers(
+    db,
+    model,
+    identifiers: list[str],
+    *,
+    exclude_game_id: int | None = None,
+    strict: bool = False,
+):
+    games: list[Game] = []
+    missing_identifiers: list[str] = []
+    seen_game_ids: set[int] = set()
+
+    for identifier in identifiers:
+        game = await _resolve_target_game_with_title_fallback(
+            db,
+            model,
+            str(identifier),
+            exclude_game_id=exclude_game_id,
+            strict=strict,
+        )
+        if game is None:
+            missing_identifiers.append(str(identifier))
+            continue
+        if game.id in seen_game_ids:
+            continue
+        seen_game_ids.add(game.id)
+        games.append(game)
+    return games, missing_identifiers
+
+
+async def _resolve_target_game_with_title_fallback(
+    db,
+    Game,
+    identifier: str,
+    *,
+    exclude_game_id: int | None = None,
+    strict: bool = False,
+):
+    from sqlalchemy import func, or_, select
+    from difflib import SequenceMatcher
+    import re
 
     from app.public_ids import resolve_entity_by_identifier
     from app.services.game_taxonomy import normalize_taxonomy_label
@@ -202,15 +456,16 @@ async def _resolve_target_game_with_title_fallback(db, Game, identifier: str):
         return None
 
     game = await resolve_entity_by_identifier(db, Game, raw_identifier)
-    if game is not None:
+    if game is not None and (exclude_game_id is None or getattr(game, "id", None) != exclude_game_id):
         return game
 
     lowered = raw_identifier.lower()
+    exact_query = select(Game).where(func.lower(Game.title) == lowered)
+    if exclude_game_id is not None:
+        exact_query = exact_query.where(Game.id != exclude_game_id)
     exact = (
         await db.execute(
-            select(Game)
-            .where(func.lower(Game.title) == lowered)
-            .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            exact_query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
         )
     ).scalars().first()
     if exact is not None:
@@ -219,36 +474,161 @@ async def _resolve_target_game_with_title_fallback(db, Game, identifier: str):
     normalized_target = normalize_taxonomy_label(raw_identifier)
     if not normalized_target:
         return None
+    normalized_tokens = [token for token in normalized_target.split() if token]
+    stop_tokens = {"a", "an", "and", "edition", "for", "in", "of", "on", "the", "to"}
+    target_tokens = {
+        token
+        for token in normalized_tokens
+        if token and token not in stop_tokens
+    }
 
+    candidates_query = select(Game).where(func.lower(Game.title).like(f"%{lowered}%"))
+    if exclude_game_id is not None:
+        candidates_query = candidates_query.where(Game.id != exclude_game_id)
     candidates = (
         await db.execute(
-            select(Game)
-            .where(func.lower(Game.title).like(f"%{lowered}%"))
-            .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
-            .limit(25)
+            candidates_query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc()).limit(25)
         )
     ).scalars().all()
     if not candidates:
-        return None
+        search_tokens = [
+            token
+            for token in normalized_tokens
+            if len(token) >= 4 and token not in {"definitive", "deluxe", "remastered", "ultimate"}
+            and token not in stop_tokens
+        ]
+        if not search_tokens:
+            return None
+        broad_query = select(Game).where(
+            or_(*[func.lower(Game.title).like(f"%{token}%") for token in search_tokens[:3]])
+        )
+        if exclude_game_id is not None:
+            broad_query = broad_query.where(Game.id != exclude_game_id)
+        candidates = (
+            await db.execute(
+                broad_query.limit(200)
+            )
+        ).scalars().all()
+        if not candidates:
+            return None
 
     def _rank(candidate):
         title = getattr(candidate, "title", "") or ""
         lowered_title = title.lower()
         normalized_title = normalize_taxonomy_label(title)
+        title_tokens = {
+            token
+            for token in normalized_title.split()
+            if token and token not in stop_tokens
+        }
         exact_lower = 0 if lowered_title == lowered else 1
         exact_normalized = 0 if normalized_title == normalized_target else 1
         starts_with = 0 if lowered_title.startswith(lowered) else 1
         contains_normalized = 0 if normalized_target in normalized_title else 1
+        normalized_prefix = (
+            0
+            if (
+                normalized_target.startswith(normalized_title)
+                or normalized_title.startswith(normalized_target)
+            )
+            else 1
+        )
+        shared_tokens = len(target_tokens & title_tokens)
         return (
             exact_lower,
             exact_normalized,
             starts_with,
             contains_normalized,
+            normalized_prefix,
+            -shared_tokens,
             len(title),
             -(getattr(candidate, "id", 0) or 0),
         )
 
-    return sorted(candidates, key=_rank)[0]
+    ranked = sorted(candidates, key=_rank)
+    if not ranked:
+        return None
+    best = ranked[0]
+    if not strict:
+        return best
+
+    best_title = getattr(best, "title", "") or ""
+    best_lowered = best_title.lower()
+    best_normalized = normalize_taxonomy_label(best_title)
+
+    roman_values = {
+        "i": 1,
+        "ii": 2,
+        "iii": 3,
+        "iv": 4,
+        "v": 5,
+        "vi": 6,
+        "vii": 7,
+        "viii": 8,
+        "ix": 9,
+        "x": 10,
+        "xi": 11,
+        "xii": 12,
+        "xiii": 13,
+        "xiv": 14,
+        "xv": 15,
+        "xvi": 16,
+        "xvii": 17,
+        "xviii": 18,
+        "xix": 19,
+        "xx": 20,
+    }
+
+    def _sequence_markers(normalized_title: str) -> tuple[set[int], set[str]]:
+        numeric_markers: set[int] = set()
+        year_markers: set[str] = set()
+        for token in normalized_title.split():
+            if re.fullmatch(r"\d{4}", token):
+                year_markers.add(token)
+                continue
+            if token.isdigit():
+                value = int(token)
+                if 1 <= value <= 50:
+                    numeric_markers.add(value)
+                continue
+            if token in roman_values:
+                numeric_markers.add(roman_values[token])
+        return numeric_markers, year_markers
+
+    best_tokens = {
+        token
+        for token in best_normalized.split()
+        if token and token not in stop_tokens
+    }
+    target_numeric_markers, target_year_markers = _sequence_markers(normalized_target)
+    best_numeric_markers, best_year_markers = _sequence_markers(best_normalized)
+    if target_numeric_markers and best_numeric_markers and target_numeric_markers.isdisjoint(best_numeric_markers):
+        return None
+    if target_year_markers and best_year_markers and target_year_markers.isdisjoint(best_year_markers):
+        return None
+    shared_tokens = len(target_tokens & best_tokens)
+    target_coverage = shared_tokens / max(len(target_tokens), 1)
+    best_coverage = shared_tokens / max(len(best_tokens), 1)
+    similarity = SequenceMatcher(None, normalized_target, best_normalized).ratio()
+    exactish_match = (
+        best_lowered == lowered
+        or best_normalized == normalized_target
+        or (
+            normalized_target
+            and (
+                best_normalized.startswith(normalized_target)
+                or normalized_target.startswith(best_normalized)
+            )
+            and min(len(best_normalized), len(normalized_target)) >= 8
+        )
+    )
+    if exactish_match:
+        return best
+    if similarity >= 0.82 and target_coverage >= 0.67:
+        return best
+    if target_coverage >= 0.8 and best_coverage >= 0.6:
+        return best
+    return None
 
 
 async def cmd_sync(args):
@@ -1653,10 +2033,20 @@ async def cmd_taxonomy_v2_backfill(args):
         compute_and_store_game_taxonomy_v2,
     )
 
+    requested_identifiers = _merge_identifier_inputs(
+        [str(args.game)] if getattr(args, "game", None) else None,
+        _load_game_identifiers_from_input(args.input) if getattr(args, "input", None) else None,
+    )
+
     async with async_session_maker() as db:
-        if args.game:
-            game = await _resolve_target_game_with_title_fallback(db, Game, str(args.game))
-            games = [game] if game else []
+        if requested_identifiers:
+            games, missing_identifiers = await _resolve_target_games_from_identifiers(
+                db,
+                Game,
+                requested_identifiers,
+            )
+            if missing_identifiers:
+                print(f"Warning: requested games not found: {', '.join(missing_identifiers)}")
         else:
             query = (
                 select(Game)
@@ -1722,6 +2112,2337 @@ async def cmd_taxonomy_v2_backfill(args):
             f"{hidden} hidden"
         )
         print(f"Hidden audit states: {hidden_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_enrich(args):
+    """Run one-off GPT-5.4 enrichment for hidden Similar Games taxonomy titles."""
+    from app.models.models import Game
+    from app.services.game_similarity_v3 import (
+        audit_similarity_v3_confusion,
+        audit_similarity_v3_gold_set,
+        audit_similarity_v3_hidden_states,
+        build_similarity_v3_document_rows,
+        publish_similarity_v3_neighbors_for_games,
+    )
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        GPT54TaxonomyEnrichmentService,
+        TaxonomyV2EnrichmentDecision,
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_bundles,
+        build_taxonomy_v2_gpt54_output_row,
+        load_taxonomy_v2_gpt54_target_games,
+        store_taxonomy_v2_gpt54_decision,
+    )
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_enrich_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    requested_games: list[Game] = []
+    missing_identifiers: list[str] = []
+    if args.game:
+        async with async_session_maker() as db:
+            seen_requested_ids: set[int] = set()
+            for identifier in args.game:
+                game = await _resolve_target_game_with_title_fallback(db, Game, str(identifier))
+                if game is None:
+                    missing_identifiers.append(str(identifier))
+                    continue
+                if game.id in seen_requested_ids:
+                    continue
+                seen_requested_ids.add(game.id)
+                requested_games.append(game)
+
+    if missing_identifiers:
+        print(f"Warning: requested games not found: {', '.join(missing_identifiers)}")
+
+    async with async_session_maker() as db:
+        if args.game and args.limit is None:
+            target_games = list(requested_games)
+        else:
+            requested_ids = [game.id for game in requested_games if game is not None and game.id is not None]
+            remaining_limit = None
+            if args.limit is not None:
+                remaining_limit = max(0, int(args.limit) - len(requested_games))
+
+            supplemental_games: list[Game] = []
+            if remaining_limit is None or remaining_limit > 0:
+                supplemental_games = await load_taxonomy_v2_gpt54_target_games(
+                    db,
+                    limit=remaining_limit,
+                    offset=args.offset,
+                    recent_first=args.recent_first,
+                    exclude_ids=requested_ids,
+                    hidden_only=not bool(args.recent_first and args.game),
+                )
+
+            target_games = list(requested_games)
+            seen_target_ids = {game.id for game in target_games if game is not None and game.id is not None}
+            for game in supplemental_games:
+                if game.id in seen_target_ids:
+                    continue
+                target_games.append(game)
+                seen_target_ids.add(game.id)
+            if args.limit is not None:
+                target_games = target_games[: max(1, int(args.limit))]
+    target_ids = [game.id for game in target_games if game is not None and game.id is not None]
+    if not target_ids:
+        if args.game:
+            print("No matching games found for taxonomy-v2-gpt54-enrich.")
+        else:
+            print("No hidden legacy games found for taxonomy-v2-gpt54-enrich.")
+        return 1
+
+    processed = 0
+    accepted = 0
+    rejected = 0
+    errored = 0
+    web_attempts = 0
+    accepted_game_ids: list[int] = []
+    batch_size = max(1, int(args.batch_size))
+    concurrency = max(1, int(args.concurrency))
+    min_confidence = float(args.min_confidence)
+    total_batches = max(1, (len(target_ids) + batch_size - 1) // batch_size)
+
+    async with GPT54TaxonomyEnrichmentService() as enrichment_service:
+        for batch_index, batch_start in enumerate(range(0, len(target_ids), batch_size), start=1):
+            batch_ids = target_ids[batch_start : batch_start + batch_size]
+            async with async_session_maker() as db:
+                batch_games = await _load_games_by_ids(db, batch_ids)
+                bundles = await build_taxonomy_v2_gpt54_bundles(db, batch_games)
+
+            semaphore = asyncio.Semaphore(concurrency)
+
+            async def _enrich(bundle):
+                async with semaphore:
+                    try:
+                        return await enrichment_service.enrich_bundle(
+                            bundle,
+                            min_confidence=min_confidence,
+                            use_web=args.use_web,
+                        )
+                    except Exception as exc:
+                        return TaxonomyV2EnrichmentDecision(
+                            game_id=bundle.game_id,
+                            public_id=bundle.public_id,
+                            title=bundle.title,
+                            accepted=False,
+                            status="error",
+                            reason=str(exc),
+                            used_web=False,
+                            llm_confidence=None,
+                            result=None,
+                            payload={"error": str(exc)},
+                        )
+
+            decisions = await asyncio.gather(*[_enrich(bundle) for bundle in bundles])
+            append_jsonl_rows(
+                output_path,
+                [build_taxonomy_v2_gpt54_output_row(bundle, decision) for bundle, decision in zip(bundles, decisions)],
+            )
+
+            accepted_batch_ids = [decision.game_id for decision in decisions if decision.accepted]
+            web_attempts += sum(1 for decision in decisions if decision.used_web)
+            accepted += len(accepted_batch_ids)
+            rejected += sum(1 for decision in decisions if decision.status == "rejected")
+            errored += sum(1 for decision in decisions if decision.status == "error")
+
+            if args.commit and accepted_batch_ids:
+                async with async_session_maker() as db:
+                    games_by_id = {game.id: game for game in await _load_games_by_ids(db, accepted_batch_ids)}
+                    for decision in decisions:
+                        if not decision.accepted or decision.game_id not in games_by_id:
+                            continue
+                        await store_taxonomy_v2_gpt54_decision(
+                            db,
+                            game=games_by_id[decision.game_id],
+                            decision=decision,
+                        )
+                    await db.commit()
+                accepted_game_ids.extend(accepted_batch_ids)
+
+            processed += len(decisions)
+            print(
+                f"  Progress: {processed}/{len(target_ids)} "
+                f"(accepted={accepted}, rejected={rejected}, errors={errored}, "
+                f"web_used={web_attempts}, batch={batch_index}/{total_batches})"
+            )
+
+    print(f"Results written to: {output_path}")
+    print(
+        "taxonomy-v2-gpt54-enrich complete: "
+        f"{processed} processed, {accepted} accepted, {rejected} rejected, {errored} errors"
+    )
+
+    if not args.commit or not accepted_game_ids:
+        if args.commit:
+            print("No accepted titles were persisted; similarity publish skipped.")
+        return 0
+
+    published_processed = 0
+    published_computed = 0
+    published_hidden = 0
+    publish_limit = 10
+    accepted_batches = max(1, (len(accepted_game_ids) + _SIMILARITY_V3_PUBLISH_BATCH_SIZE - 1) // _SIMILARITY_V3_PUBLISH_BATCH_SIZE)
+    for batch_index, batch_start in enumerate(
+        range(0, len(accepted_game_ids), _SIMILARITY_V3_PUBLISH_BATCH_SIZE),
+        start=1,
+    ):
+        batch_ids = accepted_game_ids[batch_start : batch_start + _SIMILARITY_V3_PUBLISH_BATCH_SIZE]
+
+        async def _publish_batch() -> dict[str, int]:
+            async with async_session_maker() as db:
+                games = await _load_games_by_ids(db, batch_ids)
+                await build_similarity_v3_document_rows(db, games)
+                stats = await publish_similarity_v3_neighbors_for_games(
+                    db,
+                    games,
+                    limit=publish_limit,
+                    persist_run=batch_index == accepted_batches,
+                )
+                await db.commit()
+                return stats
+
+        stats = await _retry_similarity_v3_batch(
+            "GPT-5.4 similarity publish",
+            batch_index,
+            accepted_batches,
+            _publish_batch,
+        )
+        published_processed += stats["processed"]
+        published_computed += stats["computed"]
+        published_hidden += stats["hidden"]
+
+    print(
+        "Post-enrichment similarity publish complete: "
+        f"{published_processed} processed, {published_computed} computed, {published_hidden} hidden"
+    )
+
+    async with async_session_maker() as db:
+        gold_results = await audit_similarity_v3_gold_set(db, limit=5)
+        confusion_rows = await audit_similarity_v3_confusion(db, limit=10, include_same=False)
+        hidden_rows = await audit_similarity_v3_hidden_states(db)
+
+    gold_hits = sum(int(row["hits"]) for row in gold_results if row.get("found"))
+    gold_expected = sum(int(row["expected_count"]) for row in gold_results if row.get("found"))
+    gold_blocked = sum(int(row["blocked_hits"]) for row in gold_results if row.get("found"))
+    print(
+        "Post-enrichment audits: "
+        f"gold_expected_hits={gold_hits}/{gold_expected}, blocked_hits={gold_blocked}"
+    )
+    if confusion_rows:
+        top_confusion = confusion_rows[0]
+        print(
+            "Top confusion row: "
+            f"{top_confusion['primary_archetype']} -> {top_confusion['relationship_type']} "
+            f"(rows={top_confusion['count']})"
+        )
+    if hidden_rows:
+        hidden_summary = ", ".join(f"{reason}={count}" for reason, count in hidden_rows.items())
+        print(f"Current hidden states: {hidden_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_similar_preview(args):
+    """Ask GPT-5.4 directly for similar-game examples and taxonomy review for target titles."""
+    from app.models.models import Game, GameSimilarityV3Neighbor
+    from app.services.game_similarity_v3 import SIMILARITY_V3_VERSION
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        GPT54TaxonomyEnrichmentService,
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_bundles,
+        build_taxonomy_v2_gpt54_similar_preview_row,
+        load_taxonomy_v2_gpt54_target_games,
+    )
+
+    requested_identifiers = _merge_identifier_inputs(
+        list(args.game or []),
+        _load_game_identifiers_from_input(args.input) if getattr(args, "input", None) else None,
+    )
+
+    if not requested_identifiers and args.limit is None:
+        print("Provide at least one --game or a --limit for taxonomy-v2-gpt54-similar-preview.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_similar_preview_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    requested_games: list[Game] = []
+    missing_identifiers: list[str] = []
+    if requested_identifiers:
+        async with async_session_maker() as db:
+            requested_games, missing_identifiers = await _resolve_target_games_from_identifiers(
+                db,
+                Game,
+                requested_identifiers,
+            )
+
+    if missing_identifiers:
+        print(f"Warning: requested games not found: {', '.join(missing_identifiers)}")
+
+    async with async_session_maker() as db:
+        if requested_identifiers and args.limit is None:
+            target_games = list(requested_games)
+        else:
+            requested_ids = [game.id for game in requested_games if game is not None and game.id is not None]
+            remaining_limit = None
+            if args.limit is not None:
+                remaining_limit = max(0, int(args.limit) - len(requested_games))
+            supplemental_games: list[Game] = []
+            if remaining_limit is None or remaining_limit > 0:
+                supplemental_games = await load_taxonomy_v2_gpt54_target_games(
+                    db,
+                    limit=remaining_limit,
+                    offset=args.offset,
+                    recent_first=args.recent_first,
+                    exclude_ids=requested_ids,
+                    hidden_only=args.hidden_only,
+                )
+            target_games = list(requested_games)
+            seen_target_ids = {game.id for game in target_games if game is not None and game.id is not None}
+            for game in supplemental_games:
+                if game.id in seen_target_ids:
+                    continue
+                target_games.append(game)
+                seen_target_ids.add(game.id)
+            if args.limit is not None:
+                target_games = target_games[: max(1, int(args.limit))]
+        games = await _load_games_by_ids(db, [game.id for game in target_games if game.id is not None])
+        bundles = await build_taxonomy_v2_gpt54_bundles(db, games)
+
+    bundle_by_game_id = {bundle.game_id: bundle for bundle in bundles}
+    ordered_bundles = [bundle_by_game_id[game.id] for game in target_games if game.id in bundle_by_game_id]
+    if not ordered_bundles:
+        print("No enrichment bundles could be built for taxonomy-v2-gpt54-similar-preview.")
+        return 1
+
+    preview_limit = max(1, min(int(args.preview_limit), 10))
+    min_confidence = float(args.min_confidence)
+    concurrency = max(1, int(args.concurrency))
+
+    def _current_taxonomy_snapshot(game: Game) -> dict[str, object]:
+        debug_payload = dict(getattr(game, "taxonomy_v2_debug_payload", None) or {})
+        return {
+            "status": getattr(game, "taxonomy_v2_status", None),
+            "primary_archetype": getattr(game, "taxonomy_v2_primary_archetype", None),
+            "secondary_archetypes": list(getattr(game, "taxonomy_v2_secondary_archetypes", None) or []),
+            "confidence": float(getattr(game, "taxonomy_v2_confidence", None) or 0) if getattr(game, "taxonomy_v2_confidence", None) is not None else None,
+            "curated": bool(getattr(game, "taxonomy_v2_curated", False)),
+            "audit_state": debug_payload.get("audit_state"),
+            "fingerprint": dict(getattr(game, "taxonomy_v2_fingerprint", None) or {}),
+            "similarity_v3_status": getattr(game, "similarity_v3_status", None),
+        }
+
+    def _llm_taxonomy_snapshot(decision) -> dict[str, object]:
+        if decision is None:
+            return {
+                "accepted": False,
+                "status": "skipped",
+                "reason": "preview_only",
+                "confidence": None,
+                "used_web": False,
+                "primary_archetype": None,
+                "secondary_archetypes": [],
+                "proposed_primary_archetype": None,
+                "proposed_secondary_archetypes": [],
+                "audit_state": None,
+                "fingerprint": {},
+                "source_urls": [],
+                "evidence_summary": None,
+                "external_evidence_quality": None,
+            }
+        result = getattr(decision, "result", None)
+        debug_payload = dict((result.debug_payload if result is not None else {}) or {})
+        payload = dict(getattr(decision, "payload", None) or {})
+        raw_primary = payload.get("primary_archetype")
+        raw_secondary = list(payload.get("secondary_archetypes") or []) if isinstance(payload.get("secondary_archetypes"), list) else []
+        raw_fingerprint = dict(payload.get("fingerprint") or {}) if isinstance(payload.get("fingerprint"), dict) else {}
+        return {
+            "accepted": bool(decision.accepted),
+            "status": decision.status,
+            "reason": decision.reason,
+            "confidence": decision.llm_confidence,
+            "used_web": decision.used_web,
+            "primary_archetype": result.primary_archetype if result is not None else None,
+            "secondary_archetypes": list(result.secondary_archetypes) if result is not None else [],
+            "proposed_primary_archetype": raw_primary,
+            "proposed_secondary_archetypes": raw_secondary,
+            "audit_state": debug_payload.get("audit_state"),
+            "fingerprint": dict(result.fingerprint or {}) if result is not None else raw_fingerprint,
+            "source_urls": list(debug_payload.get("llm_source_urls", [])),
+            "evidence_summary": debug_payload.get("llm_evidence_summary") or payload.get("evidence_summary"),
+            "external_evidence_quality": debug_payload.get("llm_external_evidence_quality"),
+        }
+
+    def _taxonomy_alignment(current: dict[str, object], llm: dict[str, object]) -> dict[str, object]:
+        current_primary = str(current.get("primary_archetype") or "")
+        llm_primary = str(llm.get("primary_archetype") or llm.get("proposed_primary_archetype") or "")
+        current_secondary = {str(value) for value in (current.get("secondary_archetypes") or []) if value}
+        llm_secondary = {
+            str(value)
+            for value in (
+                (llm.get("secondary_archetypes") or [])
+                if llm.get("secondary_archetypes")
+                else (llm.get("proposed_secondary_archetypes") or [])
+            )
+            if value
+        }
+        accepted = bool(llm.get("accepted"))
+        return {
+            "primary_match": bool(accepted and current_primary and llm_primary and current_primary == llm_primary),
+            "secondary_overlap": sorted(current_secondary & llm_secondary),
+            "current_primary": current_primary or None,
+            "llm_primary": llm_primary or None,
+            "current_status": current.get("status"),
+            "llm_status": llm.get("status"),
+            "llm_reason": llm.get("reason"),
+            "needs_taxonomy_review": bool(
+                accepted
+                and (
+                    current_primary != llm_primary
+                    or current.get("status") != "curated"
+                    or not current_secondary.intersection(llm_secondary)
+                )
+            ),
+        }
+
+    async def _load_live_neighbors(db, anchor_game_id: int) -> list[dict[str, object]]:
+        rows = (
+            await db.execute(
+                select(GameSimilarityV3Neighbor, Game)
+                .join(Game, Game.id == GameSimilarityV3Neighbor.candidate_game_id)
+                .where(
+                    GameSimilarityV3Neighbor.anchor_game_id == anchor_game_id,
+                    GameSimilarityV3Neighbor.similarity_version == SIMILARITY_V3_VERSION,
+                )
+                .order_by(GameSimilarityV3Neighbor.rank.asc())
+                .limit(preview_limit)
+            )
+        ).all()
+        return [
+            {
+                "title": candidate.title,
+                "public_id": candidate.public_id,
+                "relationship": row.relationship_type,
+                "score": float(row.final_score or 0),
+            }
+            for row, candidate in rows
+        ]
+
+    async with GPT54TaxonomyEnrichmentService() as service:
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def _process_bundle(index: int, bundle):
+            async with semaphore:
+                taxonomy_decision = None
+                if not args.preview_only:
+                    taxonomy_decision = await service.enrich_bundle(
+                        bundle,
+                        min_confidence=min_confidence,
+                        use_web=args.use_web,
+                    )
+                preview = await service.preview_similar_games(
+                    bundle,
+                    limit=preview_limit,
+                    use_web=args.use_web,
+                )
+                async with async_session_maker() as db:
+                    game = (await db.execute(select(Game).where(Game.id == bundle.game_id))).scalar_one()
+                    current_taxonomy = _current_taxonomy_snapshot(game)
+                    llm_taxonomy = _llm_taxonomy_snapshot(taxonomy_decision)
+                    taxonomy_alignment = _taxonomy_alignment(current_taxonomy, llm_taxonomy)
+                    live_neighbors = await _load_live_neighbors(db, bundle.game_id)
+                    live_neighbor_ids = {
+                        str(item["public_id"])
+                        for item in live_neighbors
+                        if item.get("public_id")
+                    }
+                    resolved_similar_games: list[dict[str, object]] = []
+                    for item in preview.similar_games:
+                        resolved = await _resolve_target_game_with_title_fallback(
+                            db,
+                            Game,
+                            item.title,
+                            exclude_game_id=bundle.game_id,
+                            strict=True,
+                        )
+                        resolved_similar_games.append(
+                            {
+                                "requested_title": item.title,
+                                "expected_relationship": item.expected_relationship,
+                                "why_similar": item.why_similar,
+                                "resolved_title": getattr(resolved, "title", None),
+                                "resolved_public_id": getattr(resolved, "public_id", None),
+                                "in_live_top_n": bool(getattr(resolved, "public_id", None) in live_neighbor_ids),
+                            }
+                        )
+                    resolved_must_include: list[dict[str, object]] = []
+                    for title in preview.expected_must_include_titles:
+                        resolved = await _resolve_target_game_with_title_fallback(
+                            db,
+                            Game,
+                            title,
+                            exclude_game_id=bundle.game_id,
+                            strict=True,
+                        )
+                        resolved_must_include.append(
+                            {
+                                "requested_title": title,
+                                "resolved_title": getattr(resolved, "title", None),
+                                "resolved_public_id": getattr(resolved, "public_id", None),
+                                "in_live_top_n": bool(getattr(resolved, "public_id", None) in live_neighbor_ids),
+                            }
+                        )
+
+                matched_live_titles = [
+                    item["requested_title"]
+                    for item in resolved_similar_games
+                    if bool(item.get("in_live_top_n"))
+                ]
+                missing_must_include_titles = [
+                    item["requested_title"]
+                    for item in resolved_must_include
+                    if not bool(item.get("in_live_top_n"))
+                ]
+
+                output_row = build_taxonomy_v2_gpt54_similar_preview_row(bundle, preview)
+                output_row["current_taxonomy"] = current_taxonomy
+                output_row["llm_taxonomy"] = llm_taxonomy
+                output_row["taxonomy_alignment"] = taxonomy_alignment
+                output_row["current_live_neighbors"] = live_neighbors
+                output_row["resolved_similar_games"] = resolved_similar_games
+                output_row["resolved_must_include_titles"] = resolved_must_include
+                output_row["matched_live_titles"] = matched_live_titles
+                output_row["missing_must_include_titles"] = missing_must_include_titles
+                return index, bundle.title, output_row
+
+        results = await asyncio.gather(
+            *[_process_bundle(index, bundle) for index, bundle in enumerate(ordered_bundles, start=1)]
+        )
+        for index, title, output_row in sorted(results, key=lambda item: item[0]):
+            append_jsonl_rows(output_path, [output_row])
+            print(
+                f"GPT-5.4 similar preview for: {title} "
+                f"({index}/{len(ordered_bundles)}) "
+                f"matched_live={len(output_row.get('matched_live_titles') or [])} "
+                f"missing_must_include={len(output_row.get('missing_must_include_titles') or [])}"
+            )
+
+    print(f"Results written to: {output_path}")
+    return 0
+
+
+def _build_taxonomy_v2_gpt54_stage_evaluation_markdown(rows: list[dict[str, object]]) -> str:
+    verdict_counts: dict[str, int] = {}
+    for row in rows:
+        verdict = str(row.get("overall_verdict") or "unknown")
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+
+    lines = [
+        "# GPT-5.4 Similar Strength Review",
+        "",
+        f"- Titles reviewed: {len(rows)}",
+        f"- Verdict summary: {', '.join(f'{key}={value}' for key, value in sorted(verdict_counts.items(), key=lambda item: (-item[1], item[0])))}",
+        "",
+    ]
+    for row in rows:
+        title = str(row.get("title") or "Unknown")
+        current_taxonomy = dict(row.get("current_taxonomy") or {})
+        proposed_taxonomy = dict(row.get("proposed_taxonomy") or {})
+        candidate_reviews = list(row.get("candidate_reviews") or [])
+        lines.append(f"## {title}")
+        lines.append("")
+        lines.append(
+            f"- Overall: `{row.get('overall_verdict')}`"
+            + (f" | Current taxonomy: `{current_taxonomy.get('primary_archetype') or current_taxonomy.get('status') or 'none'}`" if current_taxonomy else "")
+            + (f" | Proposed taxonomy: `{proposed_taxonomy.get('primary_archetype') or 'none'}`" if proposed_taxonomy else "")
+        )
+        if row.get("overall_note"):
+            lines.append(f"- Note: {row['overall_note']}")
+        if row.get("gap_notes"):
+            lines.append(f"- Gaps: {', '.join(str(item) for item in row['gap_notes'])}")
+        lines.append("")
+        for item in candidate_reviews:
+            lines.append(
+                f"{int(item.get('rank') or 0)}. {item.get('candidate_title')} "
+                f"[`{item.get('strength_label')}` | {item.get('strength_score')} | `{item.get('relationship_fit')}`]"
+            )
+            lines.append(f"   {item.get('rationale')}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+async def cmd_taxonomy_v2_gpt54_evaluate_stage(args):
+    """Ask GPT-5.4 to score and rank staged similar-game candidates."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        GPT54TaxonomyEnrichmentService,
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_bundles,
+        build_taxonomy_v2_gpt54_stage_evaluation_row,
+    )
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-evaluate-stage.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_stage_evaluation_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for raw_path in args.input:
+        path = Path(raw_path)
+        if not path.exists():
+            print(f"Warning: input file not found: {path}")
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                public_id = str(row.get("public_id") or "").strip()
+                if not public_id:
+                    continue
+                if public_id not in rows_by_public_id:
+                    order.append(public_id)
+                rows_by_public_id[public_id] = row
+
+    selected_public_ids = [public_id for public_id in order if public_id in rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No staged rows selected for taxonomy-v2-gpt54-evaluate-stage.")
+        return 1
+
+    stage_rows = [rows_by_public_id[public_id] for public_id in selected_public_ids]
+    anchor_public_ids = selected_public_ids
+    candidate_public_ids = sorted(
+        {
+            str(item.get("candidate_public_id"))
+            for row in stage_rows
+            for item in (row.get("staged_neighbors") or [])
+            if isinstance(item, dict) and item.get("candidate_public_id")
+        }
+    )
+
+    async with async_session_maker() as db:
+        anchor_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(anchor_public_ids)))
+        ).scalars().all()
+        candidate_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(candidate_public_ids)))
+        ).scalars().all() if candidate_public_ids else []
+        anchor_games_by_public_id = {str(game.public_id): game for game in anchor_games}
+        candidate_games_by_public_id = {str(game.public_id): game for game in candidate_games}
+        anchor_bundles = await build_taxonomy_v2_gpt54_bundles(db, anchor_games)
+
+    anchor_bundles_by_public_id = {bundle.public_id: bundle for bundle in anchor_bundles}
+    rendered_rows: list[dict[str, object]] = []
+
+    async with GPT54TaxonomyEnrichmentService() as service:
+        for index, public_id in enumerate(selected_public_ids, start=1):
+            stage_row = rows_by_public_id[public_id]
+            anchor_game = anchor_games_by_public_id.get(public_id)
+            anchor_bundle = anchor_bundles_by_public_id.get(public_id)
+            missing_candidate_ids = [
+                str(item.get("candidate_public_id"))
+                for item in (stage_row.get("staged_neighbors") or [])
+                if isinstance(item, dict)
+                and item.get("candidate_public_id")
+                and str(item.get("candidate_public_id")) not in candidate_games_by_public_id
+            ]
+            if anchor_game is None or anchor_bundle is None:
+                output_row = {
+                    "game_id": stage_row.get("game_id"),
+                    "public_id": public_id,
+                    "title": stage_row.get("title"),
+                    "status": "missing_anchor",
+                    "missing_candidate_public_ids": missing_candidate_ids,
+                }
+                append_jsonl_rows(output_path, [output_row])
+                rendered_rows.append(output_row)
+                print(f"Skipped {stage_row.get('title')}: anchor missing")
+                continue
+            if missing_candidate_ids:
+                output_row = {
+                    "game_id": stage_row.get("game_id"),
+                    "public_id": public_id,
+                    "title": stage_row.get("title"),
+                    "status": "missing_candidates",
+                    "missing_candidate_public_ids": missing_candidate_ids,
+                }
+                append_jsonl_rows(output_path, [output_row])
+                rendered_rows.append(output_row)
+                print(f"Skipped {stage_row.get('title')}: missing candidates {', '.join(missing_candidate_ids)}")
+                continue
+
+            evaluation = await service.evaluate_stage_similar_games(
+                anchor_bundle,
+                stage_row,
+                candidate_games_by_public_id,
+                use_web=args.use_web,
+            )
+            output_row = build_taxonomy_v2_gpt54_stage_evaluation_row(stage_row, evaluation)
+            output_row["status"] = "evaluated"
+            append_jsonl_rows(output_path, [output_row])
+            rendered_rows.append(output_row)
+            print(
+                f"GPT-5.4 stage evaluation for: {stage_row.get('title')} "
+                f"({evaluation.overall_verdict}, web_used={'yes' if evaluation.used_web else 'no'})"
+            )
+            for item in evaluation.candidate_reviews:
+                print(
+                    f"  {item.rank}. {item.candidate_title} "
+                    f"[{item.strength_label} {item.strength_score:.1f} {item.relationship_fit}]"
+                )
+            print(f"  Progress: {index}/{len(selected_public_ids)}")
+
+    markdown_rows = [row for row in rendered_rows if row.get("status") == "evaluated"]
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_stage_evaluation_markdown(markdown_rows),
+        encoding="utf-8",
+    )
+
+    verdict_counts: dict[str, int] = {}
+    for row in markdown_rows:
+        verdict = str(row.get("overall_verdict") or "unknown")
+        verdict_counts[verdict] = verdict_counts.get(verdict, 0) + 1
+    verdict_summary = ", ".join(
+        f"{verdict}={count}"
+        for verdict, count in sorted(verdict_counts.items(), key=lambda item: (-item[1], item[0]))
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-evaluate-stage complete: "
+        f"{len(markdown_rows)} evaluated rows"
+    )
+    print(f"Verdict summary: {verdict_summary}")
+    return 0
+
+
+def _build_taxonomy_v2_gpt54_alignment_markdown(rows: list[dict[str, object]]) -> str:
+    issue_counts: Counter[str] = Counter()
+    current_to_target_counts: Counter[str] = Counter()
+    live_only_counts: Counter[str] = Counter()
+    llm_only_counts: Counter[str] = Counter()
+    must_include_counts: Counter[str] = Counter()
+    for row in rows:
+        issue_counts.update(str(item) for item in (row.get("issue_types") or []) if str(item))
+        current_primary = str((row.get("current_taxonomy") or {}).get("primary_archetype") or "none")
+        target_primary = str((row.get("proposed_taxonomy") or {}).get("primary_archetype") or "none")
+        current_to_target_counts[f"{current_primary} -> {target_primary}"] += 1
+        live_only_counts.update(str(item) for item in (row.get("live_only_titles") or []) if str(item))
+        llm_only_counts.update(str(item) for item in (row.get("llm_only_titles") or []) if str(item))
+        must_include_counts.update(str(item) for item in (row.get("missing_must_include_titles") or []) if str(item))
+
+    lines = [
+        "# GPT-5.4 Alignment Corpus",
+        "",
+        f"- Titles analyzed: {len(rows)}",
+        f"- Zero-overlap rows: {sum(1 for row in rows if not (row.get('overlap_titles') or []))}",
+        f"- Live-empty rows: {sum(1 for row in rows if not (row.get('live_neighbor_titles') or []))}",
+        f"- Must-include-missing rows: {sum(1 for row in rows if row.get('missing_must_include_titles'))}",
+        "",
+        "## Top Issues",
+        "",
+    ]
+    for key, count in issue_counts.most_common(12):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Taxonomy Shifts", ""])
+    for key, count in current_to_target_counts.most_common(12):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Live-Only Titles", ""])
+    for key, count in live_only_counts.most_common(12):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top GPT-Only Titles", ""])
+    for key, count in llm_only_counts.most_common(12):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Missing Must-Include Titles", ""])
+    for key, count in must_include_counts.most_common(12):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Worst Rows", ""])
+    ranked_rows = sorted(
+        rows,
+        key=lambda row: (
+            len(row.get("overlap_titles") or []),
+            -len(row.get("missing_must_include_titles") or []),
+            -len(row.get("issue_types") or []),
+            str(row.get("title") or "").casefold(),
+        ),
+    )
+    for row in ranked_rows[:25]:
+        lines.append(f"### {row.get('title')}")
+        lines.append("")
+        lines.append(
+            f"- Current taxonomy: `{((row.get('current_taxonomy') or {}).get('primary_archetype') or (row.get('current_taxonomy') or {}).get('status') or 'none')}`"
+        )
+        lines.append(
+            f"- Target taxonomy: `{((row.get('proposed_taxonomy') or {}).get('primary_archetype') or 'none')}`"
+        )
+        lines.append(f"- Issues: {', '.join(str(item) for item in (row.get('issue_types') or [])) or 'none'}")
+        lines.append(
+            f"- Live: {', '.join(str(item) for item in (row.get('live_neighbor_titles') or [])) or 'none'}"
+        )
+        lines.append(
+            f"- GPT: {', '.join(str(item) for item in (row.get('llm_neighbor_titles') or [])) or 'none'}"
+        )
+        if row.get("missing_must_include_titles"):
+            lines.append(
+                f"- Missing must-include: {', '.join(str(item) for item in (row.get('missing_must_include_titles') or []))}"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_native_fix_backlog_markdown(
+    backlog_rows: list[dict[str, object]],
+) -> str:
+    bucket_counts: Counter[str] = Counter()
+    taxonomy_shift_counts: Counter[str] = Counter()
+    must_include_counts: Counter[str] = Counter()
+    live_only_counts: Counter[str] = Counter()
+    unresolved_counts: Counter[str] = Counter()
+    for row in backlog_rows:
+        bucket_counts[str(row.get("primary_bucket") or "review")] += 1
+        current_primary = str(row.get("current_primary_archetype") or row.get("current_status") or "none")
+        target_primary = str(row.get("target_primary_archetype") or "none")
+        taxonomy_shift_counts[f"{current_primary} -> {target_primary}"] += 1
+        must_include_counts.update(str(item) for item in (row.get("missing_must_include_titles") or []) if str(item))
+        live_only_counts.update(str(item) for item in (row.get("live_only_titles") or []) if str(item))
+        unresolved_counts.update(str(item) for item in (row.get("unresolved_similar_games") or []) if str(item))
+
+    lines = [
+        "# GPT-5.4 Native Fix Backlog",
+        "",
+        f"- Rows: {len(backlog_rows)}",
+        "",
+        "## Bucket Summary",
+        "",
+    ]
+    for key, count in bucket_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Taxonomy Shifts", ""])
+    for key, count in taxonomy_shift_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Missing Must-Include Titles", ""])
+    for key, count in must_include_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top False-Positive Live Titles", ""])
+    for key, count in live_only_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Catalog Gaps", ""])
+    for key, count in unresolved_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+
+    by_bucket: dict[str, list[dict[str, object]]] = {}
+    for row in backlog_rows:
+        by_bucket.setdefault(str(row.get("primary_bucket") or "review"), []).append(row)
+
+    bucket_order = [
+        "taxonomy_drift",
+        "taxonomy_backlog",
+        "must_include_gap",
+        "ranking_alignment",
+        "false_positive_suppression",
+        "catalog_gap",
+        "tail_quality",
+        "review",
+    ]
+    for bucket in bucket_order:
+        bucket_rows = by_bucket.get(bucket) or []
+        if not bucket_rows:
+            continue
+        bucket_rows = sorted(
+            bucket_rows,
+            key=lambda row: (-int(row.get("priority_score") or 0), str(row.get("title") or "").casefold()),
+        )
+        lines.extend(["", f"## {bucket}", ""])
+        for row in bucket_rows[:20]:
+            lines.append(f"### {row.get('title')}")
+            lines.append("")
+            lines.append(f"- Priority: `{row.get('priority_score')}`")
+            lines.append(
+                f"- Current: `{row.get('current_primary_archetype') or row.get('current_status') or 'none'}`"
+            )
+            lines.append(f"- Target: `{row.get('target_primary_archetype') or 'none'}`")
+            lines.append(f"- Issues: {', '.join(str(item) for item in (row.get('issue_types') or [])) or 'none'}")
+            if row.get("missing_must_include_titles"):
+                lines.append(
+                    f"- Missing must-include: {', '.join(str(item) for item in (row.get('missing_must_include_titles') or []))}"
+                )
+            if row.get("live_only_titles"):
+                lines.append(
+                    f"- Live-only: {', '.join(str(item) for item in (row.get('live_only_titles') or []))}"
+                )
+            if row.get("llm_only_titles"):
+                lines.append(
+                    f"- GPT-only: {', '.join(str(item) for item in (row.get('llm_only_titles') or []))}"
+                )
+            if row.get("unresolved_similar_games"):
+                lines.append(
+                    f"- Catalog gaps: {', '.join(str(item) for item in (row.get('unresolved_similar_games') or []))}"
+                )
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_gold_corpus_markdown(rows: list[dict[str, object]]) -> str:
+    bucket_counts: Counter[str] = Counter()
+    verdict_counts: Counter[str] = Counter()
+    target_primary_counts: Counter[str] = Counter()
+    must_include_counts: Counter[str] = Counter()
+    for row in rows:
+        bucket_counts[str(row.get("gold_bucket") or "review")] += 1
+        verdict_counts[str(row.get("overall_verdict") or "none")] += 1
+        target_primary_counts.update(
+            [
+                str(((row.get("gold_taxonomy") or {}).get("primary_archetype") or "none")),
+            ]
+        )
+        must_include_counts.update(str(item) for item in (row.get("must_include_titles") or []) if str(item))
+
+    lines = [
+        "# GPT-5.4 Gold Corpus",
+        "",
+        f"- Rows: {len(rows)}",
+        f"- Expected taxonomy-ready rows: {sum(1 for row in rows if row.get('expected_taxonomy_ready'))}",
+        f"- Expected similarity-computed rows: {sum(1 for row in rows if row.get('expected_similarity_v3_status') == 'computed')}",
+        "",
+        "## Bucket Summary",
+        "",
+    ]
+    for key, count in bucket_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Verdict Summary", ""])
+    for key, count in verdict_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Target Archetypes", ""])
+    for key, count in target_primary_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Must-Include Titles", ""])
+    for key, count in must_include_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Highest Holdout Priority Rows", ""])
+    ranked_rows = sorted(
+        rows,
+        key=lambda row: (
+            -int(row.get("holdout_priority") or 0),
+            str(row.get("title") or "").casefold(),
+        ),
+    )
+    for row in ranked_rows[:25]:
+        lines.append(f"### {row.get('title')}")
+        lines.append("")
+        lines.append(f"- Bucket: `{row.get('gold_bucket')}`")
+        lines.append(f"- Holdout priority: `{row.get('holdout_priority')}`")
+        lines.append(
+            f"- Gold taxonomy: `{((row.get('gold_taxonomy') or {}).get('primary_archetype') or 'none')}`"
+        )
+        lines.append(
+            f"- Gold neighbors: {', '.join(str(item) for item in (row.get('gold_neighbor_titles') or [])) or 'none'}"
+        )
+        if row.get("must_include_titles"):
+            lines.append(
+                f"- Must-include: {', '.join(str(item) for item in (row.get('must_include_titles') or []))}"
+            )
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_gold_split_markdown(rows: list[dict[str, object]]) -> str:
+    split_counts: Counter[str] = Counter()
+    bucket_counts_by_split: dict[str, Counter[str]] = {}
+    for row in rows:
+        split = str(row.get("gold_split") or "repair")
+        split_counts[split] += 1
+        bucket_counts_by_split.setdefault(split, Counter())[str(row.get("gold_bucket") or "review")] += 1
+
+    lines = [
+        "# GPT-5.4 Gold Corpus Split",
+        "",
+        f"- Rows: {len(rows)}",
+        "",
+        "## Split Summary",
+        "",
+    ]
+    for key, count in split_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    for split in ("validation", "repair"):
+        bucket_counts = bucket_counts_by_split.get(split) or Counter()
+        if not bucket_counts:
+            continue
+        lines.extend(["", f"## {split.title()} Buckets", ""])
+        for key, count in bucket_counts.most_common():
+            lines.append(f"- `{key}`: {count}")
+    validation_rows = sorted(
+        [row for row in rows if str(row.get("gold_split") or "") == "validation"],
+        key=lambda row: (
+            -int(row.get("holdout_priority") or 0),
+            str(row.get("title") or "").casefold(),
+        ),
+    )
+    if validation_rows:
+        lines.extend(["", "## Validation Holdout", ""])
+        for row in validation_rows[:25]:
+            lines.append(f"### {row.get('title')}")
+            lines.append("")
+            lines.append(f"- Bucket: `{row.get('gold_bucket')}`")
+            lines.append(f"- Holdout priority: `{row.get('holdout_priority')}`")
+            lines.append(
+                f"- Gold taxonomy: `{((row.get('gold_taxonomy') or {}).get('primary_archetype') or 'none')}`"
+            )
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_gold_audit_markdown(
+    rows: list[dict[str, object]],
+    *,
+    split_label: str,
+) -> str:
+    bucket_counts: Counter[str] = Counter()
+    missing_must_include_counts: Counter[str] = Counter()
+    must_avoid_hit_counts: Counter[str] = Counter()
+    taxonomy_target_rows = 0
+    taxonomy_primary_matches = 0
+    must_include_total = 0
+    must_include_hits = 0
+    for row in rows:
+        bucket_counts[str(row.get("gold_bucket") or "review")] += 1
+        missing_must_include_counts.update(
+            str(item) for item in (row.get("missing_must_include_titles") or []) if str(item)
+        )
+        must_avoid_hit_counts.update(str(item) for item in (row.get("must_avoid_hits") or []) if str(item))
+        if row.get("gold_primary_archetype"):
+            taxonomy_target_rows += 1
+            if row.get("taxonomy_primary_match"):
+                taxonomy_primary_matches += 1
+        must_include_total += len(row.get("must_include_titles") or [])
+        must_include_hits += len(row.get("matched_must_include_titles") or [])
+
+    lines = [
+        "# GPT-5.4 Gold Audit",
+        "",
+        f"- Rows: {len(rows)}",
+        f"- Split: {split_label}",
+        f"- Taxonomy primary matches: {taxonomy_primary_matches}/{taxonomy_target_rows}",
+        f"- Taxonomy ready matches: {sum(1 for row in rows if row.get('taxonomy_ready_match'))}/{len(rows)}",
+        f"- Similarity status matches: {sum(1 for row in rows if row.get('similarity_status_match'))}/{len(rows)}",
+        f"- Any-overlap rows: {sum(1 for row in rows if int(row.get('overlap_count') or 0) > 0)}",
+        f"- Zero-overlap rows: {sum(1 for row in rows if int(row.get('overlap_count') or 0) == 0)}",
+        f"- Live-empty rows: {sum(1 for row in rows if bool(row.get('live_empty')))}",
+        f"- Must-include recall: {must_include_hits}/{must_include_total}",
+        f"- Must-avoid hits: {sum(len(row.get('must_avoid_hits') or []) for row in rows)}",
+        f"- Improved rows: {sum(1 for row in rows if bool(row.get('improved')))}",
+        f"- Worsened rows: {sum(1 for row in rows if bool(row.get('worsened')))}",
+        f"- Missing anchors: {sum(1 for row in rows if not bool(row.get('anchor_found')))}",
+        "",
+        "## Bucket Summary",
+        "",
+    ]
+    for key, count in bucket_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Missing Must-Include Titles", ""])
+    for key, count in missing_must_include_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Must-Avoid Hits", ""])
+    for key, count in must_avoid_hit_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Worst Rows", ""])
+    ranked_rows = sorted(
+        rows,
+        key=lambda row: (
+            0 if row.get("anchor_found") else -1,
+            int(row.get("overlap_count") or 0),
+            -len(row.get("missing_must_include_titles") or []),
+            0 if row.get("taxonomy_primary_match") else -1,
+            str(row.get("title") or "").casefold(),
+        ),
+    )
+    for row in ranked_rows[:25]:
+        lines.append(f"### {row.get('title')}")
+        lines.append("")
+        lines.append(
+            f"- Taxonomy: current `{row.get('current_primary_archetype') or row.get('current_taxonomy_status') or 'none'}` vs gold `{row.get('gold_primary_archetype') or 'none'}`"
+        )
+        lines.append(
+            f"- Live: {', '.join(str(item) for item in (row.get('current_live_titles') or [])) or 'none'}"
+        )
+        lines.append(
+            f"- Gold: {', '.join(str(item) for item in (row.get('gold_neighbor_titles') or [])) or 'none'}"
+        )
+        lines.append(f"- Overlap: `{row.get('overlap_count')}`")
+        if row.get("missing_must_include_titles"):
+            lines.append(
+                f"- Missing must-include: {', '.join(str(item) for item in (row.get('missing_must_include_titles') or []))}"
+            )
+        if row.get("must_avoid_hits"):
+            lines.append(
+                f"- Must-avoid hits: {', '.join(str(item) for item in (row.get('must_avoid_hits') or []))}"
+            )
+        lines.append(
+            f"- Delta overlap: `{row.get('delta_overlap')}` improved={str(bool(row.get('improved'))).lower()} worsened={str(bool(row.get('worsened'))).lower()}"
+        )
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_gold_fix_backlog_markdown(
+    rows: list[dict[str, object]],
+) -> str:
+    bucket_counts: Counter[str] = Counter()
+    target_shift_counts: Counter[str] = Counter()
+    missing_must_include_counts: Counter[str] = Counter()
+    must_avoid_counts: Counter[str] = Counter()
+    for row in rows:
+        bucket_counts[str(row.get("primary_bucket") or "review")] += 1
+        current_primary = str(row.get("current_primary_archetype") or row.get("current_taxonomy_status") or "none")
+        target_primary = str(row.get("target_primary_archetype") or "none")
+        target_shift_counts[f"{current_primary} -> {target_primary}"] += 1
+        missing_must_include_counts.update(
+            str(item) for item in (row.get("missing_must_include_titles") or []) if str(item)
+        )
+        must_avoid_counts.update(str(item) for item in (row.get("must_avoid_hits") or []) if str(item))
+
+    lines = [
+        "# GPT-5.4 Gold Fix Backlog",
+        "",
+        f"- Rows: {len(rows)}",
+        "",
+        "## Bucket Summary",
+        "",
+    ]
+    for key, count in bucket_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Taxonomy Shifts", ""])
+    for key, count in target_shift_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Missing Must-Include Titles", ""])
+    for key, count in missing_must_include_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Must-Avoid Hits", ""])
+    for key, count in must_avoid_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+
+    by_bucket: dict[str, list[dict[str, object]]] = {}
+    for row in rows:
+        by_bucket.setdefault(str(row.get("primary_bucket") or "review"), []).append(row)
+
+    for bucket in (
+        "taxonomy_backlog",
+        "taxonomy_drift",
+        "similarity_hidden",
+        "live_empty",
+        "zero_overlap",
+        "must_include_gap",
+        "false_positive_suppression",
+        "review",
+    ):
+        bucket_rows = by_bucket.get(bucket) or []
+        if not bucket_rows:
+            continue
+        bucket_rows = sorted(
+            bucket_rows,
+            key=lambda row: (-int(row.get("priority_score") or 0), str(row.get("title") or "").casefold()),
+        )
+        lines.extend(["", f"## {bucket}", ""])
+        for row in bucket_rows[:20]:
+            lines.append(f"### {row.get('title')}")
+            lines.append("")
+            lines.append(f"- Priority: `{row.get('priority_score')}`")
+            lines.append(
+                f"- Current taxonomy: `{row.get('current_primary_archetype') or row.get('current_taxonomy_status') or 'none'}`"
+            )
+            lines.append(f"- Gold taxonomy: `{row.get('target_primary_archetype') or 'none'}`")
+            lines.append(
+                f"- Similarity status: current `{row.get('current_similarity_v3_status') or 'none'}` vs expected `{row.get('expected_similarity_v3_status') or 'none'}`"
+            )
+            lines.append(f"- Overlap: `{row.get('overlap_count')}`")
+            if row.get("missing_must_include_titles"):
+                lines.append(
+                    f"- Missing must-include: {', '.join(str(item) for item in (row.get('missing_must_include_titles') or []))}"
+                )
+            if row.get("must_avoid_hits"):
+                lines.append(
+                    f"- Must-avoid hits: {', '.join(str(item) for item in (row.get('must_avoid_hits') or []))}"
+                )
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _build_taxonomy_v2_gpt54_gold_drift_report_markdown(
+    rows: list[dict[str, object]],
+    *,
+    min_overlap: int,
+) -> str:
+    bucket_counts: Counter[str] = Counter(str(row.get("primary_bucket") or "aligned") for row in rows)
+    action_counts: Counter[str] = Counter()
+    taxonomy_shift_counts: Counter[str] = Counter()
+    missing_must_include_counts: Counter[str] = Counter()
+    must_avoid_counts: Counter[str] = Counter()
+    for row in rows:
+        action_counts.update(str(item) for item in (row.get("action_buckets") or []) if str(item))
+        current_primary = str(row.get("current_primary_archetype") or row.get("current_taxonomy_status") or "none")
+        gold_primary = str(row.get("gold_primary_archetype") or "none")
+        if current_primary != gold_primary:
+            taxonomy_shift_counts[f"{current_primary} -> {gold_primary}"] += 1
+        missing_must_include_counts.update(
+            str(item) for item in (row.get("missing_must_include_titles") or []) if str(item)
+        )
+        must_avoid_counts.update(str(item) for item in (row.get("must_avoid_hits") or []) if str(item))
+
+    actionable_rows = [row for row in rows if str(row.get("primary_bucket") or "") != "aligned"]
+    validation_actionable_rows = [
+        row for row in actionable_rows if str(row.get("gold_split") or "") == "validation"
+    ]
+    live_unsafe_rows = [
+        row
+        for row in rows
+        if row.get("must_avoid_hits")
+        or str(row.get("primary_bucket") or "") in {"should_be_hidden", "zero_overlap_live"}
+    ]
+
+    lines = [
+        "# GPT Gold Drift Report",
+        "",
+        f"- Rows: {len(rows)}",
+        f"- Min overlap threshold: {min_overlap}",
+        f"- Actionable rows: {len(actionable_rows)}",
+        f"- Validation actionable rows: {len(validation_actionable_rows)}",
+        f"- Live unsafe rows: {len(live_unsafe_rows)}",
+        f"- Worsened rows: {sum(1 for row in rows if bool(row.get('worsened')))}",
+        f"- Live-empty expected-computed rows: {sum(1 for row in rows if row.get('live_empty') and row.get('expected_similarity_v3_status') == 'computed')}",
+        "",
+        "## Bucket Summary",
+        "",
+    ]
+    for key, count in bucket_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Action Summary", ""])
+    for key, count in action_counts.most_common():
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Taxonomy Shifts", ""])
+    for key, count in taxonomy_shift_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Missing Must-Include Titles", ""])
+    for key, count in missing_must_include_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+    lines.extend(["", "## Top Must-Avoid Hits", ""])
+    for key, count in must_avoid_counts.most_common(15):
+        lines.append(f"- `{key}`: {count}")
+
+    by_bucket: dict[str, list[dict[str, object]]] = {}
+    for row in actionable_rows:
+        by_bucket.setdefault(str(row.get("primary_bucket") or "review"), []).append(row)
+
+    for bucket in (
+        "false_positive_suppression",
+        "should_be_hidden",
+        "zero_overlap_live",
+        "regression",
+        "taxonomy_backlog",
+        "taxonomy_drift",
+        "catalog_gap_risk",
+        "similarity_status_drift",
+        "live_empty",
+        "low_overlap_live",
+        "must_include_gap",
+        "missing_anchor",
+    ):
+        bucket_rows = sorted(
+            by_bucket.get(bucket) or [],
+            key=lambda row: (-int(row.get("priority_score") or 0), str(row.get("title") or "").casefold()),
+        )
+        if not bucket_rows:
+            continue
+        lines.extend(["", f"## {bucket}", ""])
+        for row in bucket_rows[:25]:
+            lines.append(f"### {row.get('title')}")
+            lines.append("")
+            lines.append(f"- Priority: `{row.get('priority_score')}`")
+            lines.append(f"- Action: `{row.get('recommended_action')}`")
+            lines.append(
+                f"- Taxonomy: current `{row.get('current_primary_archetype') or row.get('current_taxonomy_status') or 'none'}` vs gold `{row.get('gold_primary_archetype') or 'none'}`"
+            )
+            lines.append(
+                f"- Similarity status: current `{row.get('current_similarity_v3_status') or 'none'}` vs expected `{row.get('expected_similarity_v3_status') or 'none'}`"
+            )
+            lines.append(f"- Overlap: `{row.get('overlap_count')}`")
+            if row.get("current_live_titles"):
+                lines.append(
+                    f"- Live: {', '.join(str(item) for item in (row.get('current_live_titles') or []))}"
+                )
+            if row.get("gold_neighbor_titles"):
+                lines.append(
+                    f"- Gold: {', '.join(str(item) for item in (row.get('gold_neighbor_titles') or []))}"
+                )
+            if row.get("missing_must_include_titles"):
+                lines.append(
+                    f"- Missing must-include: {', '.join(str(item) for item in (row.get('missing_must_include_titles') or []))}"
+                )
+            if row.get("must_avoid_hits"):
+                lines.append(
+                    f"- Must-avoid hits: {', '.join(str(item) for item in (row.get('must_avoid_hits') or []))}"
+                )
+            lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+async def cmd_taxonomy_v2_gpt54_build_alignment_corpus(args):
+    """Build per-title training rows and mismatch report from GPT-vs-live artifacts."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_alignment_row,
+    )
+
+    if not args.review_input or not args.stage_input:
+        print("At least one --review-input and one --stage-input are required for taxonomy-v2-gpt54-build-alignment-corpus.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_alignment_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    def _load_jsonl_by_public_id(paths: list[str]) -> tuple[dict[str, dict[str, object]], list[str]]:
+        rows_by_public_id: dict[str, dict[str, object]] = {}
+        order: list[str] = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if not path.exists():
+                print(f"Warning: input file not found: {path}")
+                continue
+            with path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    public_id = str(row.get("public_id") or "").strip()
+                    if not public_id:
+                        continue
+                    if public_id not in rows_by_public_id:
+                        order.append(public_id)
+                    rows_by_public_id[public_id] = row
+        return rows_by_public_id, order
+
+    review_rows_by_public_id, review_order = _load_jsonl_by_public_id(list(args.review_input))
+    stage_rows_by_public_id, _ = _load_jsonl_by_public_id(list(args.stage_input))
+    evaluation_rows_by_public_id, _ = _load_jsonl_by_public_id(list(args.evaluation_input or []))
+
+    selected_public_ids = [public_id for public_id in review_order if public_id in review_rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No rows selected for taxonomy-v2-gpt54-build-alignment-corpus.")
+        return 1
+
+    alignment_rows: list[dict[str, object]] = []
+    missing_stage_rows = 0
+    for public_id in selected_public_ids:
+        review_row = review_rows_by_public_id.get(public_id) or {}
+        stage_row = stage_rows_by_public_id.get(public_id)
+        if stage_row is None:
+            missing_stage_rows += 1
+            continue
+        evaluation_row = evaluation_rows_by_public_id.get(public_id) or {}
+        alignment_rows.append(
+            build_taxonomy_v2_gpt54_alignment_row(
+                review_row,
+                stage_row,
+                evaluation_row,
+            )
+        )
+
+    if not alignment_rows:
+        print("No alignment rows could be built for taxonomy-v2-gpt54-build-alignment-corpus.")
+        return 1
+
+    append_jsonl_rows(output_path, alignment_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_alignment_markdown(alignment_rows),
+        encoding="utf-8",
+    )
+
+    issue_counts: Counter[str] = Counter()
+    for row in alignment_rows:
+        issue_counts.update(str(item) for item in (row.get("issue_types") or []) if str(item))
+    issue_summary = ", ".join(
+        f"{issue}={count}"
+        for issue, count in issue_counts.most_common(10)
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-build-alignment-corpus complete: "
+        f"{len(alignment_rows)} rows"
+    )
+    if missing_stage_rows:
+        print(f"Skipped rows missing stage data: {missing_stage_rows}")
+    print(f"Issue summary: {issue_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_build_native_fix_backlog(args):
+    """Build grouped native-system fix backlog rows from GPT alignment artifacts."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_native_fix_backlog_row,
+    )
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-build-native-fix-backlog.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_native_fix_backlog_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for raw_path in args.input:
+        path = Path(raw_path)
+        if not path.exists():
+            print(f"Warning: input file not found: {path}")
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                public_id = str(row.get("public_id") or "").strip()
+                if not public_id:
+                    continue
+                if public_id not in rows_by_public_id:
+                    order.append(public_id)
+                rows_by_public_id[public_id] = row
+
+    selected_public_ids = [public_id for public_id in order if public_id in rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No alignment rows selected for taxonomy-v2-gpt54-build-native-fix-backlog.")
+        return 1
+
+    backlog_rows = [
+        build_taxonomy_v2_gpt54_native_fix_backlog_row(rows_by_public_id[public_id])
+        for public_id in selected_public_ids
+    ]
+    backlog_rows.sort(
+        key=lambda row: (
+            -int(row.get("priority_score") or 0),
+            str(row.get("primary_bucket") or "").casefold(),
+            str(row.get("title") or "").casefold(),
+        )
+    )
+
+    append_jsonl_rows(output_path, backlog_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_native_fix_backlog_markdown(backlog_rows),
+        encoding="utf-8",
+    )
+
+    bucket_counts: Counter[str] = Counter(str(row.get("primary_bucket") or "review") for row in backlog_rows)
+    bucket_summary = ", ".join(
+        f"{bucket}={count}"
+        for bucket, count in bucket_counts.most_common()
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-build-native-fix-backlog complete: "
+        f"{len(backlog_rows)} rows"
+    )
+    print(f"Bucket summary: {bucket_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_build_gold_corpus(args):
+    """Freeze a versioned gold corpus from current GPT-vs-live compare rows."""
+    from app.services.taxonomy_v2_gpt54_enrichment import build_taxonomy_v2_gpt54_gold_corpus_row
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-build-gold-corpus.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_gold_corpus_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id, order = _load_jsonl_rows_by_public_id(list(args.input))
+    selected_public_ids = _select_public_ids(order, rows_by_public_id, requested_games=list(args.game or []))
+    if not selected_public_ids:
+        print("No rows selected for taxonomy-v2-gpt54-build-gold-corpus.")
+        return 1
+
+    gold_rows = [
+        build_taxonomy_v2_gpt54_gold_corpus_row(rows_by_public_id[public_id])
+        for public_id in selected_public_ids
+    ]
+
+    _write_jsonl_rows(output_path, gold_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_gold_corpus_markdown(gold_rows),
+        encoding="utf-8",
+    )
+
+    bucket_counts: Counter[str] = Counter(str(row.get("gold_bucket") or "review") for row in gold_rows)
+    bucket_summary = ", ".join(
+        f"{bucket}={count}"
+        for bucket, count in bucket_counts.most_common()
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-build-gold-corpus complete: "
+        f"{len(gold_rows)} rows"
+    )
+    print(f"Bucket summary: {bucket_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_split_gold_corpus(args):
+    """Deterministically split a frozen gold corpus into repair and validation sets."""
+    from app.services.taxonomy_v2_gpt54_enrichment import build_taxonomy_v2_gpt54_gold_split_rows
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-split-gold-corpus.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_gold_split_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    repair_output_path = (
+        Path(args.repair_output)
+        if args.repair_output
+        else output_path.with_name(f"{output_path.stem}_repair{output_path.suffix}")
+    )
+    validation_output_path = (
+        Path(args.validation_output)
+        if args.validation_output
+        else output_path.with_name(f"{output_path.stem}_validation{output_path.suffix}")
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id, order = _load_jsonl_rows_by_public_id(list(args.input))
+    selected_public_ids = _select_public_ids(order, rows_by_public_id, requested_games=list(args.game or []))
+    if not selected_public_ids:
+        print("No rows selected for taxonomy-v2-gpt54-split-gold-corpus.")
+        return 1
+
+    selected_rows = [dict(rows_by_public_id[public_id]) for public_id in selected_public_ids]
+    split_rows = build_taxonomy_v2_gpt54_gold_split_rows(
+        selected_rows,
+        validation_count=args.validation_count,
+    )
+    repair_rows = [row for row in split_rows if str(row.get("gold_split") or "") == "repair"]
+    validation_rows = [row for row in split_rows if str(row.get("gold_split") or "") == "validation"]
+
+    _write_jsonl_rows(output_path, split_rows)
+    _write_jsonl_rows(repair_output_path, repair_rows)
+    _write_jsonl_rows(validation_output_path, validation_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_gold_split_markdown(split_rows),
+        encoding="utf-8",
+    )
+
+    print(f"Results written to: {output_path}")
+    print(f"Repair rows written to: {repair_output_path}")
+    print(f"Validation rows written to: {validation_output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-split-gold-corpus complete: "
+        f"{len(split_rows)} rows ({len(repair_rows)} repair, {len(validation_rows)} validation)"
+    )
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_audit_gold_corpus(args):
+    """Audit current native output against the frozen gold corpus."""
+    from app.services.taxonomy_v2_gpt54_enrichment import build_taxonomy_v2_gpt54_gold_audit_row
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-audit-gold-corpus.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_gold_audit_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id, order = _load_jsonl_rows_by_public_id(list(args.input))
+    selected_public_ids = _select_public_ids(order, rows_by_public_id, requested_games=list(args.game or []))
+    selected_rows = [dict(rows_by_public_id[public_id]) for public_id in selected_public_ids]
+    if args.split != "all":
+        selected_rows = [row for row in selected_rows if str(row.get("gold_split") or "repair") == args.split]
+    if not selected_rows:
+        print("No rows selected for taxonomy-v2-gpt54-audit-gold-corpus.")
+        return 1
+
+    current_state_by_public_id = await _load_taxonomy_v2_gpt54_gold_current_state(
+        [str(row.get("public_id") or "") for row in selected_rows]
+    )
+    audit_rows = [
+        build_taxonomy_v2_gpt54_gold_audit_row(
+            row,
+            current_state_by_public_id.get(str(row.get("public_id") or ""), {"anchor_found": False, "live_titles": []}),
+        )
+        for row in selected_rows
+    ]
+
+    _write_jsonl_rows(output_path, audit_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_gold_audit_markdown(audit_rows, split_label=args.split),
+        encoding="utf-8",
+    )
+
+    any_overlap = sum(1 for row in audit_rows if int(row.get("overlap_count") or 0) > 0)
+    zero_overlap = sum(1 for row in audit_rows if int(row.get("overlap_count") or 0) == 0)
+    worsened_rows = sum(1 for row in audit_rows if bool(row.get("worsened")))
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-audit-gold-corpus complete: "
+        f"{len(audit_rows)} rows"
+    )
+    print(
+        f"Summary: any_overlap={any_overlap}, zero_overlap={zero_overlap}, "
+        f"live_empty={sum(1 for row in audit_rows if bool(row.get('live_empty')))}, worsened={worsened_rows}"
+    )
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_build_gold_fix_backlog(args):
+    """Build prioritized native fix backlog rows from gold-audit artifacts."""
+    from app.services.taxonomy_v2_gpt54_enrichment import build_taxonomy_v2_gpt54_gold_fix_backlog_row
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-build-gold-fix-backlog.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_gold_fix_backlog_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+
+    rows_by_public_id, order = _load_jsonl_rows_by_public_id(list(args.input))
+    selected_public_ids = _select_public_ids(order, rows_by_public_id, requested_games=list(args.game or []))
+    if not selected_public_ids:
+        print("No rows selected for taxonomy-v2-gpt54-build-gold-fix-backlog.")
+        return 1
+
+    backlog_rows = [
+        build_taxonomy_v2_gpt54_gold_fix_backlog_row(rows_by_public_id[public_id])
+        for public_id in selected_public_ids
+    ]
+    skipped_review_rows = sum(1 for row in backlog_rows if not (row.get("action_buckets") or []))
+    backlog_rows = [row for row in backlog_rows if row.get("action_buckets")]
+    if not backlog_rows:
+        print("No actionable rows selected for taxonomy-v2-gpt54-build-gold-fix-backlog.")
+        return 1
+    backlog_rows.sort(
+        key=lambda row: (
+            -int(row.get("priority_score") or 0),
+            str(row.get("primary_bucket") or "").casefold(),
+            str(row.get("title") or "").casefold(),
+        )
+    )
+
+    _write_jsonl_rows(output_path, backlog_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_gold_fix_backlog_markdown(backlog_rows),
+        encoding="utf-8",
+    )
+
+    bucket_counts: Counter[str] = Counter(str(row.get("primary_bucket") or "review") for row in backlog_rows)
+    bucket_summary = ", ".join(
+        f"{bucket}={count}"
+        for bucket, count in bucket_counts.most_common()
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-build-gold-fix-backlog complete: "
+        f"{len(backlog_rows)} rows"
+    )
+    if skipped_review_rows:
+        print(f"Skipped no-action review rows: {skipped_review_rows}")
+    print(f"Bucket summary: {bucket_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_drift_report(args):
+    """Build prioritized current drift rows from gold-audit artifacts."""
+    from app.services.taxonomy_v2_gpt54_enrichment import build_taxonomy_v2_gpt54_gold_drift_report_row
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-drift-report.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_drift_report_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+    markdown_output_path = Path(args.markdown_output) if args.markdown_output else output_path.with_suffix(".md")
+    min_overlap = max(1, int(args.min_overlap or 1))
+
+    rows_by_public_id, order = _load_jsonl_rows_by_public_id(list(args.input))
+    selected_public_ids = _select_public_ids(order, rows_by_public_id, requested_games=list(args.game or []))
+    if not selected_public_ids:
+        print("No rows selected for taxonomy-v2-gpt54-drift-report.")
+        return 1
+
+    report_rows = [
+        build_taxonomy_v2_gpt54_gold_drift_report_row(
+            rows_by_public_id[public_id],
+            min_overlap=min_overlap,
+        )
+        for public_id in selected_public_ids
+    ]
+    if args.only_actionable:
+        report_rows = [row for row in report_rows if str(row.get("primary_bucket") or "") != "aligned"]
+    report_rows.sort(
+        key=lambda row: (
+            -int(row.get("priority_score") or 0),
+            str(row.get("primary_bucket") or "").casefold(),
+            str(row.get("title") or "").casefold(),
+        )
+    )
+    if not report_rows:
+        print("No rows selected after filtering for taxonomy-v2-gpt54-drift-report.")
+        return 1
+
+    _write_jsonl_rows(output_path, report_rows)
+    markdown_output_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_output_path.write_text(
+        _build_taxonomy_v2_gpt54_gold_drift_report_markdown(report_rows, min_overlap=min_overlap),
+        encoding="utf-8",
+    )
+
+    bucket_counts: Counter[str] = Counter(str(row.get("primary_bucket") or "aligned") for row in report_rows)
+    bucket_summary = ", ".join(
+        f"{bucket}={count}"
+        for bucket, count in bucket_counts.most_common()
+    ) or "none"
+    print(f"Results written to: {output_path}")
+    print(f"Markdown written to: {markdown_output_path}")
+    print(
+        "taxonomy-v2-gpt54-drift-report complete: "
+        f"{len(report_rows)} rows"
+    )
+    print(f"Bucket summary: {bucket_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_repair_stage(args):
+    """Repair weak staged similar-game tails using GPT-5.4 replacement candidates."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        GPT54TaxonomyEnrichmentService,
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_bundles,
+    )
+
+    if not args.stage_input or not args.evaluation_input:
+        print("At least one --stage-input and one --evaluation-input are required for taxonomy-v2-gpt54-repair-stage.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_repair_stage_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    def _load_jsonl_by_public_id(paths: list[str]) -> tuple[dict[str, dict[str, object]], list[str]]:
+        rows_by_public_id: dict[str, dict[str, object]] = {}
+        order: list[str] = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if not path.exists():
+                print(f"Warning: input file not found: {path}")
+                continue
+            with path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    public_id = str(row.get("public_id") or "").strip()
+                    if not public_id:
+                        continue
+                    if public_id not in rows_by_public_id:
+                        order.append(public_id)
+                    rows_by_public_id[public_id] = row
+        return rows_by_public_id, order
+
+    stage_rows_by_public_id, stage_order = _load_jsonl_by_public_id(list(args.stage_input))
+    evaluation_rows_by_public_id, _ = _load_jsonl_by_public_id(list(args.evaluation_input))
+    selected_public_ids = [public_id for public_id in stage_order if public_id in stage_rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No staged rows selected for taxonomy-v2-gpt54-repair-stage.")
+        return 1
+
+    replacement_labels = {"weak", "drop"}
+    keep_labels = {"must_keep", "strong", "good"}
+    target_neighbor_count = max(1, min(int(args.target_neighbor_count), 10))
+    stage_rows = [stage_rows_by_public_id[public_id] for public_id in selected_public_ids]
+    anchor_public_ids = selected_public_ids
+    candidate_public_ids = sorted(
+        {
+            str(item.get("candidate_public_id"))
+            for row in stage_rows
+            for item in (row.get("staged_neighbors") or [])
+            if isinstance(item, dict) and item.get("candidate_public_id")
+        }
+    )
+
+    async with async_session_maker() as db:
+        anchor_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(anchor_public_ids)))
+        ).scalars().all()
+        candidate_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(candidate_public_ids)))
+        ).scalars().all() if candidate_public_ids else []
+        anchor_games_by_public_id = {str(game.public_id): game for game in anchor_games}
+        candidate_games_by_public_id = {str(game.public_id): game for game in candidate_games}
+        anchor_bundles = await build_taxonomy_v2_gpt54_bundles(db, anchor_games)
+
+    anchor_bundles_by_public_id = {bundle.public_id: bundle for bundle in anchor_bundles}
+
+    async with GPT54TaxonomyEnrichmentService() as service:
+        for index, public_id in enumerate(selected_public_ids, start=1):
+            stage_row = dict(stage_rows_by_public_id[public_id] or {})
+            evaluation_row = dict(evaluation_rows_by_public_id.get(public_id) or {})
+            anchor_game = anchor_games_by_public_id.get(public_id)
+            anchor_bundle = anchor_bundles_by_public_id.get(public_id)
+            title = str(stage_row.get("title") or public_id)
+            if anchor_game is None or anchor_bundle is None:
+                output_row = {
+                    **stage_row,
+                    "repair_status": "missing_anchor",
+                }
+                append_jsonl_rows(output_path, [output_row])
+                print(f"Skipped {title}: anchor missing")
+                continue
+            if not evaluation_row or evaluation_row.get("status") not in {None, "evaluated"}:
+                output_row = {
+                    **stage_row,
+                    "repair_status": "missing_evaluation",
+                }
+                append_jsonl_rows(output_path, [output_row])
+                print(f"Skipped {title}: evaluation missing")
+                continue
+
+            candidate_reviews = [
+                dict(item)
+                for item in (evaluation_row.get("candidate_reviews") or [])
+                if isinstance(item, dict)
+            ]
+            weak_reviews = [
+                item for item in candidate_reviews
+                if str(item.get("strength_label") or "") in replacement_labels
+            ]
+            should_repair = bool(
+                str(evaluation_row.get("overall_verdict") or "") in {"mixed", "weak"}
+                or weak_reviews
+            )
+            if not should_repair:
+                output_row = {
+                    **stage_row,
+                    "repair_status": "unchanged",
+                    "repair_metadata": {
+                        "source_verdict": evaluation_row.get("overall_verdict"),
+                        "kept_count": len(stage_row.get("staged_neighbors") or []),
+                        "replacement_count": 0,
+                    },
+                }
+                append_jsonl_rows(output_path, [output_row])
+                print(f"Kept {title}: no repair needed ({index}/{len(selected_public_ids)})")
+                continue
+
+            kept_reviews = [
+                item for item in candidate_reviews
+                if str(item.get("strength_label") or "") in keep_labels
+            ]
+            kept_candidate_ids = {
+                str(item.get("candidate_public_id") or "")
+                for item in kept_reviews
+                if item.get("candidate_public_id")
+            }
+            blocked_titles = {
+                str(item.get("candidate_title") or "").strip().casefold()
+                for item in weak_reviews
+                if str(item.get("candidate_title") or "").strip()
+            }
+            blocked_titles.update(
+                str(item.get("candidate_title") or "").strip().casefold()
+                for item in kept_reviews
+                if str(item.get("candidate_title") or "").strip()
+            )
+
+            repaired_neighbors: list[dict[str, object]] = []
+            for item in kept_reviews:
+                relationship_fit = str(item.get("relationship_fit") or "").strip()
+                if relationship_fit not in {"base_game", "same", "strong_neighbor", "adjacent_neighbor"}:
+                    relationship_fit = "adjacent_neighbor"
+                repaired_neighbors.append(
+                    {
+                        "rank": len(repaired_neighbors) + 1,
+                        "candidate_public_id": item.get("candidate_public_id"),
+                        "candidate_title": item.get("candidate_title"),
+                        "requested_title": item.get("requested_title") or item.get("candidate_title"),
+                        "expected_relationship": relationship_fit,
+                        "why_similar": item.get("rationale") or "",
+                    }
+                )
+
+            replacements_needed = max(
+                0,
+                max(target_neighbor_count, len(stage_row.get("staged_neighbors") or [])) - len(repaired_neighbors),
+            )
+            resolved_replacements: list[dict[str, object]] = []
+            preview = None
+            if replacements_needed > 0:
+                preview = await service.repair_stage_similar_games(
+                    anchor_bundle,
+                    stage_row,
+                    evaluation_row,
+                    replacement_limit=min(10, replacements_needed + 3),
+                    use_web=args.use_web,
+                )
+                async with async_session_maker() as db:
+                    for item in preview.similar_games:
+                        if len(resolved_replacements) >= replacements_needed:
+                            break
+                        if item.title.strip().casefold() in blocked_titles:
+                            continue
+                        resolved = await _resolve_target_game_with_title_fallback(
+                            db,
+                            Game,
+                            item.title,
+                            exclude_game_id=anchor_bundle.game_id,
+                            strict=True,
+                        )
+                        resolved_public_id = getattr(resolved, "public_id", None)
+                        resolved_title = getattr(resolved, "title", None)
+                        if not resolved or not resolved_public_id or not resolved_title:
+                            continue
+                        if str(resolved_public_id) in kept_candidate_ids:
+                            continue
+                        if any(str(existing.get("candidate_public_id") or "") == str(resolved_public_id) for existing in resolved_replacements):
+                            continue
+                        blocked_titles.add(str(resolved_title).strip().casefold())
+                        resolved_replacements.append(
+                            {
+                                "rank": len(repaired_neighbors) + len(resolved_replacements) + 1,
+                                "candidate_public_id": resolved_public_id,
+                                "candidate_title": resolved_title,
+                                "requested_title": item.title,
+                                "expected_relationship": item.expected_relationship,
+                                "why_similar": item.why_similar,
+                            }
+                        )
+
+            repaired_neighbors.extend(resolved_replacements)
+            for rank, item in enumerate(repaired_neighbors, start=1):
+                item["rank"] = rank
+
+            output_row = {
+                **stage_row,
+                "staged_neighbors": repaired_neighbors,
+                "repair_status": "repaired" if resolved_replacements or weak_reviews else "unchanged",
+                "repair_metadata": {
+                    "source_verdict": evaluation_row.get("overall_verdict"),
+                    "removed_candidates": [item.get("candidate_title") for item in weak_reviews],
+                    "kept_count": len(kept_reviews),
+                    "replacement_count": len(resolved_replacements),
+                    "repair_used_web": bool(getattr(preview, "used_web", False)) if preview is not None else False,
+                    "repair_source_urls": list(getattr(preview, "source_urls", []) or []) if preview is not None else [],
+                },
+            }
+            append_jsonl_rows(output_path, [output_row])
+            print(
+                f"Repaired {title}: kept={len(kept_reviews)} "
+                f"replacements={len(resolved_replacements)} ({index}/{len(selected_public_ids)})"
+            )
+
+    print(f"Results written to: {output_path}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_filter_stage(args):
+    """Filter staged rows so only allowed overall verdicts and strength labels survive."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_filtered_stage_row,
+    )
+
+    if not args.stage_input or not args.evaluation_input:
+        print("At least one --stage-input and one --evaluation-input are required for taxonomy-v2-gpt54-filter-stage.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_filter_stage_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    def _load_jsonl_by_public_id(paths: list[str]) -> tuple[dict[str, dict[str, object]], list[str]]:
+        rows_by_public_id: dict[str, dict[str, object]] = {}
+        order: list[str] = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if not path.exists():
+                print(f"Warning: input file not found: {path}")
+                continue
+            with path.open(encoding="utf-8") as handle:
+                for line in handle:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    public_id = str(row.get("public_id") or "").strip()
+                    if not public_id:
+                        continue
+                    if public_id not in rows_by_public_id:
+                        order.append(public_id)
+                    rows_by_public_id[public_id] = row
+        return rows_by_public_id, order
+
+    stage_rows_by_public_id, stage_order = _load_jsonl_by_public_id(list(args.stage_input))
+    evaluation_rows_by_public_id, _ = _load_jsonl_by_public_id(list(args.evaluation_input))
+    selected_public_ids = [public_id for public_id in stage_order if public_id in stage_rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No staged rows selected for taxonomy-v2-gpt54-filter-stage.")
+        return 1
+
+    allowed_overall_verdicts = {
+        str(value).strip()
+        for value in (args.allowed_overall_verdict or ["excellent", "good"])
+        if str(value).strip()
+    }
+    allowed_strength_labels = {
+        str(value).strip()
+        for value in (args.allowed_strength or ["must_keep", "strong", "good"])
+        if str(value).strip()
+    }
+
+    filtered_rows: list[dict[str, object]] = []
+    kept_rows = 0
+    blocked_rows = 0
+    kept_neighbors = 0
+    removed_neighbors = 0
+    for public_id in selected_public_ids:
+        stage_row = stage_rows_by_public_id[public_id]
+        evaluation_row = evaluation_rows_by_public_id.get(public_id) or {}
+        filtered_row = build_taxonomy_v2_gpt54_filtered_stage_row(
+            stage_row,
+            evaluation_row,
+            allowed_overall_verdicts=allowed_overall_verdicts,
+            allowed_strength_labels=allowed_strength_labels,
+        )
+        filtered_rows.append(filtered_row)
+        metadata = dict(filtered_row.get("filter_metadata") or {})
+        kept_neighbors += int(metadata.get("kept_neighbor_count") or 0)
+        removed_neighbors += int(metadata.get("removed_neighbor_count") or 0)
+        if filtered_row.get("stage_status") == "ready_for_review":
+            kept_rows += 1
+        else:
+            blocked_rows += 1
+
+    append_jsonl_rows(output_path, filtered_rows)
+    print(f"Results written to: {output_path}")
+    print(
+        "taxonomy-v2-gpt54-filter-stage complete: "
+        f"{len(filtered_rows)} rows processed"
+    )
+    print(
+        f"Publishable rows={kept_rows}, blocked rows={blocked_rows}, "
+        f"kept neighbors={kept_neighbors}, removed neighbors={removed_neighbors}"
+    )
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_build_stage(args):
+    """Build a staged review artifact from one or more GPT-5.4 review JSONL files."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        append_jsonl_rows,
+        build_taxonomy_v2_gpt54_stage_row,
+    )
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-build-stage.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_stage_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    rows_by_public_id: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for raw_path in args.input:
+        path = Path(raw_path)
+        if not path.exists():
+            print(f"Warning: input file not found: {path}")
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                public_id = str(row.get("public_id") or "").strip()
+                if not public_id:
+                    continue
+                if public_id not in rows_by_public_id:
+                    order.append(public_id)
+                rows_by_public_id[public_id] = row
+
+    if not rows_by_public_id:
+        print("No valid review rows found for taxonomy-v2-gpt54-build-stage.")
+        return 1
+
+    stage_rows = [
+        build_taxonomy_v2_gpt54_stage_row(
+            rows_by_public_id[public_id],
+            neighbor_limit=args.neighbor_limit,
+        )
+        for public_id in order
+    ]
+    append_jsonl_rows(output_path, stage_rows)
+
+    status_counts: dict[str, int] = {}
+    flag_counts: dict[str, int] = {}
+    for row in stage_rows:
+        status = str(row.get("stage_status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+        for flag in row.get("review_flags") or []:
+            flag_name = str(flag)
+            flag_counts[flag_name] = flag_counts.get(flag_name, 0) + 1
+
+    status_summary = ", ".join(
+        f"{status}={count}"
+        for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0]))
+    ) or "none"
+    flag_summary = ", ".join(
+        f"{flag}={count}"
+        for flag, count in sorted(flag_counts.items(), key=lambda item: (-item[1], item[0]))
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(
+        "taxonomy-v2-gpt54-build-stage complete: "
+        f"{len(stage_rows)} staged rows"
+    )
+    print(f"Stage status summary: {status_summary}")
+    print(f"Review flag summary: {flag_summary}")
+    return 0
+
+
+async def cmd_taxonomy_v2_gpt54_apply_stage(args):
+    """Apply staged GPT-5.4 taxonomy and curated neighbor rows."""
+    from app.services.taxonomy_v2_gpt54_enrichment import (
+        append_jsonl_rows,
+        apply_taxonomy_v2_gpt54_stage_row,
+    )
+
+    if not args.input:
+        print("At least one --input is required for taxonomy-v2-gpt54-apply-stage.")
+        return 1
+
+    output_path = Path(args.output) if args.output else Path.cwd() / (
+        f"taxonomy_v2_gpt54_apply_stage_{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.jsonl"
+    )
+
+    rows_by_public_id: dict[str, dict[str, object]] = {}
+    order: list[str] = []
+    for raw_path in args.input:
+        path = Path(raw_path)
+        if not path.exists():
+            print(f"Warning: input file not found: {path}")
+            continue
+        with path.open(encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                public_id = str(row.get("public_id") or "").strip()
+                if not public_id:
+                    continue
+                if public_id not in rows_by_public_id:
+                    order.append(public_id)
+                rows_by_public_id[public_id] = row
+
+    selected_public_ids = [public_id for public_id in order if public_id in rows_by_public_id]
+    if args.game:
+        requested = {str(value).strip() for value in args.game if str(value).strip()}
+        selected_public_ids = [public_id for public_id in selected_public_ids if public_id in requested]
+
+    if not selected_public_ids:
+        print("No staged rows selected for taxonomy-v2-gpt54-apply-stage.")
+        return 1
+
+    stage_rows = [rows_by_public_id[public_id] for public_id in selected_public_ids]
+    anchor_public_ids = selected_public_ids
+    candidate_public_ids = sorted(
+        {
+            str(item.get("candidate_public_id"))
+            for row in stage_rows
+            for item in (row.get("staged_neighbors") or [])
+            if isinstance(item, dict) and item.get("candidate_public_id")
+        }
+    )
+
+    async with async_session_maker() as db:
+        anchor_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(anchor_public_ids)))
+        ).scalars().all()
+        candidate_games = (
+            await db.execute(select(Game).where(Game.public_id.in_(candidate_public_ids)))
+        ).scalars().all() if candidate_public_ids else []
+
+        anchor_games_by_public_id = {str(game.public_id): game for game in anchor_games}
+        candidate_games_by_public_id = {str(game.public_id): game for game in candidate_games}
+
+        results: list[dict[str, object]] = []
+        for public_id in selected_public_ids:
+            stage_row = rows_by_public_id[public_id]
+            game = anchor_games_by_public_id.get(public_id)
+            staged_neighbors = list(stage_row.get("staged_neighbors") or [])
+            missing_candidates = [
+                str(item.get("candidate_public_id"))
+                for item in staged_neighbors
+                if isinstance(item, dict)
+                and item.get("candidate_public_id")
+                and str(item.get("candidate_public_id")) not in candidate_games_by_public_id
+            ]
+            result_row: dict[str, object] = {
+                "public_id": public_id,
+                "title": stage_row.get("title"),
+                "stage_status": stage_row.get("stage_status"),
+                "commit": bool(args.commit),
+                "selected": True,
+                "anchor_found": game is not None,
+                "proposed_primary_archetype": (
+                    (stage_row.get("proposed_taxonomy") or {}).get("primary_archetype")
+                ),
+                "staged_neighbor_count": len(staged_neighbors),
+                "missing_candidate_public_ids": missing_candidates,
+                "review_flags": list(stage_row.get("review_flags") or []),
+            }
+            if game is None:
+                result_row["status"] = "missing_anchor"
+                results.append(result_row)
+                continue
+
+            filter_metadata = dict(stage_row.get("filter_metadata") or {})
+            overall_verdict = str(filter_metadata.get("overall_verdict") or "").strip()
+            if not args.allow_unfiltered:
+                if not filter_metadata:
+                    result_row["status"] = "unfiltered_stage"
+                    results.append(result_row)
+                    continue
+                if overall_verdict not in {"good", "excellent"}:
+                    result_row["status"] = "filtered_but_not_publishable"
+                    result_row["overall_verdict"] = overall_verdict or None
+                    results.append(result_row)
+                    continue
+
+            if args.commit:
+                apply_result = await apply_taxonomy_v2_gpt54_stage_row(
+                    db,
+                    game=game,
+                    stage_row=stage_row,
+                    candidate_games_by_public_id=candidate_games_by_public_id,
+                )
+                result_row["status"] = "applied"
+                result_row.update(apply_result)
+            else:
+                result_row["status"] = "dry_run"
+                result_row["taxonomy_applied"] = bool(
+                    (stage_row.get("proposed_taxonomy") or {}).get("primary_archetype")
+                )
+                result_row["neighbors_applied"] = len(
+                    [
+                        item
+                        for item in staged_neighbors
+                        if isinstance(item, dict)
+                        and str(item.get("candidate_public_id") or "") in candidate_games_by_public_id
+                    ]
+                )
+            results.append(result_row)
+
+        if args.commit:
+            await db.commit()
+
+    append_jsonl_rows(output_path, results)
+
+    status_counts: dict[str, int] = {}
+    for row in results:
+        status = str(row.get("status") or "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    status_summary = ", ".join(
+        f"{status}={count}"
+        for status, count in sorted(status_counts.items(), key=lambda item: (-item[1], item[0]))
+    ) or "none"
+
+    print(f"Results written to: {output_path}")
+    print(
+        "taxonomy-v2-gpt54-apply-stage complete: "
+        f"{len(results)} rows processed"
+    )
+    print(f"Apply status summary: {status_summary}")
     return 0
 
 
@@ -2485,17 +5206,14 @@ async def cmd_taxonomy_v2_confusion_audit(args):
 
 
 async def cmd_taxonomy_v2_gold_set_audit(args):
-    """Evaluate live similar-games output against the taxonomy V2 gold set."""
-    import json
-    from pathlib import Path
-
+    """Evaluate live similar-games output against the canonical GPT gold corpus."""
     from sqlalchemy import select
 
     from app.models.models import Game
     from app.routers.games import get_game_similar
+    from app.services.game_similarity_v3 import load_similarity_v3_gold_set
 
-    gold_set_path = Path(__file__).resolve().parent / "data" / "taxonomy_v2_gold_set.json"
-    payload = json.loads(gold_set_path.read_text())
+    payload = load_similarity_v3_gold_set()
     anchors = list(payload.get("anchors", []))
     if args.limit_games:
         anchors = anchors[: args.limit_games]
@@ -2556,6 +5274,7 @@ async def cmd_similarity_v3_corpus(args):
     game_ids = await _load_similarity_v3_target_game_ids(
         dirty_only=args.dirty_only,
         game_identifier=args.game,
+        game_identifiers=_load_game_identifiers_from_input(args.input) if getattr(args, "input", None) else None,
         limit=args.limit,
     )
     if not game_ids:
@@ -2604,12 +5323,24 @@ async def cmd_similarity_v3_neighbors(args):
     )
 
     async with async_session_maker() as db:
-        games = await load_similarity_v3_target_games(
-            db,
-            dirty_only=args.dirty_only,
-            game_identifier=args.game,
-            limit=args.limit_games,
-        )
+        requested_identifiers = _load_game_identifiers_from_input(args.input) if getattr(args, "input", None) else None
+        if requested_identifiers:
+            games, missing_identifiers = await _resolve_target_games_from_identifiers(
+                db,
+                Game,
+                requested_identifiers,
+            )
+            if missing_identifiers:
+                print(f"Warning: requested games not found: {', '.join(missing_identifiers)}")
+            if args.limit_games:
+                games = games[: max(1, int(args.limit_games))]
+        else:
+            games = await load_similarity_v3_target_games(
+                db,
+                dirty_only=args.dirty_only,
+                game_identifier=args.game,
+                limit=args.limit_games,
+            )
         if not games:
             print("No games found for similarity V3 neighbor preview.")
             return 1
@@ -2645,6 +5376,7 @@ async def cmd_similarity_v3_publish(args):
     game_ids = await _load_similarity_v3_target_game_ids(
         dirty_only=args.dirty_only,
         game_identifier=args.game,
+        game_identifiers=_load_game_identifiers_from_input(args.input) if getattr(args, "input", None) else None,
         limit=args.limit_games,
     )
     if not game_ids:
@@ -3831,7 +6563,511 @@ def main():
         help="Compute and store Similar Games Taxonomy V2 fingerprints",
     )
     taxonomy_v2_backfill_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    taxonomy_v2_backfill_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to process in order",
+    )
     taxonomy_v2_backfill_parser.add_argument("--limit", type=int, help="Limit number of games processed")
+
+    taxonomy_v2_gpt54_enrich_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-enrich",
+        help="Run one-off GPT-5.4 taxonomy enrichment for hidden titles",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--game",
+        action="append",
+        help="Specific game public_id, numeric ID, or title to include; repeatable",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument("--limit", type=int, help="Limit number of hidden titles processed")
+    taxonomy_v2_gpt54_enrich_parser.add_argument("--offset", type=int, default=0, help="Offset into hidden-title backlog")
+    taxonomy_v2_gpt54_enrich_parser.add_argument("--batch-size", type=int, default=50, help="Titles per DB/network batch")
+    taxonomy_v2_gpt54_enrich_parser.add_argument("--concurrency", type=int, default=20, help="Concurrent GPT-5.4 requests")
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--recent-first",
+        action="store_true",
+        help="Fill backlog titles by most recent release date instead of evidence-rich priority",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--use-web",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Allow targeted web lookup for weak-signal or conflicting titles",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.85,
+        help="Minimum GPT-5.4 confidence required to persist a taxonomy result",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--commit",
+        action="store_true",
+        help="Persist accepted taxonomy results and republish similarity V3 for accepted titles",
+    )
+    taxonomy_v2_gpt54_enrich_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for per-title enrichment results",
+    )
+
+    taxonomy_v2_gpt54_similar_preview_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-similar-preview",
+        help="Ask GPT-5.4 directly for similar-game examples",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--game",
+        action="append",
+        help="Specific game public_id, numeric ID, or title to preview; repeatable",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to preview in order",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Total number of games to preview; fills with DB-selected games after any pinned --game values",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Offset into the DB-selected fill set",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--recent-first",
+        action="store_true",
+        help="Fill additional games by most recent release date instead of evidence-rich priority",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--hidden-only",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Restrict DB-selected fill games to the hidden legacy backlog",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=5,
+        help="Concurrent GPT-5.4 preview workers",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--preview-limit",
+        type=int,
+        default=5,
+        help="How many similar game examples GPT-5.4 should return",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--use-web",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Allow GPT-5.4 to gather targeted external evidence before choosing similar games",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.85,
+        help="Minimum GPT-5.4 confidence required for the taxonomy side of the review",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--preview-only",
+        action="store_true",
+        help="Skip the taxonomy enrichment call and only ask GPT-5.4 for similar-game examples",
+    )
+    taxonomy_v2_gpt54_similar_preview_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for per-title similar-game previews",
+    )
+
+    taxonomy_v2_gpt54_evaluate_stage_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-evaluate-stage",
+        help="Ask GPT-5.4 to score and rank staged similar-game candidates",
+    )
+    taxonomy_v2_gpt54_evaluate_stage_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input staged JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_evaluate_stage_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_evaluate_stage_parser.add_argument(
+        "--use-web",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow GPT-5.4 to gather targeted anchor evidence before evaluating staged similar candidates",
+    )
+    taxonomy_v2_gpt54_evaluate_stage_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for per-title evaluation results",
+    )
+    taxonomy_v2_gpt54_evaluate_stage_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a human-readable ranked summary",
+    )
+
+    taxonomy_v2_gpt54_repair_stage_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-repair-stage",
+        help="Repair weak staged similar-game candidates with GPT-5.4",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--stage-input",
+        action="append",
+        required=True,
+        help="Input staged JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--evaluation-input",
+        action="append",
+        required=True,
+        help="Input strength-review JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--target-neighbor-count",
+        type=int,
+        default=5,
+        help="Target number of neighbors to keep or refill per title",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--use-web",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Allow GPT-5.4 to gather targeted anchor evidence before proposing replacements",
+    )
+    taxonomy_v2_gpt54_repair_stage_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for repaired staged rows",
+    )
+
+    taxonomy_v2_gpt54_filter_stage_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-filter-stage",
+        help="Filter staged rows to only publish good/excellent non-weak matches",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--stage-input",
+        action="append",
+        required=True,
+        help="Input staged JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--evaluation-input",
+        action="append",
+        required=True,
+        help="Input strength-review JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--allowed-overall-verdict",
+        action="append",
+        help="Allowed overall verdict; repeatable, defaults to excellent+good",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--allowed-strength",
+        action="append",
+        help="Allowed candidate strength label; repeatable, defaults to must_keep+strong+good",
+    )
+    taxonomy_v2_gpt54_filter_stage_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for filtered staged rows",
+    )
+
+    taxonomy_v2_gpt54_build_alignment_corpus_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-build-alignment-corpus",
+        help="Build training rows and mismatch report from GPT-vs-live artifacts",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--review-input",
+        action="append",
+        required=True,
+        help="Input GPT review JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--stage-input",
+        action="append",
+        required=True,
+        help="Input staged JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--evaluation-input",
+        action="append",
+        help="Optional evaluation JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for alignment rows",
+    )
+    taxonomy_v2_gpt54_build_alignment_corpus_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a human-readable mismatch summary",
+    )
+
+    taxonomy_v2_gpt54_build_native_fix_backlog_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-build-native-fix-backlog",
+        help="Build grouped native-system fix backlog rows from alignment artifacts",
+    )
+    taxonomy_v2_gpt54_build_native_fix_backlog_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input alignment JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_native_fix_backlog_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_build_native_fix_backlog_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for native fix backlog rows",
+    )
+    taxonomy_v2_gpt54_build_native_fix_backlog_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a grouped native-fix backlog summary",
+    )
+
+    taxonomy_v2_gpt54_build_gold_corpus_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-build-gold-corpus",
+        help="Freeze a versioned gold corpus from GPT-vs-live compare rows",
+    )
+    taxonomy_v2_gpt54_build_gold_corpus_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input compare JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_gold_corpus_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_build_gold_corpus_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for gold corpus rows",
+    )
+    taxonomy_v2_gpt54_build_gold_corpus_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a gold-corpus summary",
+    )
+
+    taxonomy_v2_gpt54_split_gold_corpus_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-split-gold-corpus",
+        help="Deterministically split a frozen gold corpus into repair and validation sets",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input gold corpus JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--validation-count",
+        type=int,
+        default=50,
+        help="Number of rows to place in the validation holdout",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for split-tagged gold corpus rows",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--repair-output",
+        type=str,
+        help="Optional JSONL path for repair-only rows",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--validation-output",
+        type=str,
+        help="Optional JSONL path for validation-only rows",
+    )
+    taxonomy_v2_gpt54_split_gold_corpus_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a split summary",
+    )
+
+    taxonomy_v2_gpt54_audit_gold_corpus_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-audit-gold-corpus",
+        help="Audit current native output against the frozen gold corpus",
+    )
+    taxonomy_v2_gpt54_audit_gold_corpus_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input gold corpus JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_audit_gold_corpus_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_audit_gold_corpus_parser.add_argument(
+        "--split",
+        choices=["all", "repair", "validation"],
+        default="all",
+        help="Optional split filter when auditing a split-tagged gold corpus",
+    )
+    taxonomy_v2_gpt54_audit_gold_corpus_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for audit rows",
+    )
+    taxonomy_v2_gpt54_audit_gold_corpus_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a gold-audit summary",
+    )
+
+    taxonomy_v2_gpt54_build_gold_fix_backlog_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-build-gold-fix-backlog",
+        help="Build prioritized native fix backlog rows from gold-audit artifacts",
+    )
+    taxonomy_v2_gpt54_build_gold_fix_backlog_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input gold-audit JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_gold_fix_backlog_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_build_gold_fix_backlog_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for gold fix backlog rows",
+    )
+    taxonomy_v2_gpt54_build_gold_fix_backlog_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a grouped gold-fix backlog summary",
+    )
+
+    taxonomy_v2_gpt54_drift_report_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-drift-report",
+        help="Build prioritized current drift report from gold-audit artifacts",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input gold-audit JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--min-overlap",
+        type=int,
+        default=2,
+        help="Minimum live/gold overlap before a live row is treated as low-overlap",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--only-actionable",
+        action="store_true",
+        help="Write only rows that still require action",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for drift report rows",
+    )
+    taxonomy_v2_gpt54_drift_report_parser.add_argument(
+        "--markdown-output",
+        type=str,
+        help="Optional Markdown path for a grouped drift report summary",
+    )
+
+    taxonomy_v2_gpt54_build_stage_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-build-stage",
+        help="Build a staged review artifact from GPT-5.4 review JSONL files",
+    )
+    taxonomy_v2_gpt54_build_stage_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input review JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_build_stage_parser.add_argument(
+        "--neighbor-limit",
+        type=int,
+        default=5,
+        help="Maximum number of resolved similar-game candidates to carry into the staged set",
+    )
+    taxonomy_v2_gpt54_build_stage_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for staged review rows",
+    )
+
+    taxonomy_v2_gpt54_apply_stage_parser = subparsers.add_parser(
+        "taxonomy-v2-gpt54-apply-stage",
+        help="Apply staged GPT-5.4 taxonomy and curated similar-game rows",
+    )
+    taxonomy_v2_gpt54_apply_stage_parser.add_argument(
+        "--input",
+        action="append",
+        required=True,
+        help="Input staged JSONL file; repeatable, later files override earlier rows by public_id",
+    )
+    taxonomy_v2_gpt54_apply_stage_parser.add_argument(
+        "--game",
+        action="append",
+        help="Optional public_id filter; repeatable",
+    )
+    taxonomy_v2_gpt54_apply_stage_parser.add_argument(
+        "--commit",
+        action="store_true",
+        help="Persist taxonomy and curated similar-game rows",
+    )
+    taxonomy_v2_gpt54_apply_stage_parser.add_argument(
+        "--output",
+        type=str,
+        help="Optional JSONL path for per-row apply results",
+    )
+    taxonomy_v2_gpt54_apply_stage_parser.add_argument(
+        "--allow-unfiltered",
+        action="store_true",
+        help="Override the safety gate and allow applying a stage file that has not been filtered by GPT-5.4 strength review",
+    )
 
     taxonomy_v2_debug_parser = subparsers.add_parser(
         "taxonomy-v2-debug",
@@ -3944,7 +7180,7 @@ def main():
 
     taxonomy_v2_gold_set_audit_parser = subparsers.add_parser(
         "taxonomy-v2-gold-set-audit",
-        help="Audit live Similar Games Taxonomy V2 output against the curated gold set",
+        help="Audit live Similar Games output against the canonical 200-game GPT corpus",
     )
     taxonomy_v2_gold_set_audit_parser.add_argument("--limit", type=int, default=5, help="Max neighbors per anchor")
     taxonomy_v2_gold_set_audit_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
@@ -3954,6 +7190,11 @@ def main():
         help="Build Similar Games V3 corpus rows and embeddings",
     )
     similarity_v3_corpus_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_corpus_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to process in order",
+    )
     similarity_v3_corpus_parser.add_argument("--limit", type=int, help="Limit number of games processed")
     similarity_v3_corpus_parser.add_argument(
         "--dirty-only",
@@ -3966,6 +7207,11 @@ def main():
         help="Refresh Similar Games V3 embeddings for target games",
     )
     similarity_v3_embed_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_embed_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to process in order",
+    )
     similarity_v3_embed_parser.add_argument("--limit", type=int, help="Limit number of games processed")
     similarity_v3_embed_parser.add_argument(
         "--dirty-only",
@@ -3978,6 +7224,11 @@ def main():
         help="Preview Similar Games V3 ranked neighbors",
     )
     similarity_v3_neighbors_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_neighbors_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to preview in order",
+    )
     similarity_v3_neighbors_parser.add_argument("--limit", type=int, default=5, help="Max neighbors to print")
     similarity_v3_neighbors_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
     similarity_v3_neighbors_parser.add_argument(
@@ -3991,6 +7242,11 @@ def main():
         help="Publish Similar Games V3 neighbors for serving",
     )
     similarity_v3_publish_parser.add_argument("--game", type=str, help="Specific game public_id or numeric ID")
+    similarity_v3_publish_parser.add_argument(
+        "--input",
+        type=str,
+        help="Optional text/JSON/JSONL file of game identifiers to process in order",
+    )
     similarity_v3_publish_parser.add_argument("--limit", type=int, default=10, help="Max neighbors to publish")
     similarity_v3_publish_parser.add_argument("--limit-games", type=int, help="Limit number of anchors evaluated")
     similarity_v3_publish_parser.add_argument(
@@ -4001,7 +7257,7 @@ def main():
 
     similarity_v3_gold_audit_parser = subparsers.add_parser(
         "similarity-v3-gold-audit",
-        help="Audit Similar Games V3 against the gold set",
+        help="Audit Similar Games V3 against the canonical 200-game GPT corpus",
     )
     similarity_v3_gold_audit_parser.add_argument("--limit", type=int, default=5, help="Max neighbors per anchor")
 
@@ -4122,6 +7378,34 @@ def main():
         return asyncio.run(cmd_similar_debug(args))
     elif args.command == "taxonomy-v2-backfill":
         return asyncio.run(cmd_taxonomy_v2_backfill(args))
+    elif args.command == "taxonomy-v2-gpt54-enrich":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_enrich(args))
+    elif args.command == "taxonomy-v2-gpt54-similar-preview":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_similar_preview(args))
+    elif args.command == "taxonomy-v2-gpt54-evaluate-stage":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_evaluate_stage(args))
+    elif args.command == "taxonomy-v2-gpt54-repair-stage":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_repair_stage(args))
+    elif args.command == "taxonomy-v2-gpt54-filter-stage":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_filter_stage(args))
+    elif args.command == "taxonomy-v2-gpt54-build-alignment-corpus":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_build_alignment_corpus(args))
+    elif args.command == "taxonomy-v2-gpt54-build-native-fix-backlog":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_build_native_fix_backlog(args))
+    elif args.command == "taxonomy-v2-gpt54-build-gold-corpus":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_build_gold_corpus(args))
+    elif args.command == "taxonomy-v2-gpt54-split-gold-corpus":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_split_gold_corpus(args))
+    elif args.command == "taxonomy-v2-gpt54-audit-gold-corpus":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_audit_gold_corpus(args))
+    elif args.command == "taxonomy-v2-gpt54-build-gold-fix-backlog":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_build_gold_fix_backlog(args))
+    elif args.command == "taxonomy-v2-gpt54-drift-report":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_drift_report(args))
+    elif args.command == "taxonomy-v2-gpt54-build-stage":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_build_stage(args))
+    elif args.command == "taxonomy-v2-gpt54-apply-stage":
+        return asyncio.run(cmd_taxonomy_v2_gpt54_apply_stage(args))
     elif args.command == "taxonomy-v2-debug":
         return asyncio.run(cmd_taxonomy_v2_debug(args))
     elif args.command == "taxonomy-v2-label-audit":
