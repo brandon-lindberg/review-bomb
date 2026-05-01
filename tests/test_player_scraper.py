@@ -61,10 +61,10 @@ def test_build_scraper_activity_normalizes_payload_and_summary_updates():
     assert activity is not None
     assert activity.points == [
         SteamPlayerPoint(
-            sampled_at=_utc(2026, 3, 18, 10).replace(minute=59),
-            observed_24h_high=5000,
-            observed_24h_low=2200,
-            latest_players=5000,
+            sampled_at=_utc(2026, 3, 19, 10).replace(minute=59),
+            observed_24h_high=7000,
+            observed_24h_low=3200,
+            latest_players=7000,
         ),
         SteamPlayerPoint(
             sampled_at=_utc(2026, 3, 20, 10).replace(minute=59),
@@ -74,12 +74,6 @@ def test_build_scraper_activity_normalizes_payload_and_summary_updates():
         ),
     ]
     assert activity.storage_points == [
-        SteamPlayerPoint(
-            sampled_at=_utc(2026, 3, 18, 10).replace(minute=59),
-            observed_24h_high=5000,
-            observed_24h_low=2200,
-            latest_players=5000,
-        ),
         SteamPlayerPoint(
             sampled_at=_utc(2026, 3, 19, 10).replace(minute=59),
             observed_24h_high=7000,
@@ -95,8 +89,8 @@ def test_build_scraper_activity_normalizes_payload_and_summary_updates():
     ]
     assert activity.marker_source_points == [
         {
-            "sampled_at": _utc(2026, 3, 18, 10).replace(minute=59),
-            "concurrent_players": 5000,
+            "sampled_at": _utc(2026, 3, 19, 10).replace(minute=59),
+            "concurrent_players": 7000,
         },
         {
             "sampled_at": _utc(2026, 3, 20, 10).replace(minute=59),
@@ -108,6 +102,58 @@ def test_build_scraper_activity_normalizes_payload_and_summary_updates():
         "steam_player_24h_low_observed": 2222,
         "steam_player_stats_synced_at": _utc(2026, 3, 19, 12),
     }
+
+
+def test_build_scraper_activity_drops_points_before_tracking_start():
+    payload = {
+        "app": {
+            "latest_24h_high": 9000,
+            "latest_24h_low": 3000,
+            "last_success_at": "2026-03-20T12:00:00Z",
+        },
+        "points": [
+            {
+                "window_ending_at": "2025-12-19T10:00:00Z",
+                "observed_24h_high": 450000,
+                "observed_24h_low": 300000,
+                "latest_players": 320000,
+            },
+            {
+                "window_ending_at": "2026-03-18T23:59:59Z",
+                "observed_24h_high": 12000,
+                "observed_24h_low": 4000,
+                "latest_players": 5000,
+            },
+            {
+                "window_ending_at": "2026-03-19T00:00:00Z",
+                "observed_24h_high": 7000,
+                "observed_24h_low": 3000,
+                "latest_players": 4500,
+            },
+            {
+                "window_ending_at": "2026-03-20T10:00:00Z",
+                "observed_24h_high": 9000,
+                "observed_24h_low": 3500,
+                "latest_players": 6000,
+            },
+        ],
+    }
+
+    activity = build_scraper_activity(payload, limit=100)
+
+    assert activity is not None
+    assert [point.sampled_at for point in activity.storage_points] == [
+        _utc(2026, 3, 19),
+        _utc(2026, 3, 20, 10),
+    ]
+    assert [point.sampled_at for point in activity.points] == [
+        _utc(2026, 3, 19),
+        _utc(2026, 3, 20, 10),
+    ]
+    assert [point["sampled_at"] for point in activity.marker_source_points] == [
+        _utc(2026, 3, 19),
+        _utc(2026, 3, 20, 10),
+    ]
 
 
 class _FakeScalarResult:

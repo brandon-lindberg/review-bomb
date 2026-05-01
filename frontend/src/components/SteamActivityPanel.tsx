@@ -281,6 +281,22 @@ export function SteamActivityPanel({ activity, onRequestMax, maxLoading }: Steam
     [timelinePoints]
   );
 
+  const coverageStartTimestamp = useMemo(() => {
+    if (activity.metadata.coverage_start) {
+      const parsed = new Date(activity.metadata.coverage_start).getTime();
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    return earliestTimestamp;
+  }, [activity.metadata.coverage_start, earliestTimestamp]);
+
+  const coverageEndTimestamp = useMemo(() => {
+    if (activity.metadata.coverage_end) {
+      const parsed = new Date(activity.metadata.coverage_end).getTime();
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    return latestTimestamp;
+  }, [activity.metadata.coverage_end, latestTimestamp]);
+
   const latestTimelinePoint = useMemo(
     () => (timelinePoints.length > 0 ? timelinePoints[timelinePoints.length - 1] : null),
     [timelinePoints]
@@ -290,10 +306,10 @@ export function SteamActivityPanel({ activity, onRequestMax, maxLoading }: Steam
     () => Object.fromEntries(
       STEAM_ACTIVITY_WINDOW_OPTIONS.map((option) => [
         option.value,
-        isSteamActivityWindowAvailable(earliestTimestamp, latestTimestamp, option.value),
+        isSteamActivityWindowAvailable(coverageStartTimestamp, coverageEndTimestamp, option.value),
       ])
     ) as Record<SteamActivityWindow, boolean>,
-    [earliestTimestamp, latestTimestamp]
+    [coverageEndTimestamp, coverageStartTimestamp]
   );
 
   const enabledWindows = useMemo(
@@ -310,8 +326,8 @@ export function SteamActivityPanel({ activity, onRequestMax, maxLoading }: Steam
   );
 
   const selectedWindowStart = useMemo(
-    () => (latestTimestamp != null ? getSteamActivityWindowStart(latestTimestamp, effectiveSelectedWindow) : null),
-    [effectiveSelectedWindow, latestTimestamp]
+    () => (coverageEndTimestamp != null ? getSteamActivityWindowStart(coverageEndTimestamp, effectiveSelectedWindow) : null),
+    [coverageEndTimestamp, effectiveSelectedWindow]
   );
 
   const visibleTimelinePoints = useMemo(() => {
@@ -333,9 +349,15 @@ export function SteamActivityPanel({ activity, onRequestMax, maxLoading }: Steam
     [effectiveSelectedWindow]
   );
 
-  const visibleStartTimestamp = visibleTimelinePoints.length > 0 ? visibleTimelinePoints[0].sampledAt : earliestTimestamp;
+  const visibleStartTimestamp = effectiveSelectedWindow === "max"
+    ? coverageStartTimestamp
+    : visibleTimelinePoints.length > 0
+      ? visibleTimelinePoints[0].sampledAt
+      : earliestTimestamp;
   const visibleEndTimestamp = visibleTimelinePoints.length > 0
-    ? visibleTimelinePoints[visibleTimelinePoints.length - 1].sampledAt
+    ? effectiveSelectedWindow === "max"
+      ? coverageEndTimestamp
+      : visibleTimelinePoints[visibleTimelinePoints.length - 1].sampledAt
     : latestTimestamp;
 
   const renderTooltip = ({

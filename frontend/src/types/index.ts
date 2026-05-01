@@ -308,10 +308,19 @@ export interface SteamPlayerMarker {
   detail: string | null;
 }
 
+export interface SteamActivityMetadata {
+  coverage_start: string | null;
+  coverage_end: string | null;
+  raw_point_count: number;
+  bucket_seconds: number | null;
+  is_aggregated: boolean;
+}
+
 export interface SteamActivityResponse {
   summary: GameWithScores;
   points: SteamPlayerPoint[];
   markers: SteamPlayerMarker[];
+  metadata: SteamActivityMetadata;
 }
 
 // Compare Types

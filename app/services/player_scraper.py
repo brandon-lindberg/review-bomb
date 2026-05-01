@@ -17,6 +17,7 @@ from app.schemas.schemas import SteamPlayerPoint
 logger = logging.getLogger(__name__)
 
 DEFAULT_HISTORY_WINDOW = "1y"
+STEAM_ACTIVITY_TRACKING_START_AT = datetime(2026, 3, 19, tzinfo=timezone.utc)
 
 
 @dataclass(slots=True)
@@ -78,6 +79,8 @@ def build_scraper_activity(payload: dict[str, Any], *, limit: int) -> ScraperSte
         observed_24h_low = _coerce_int(raw_point.get("observed_24h_low"))
         latest_players = _coerce_int(raw_point.get("latest_players"))
         if sampled_at is None or observed_24h_high is None or observed_24h_low is None:
+            continue
+        if sampled_at < STEAM_ACTIVITY_TRACKING_START_AT:
             continue
         parsed_points.append(
             SteamPlayerPoint(

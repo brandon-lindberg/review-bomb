@@ -690,7 +690,7 @@ async def test_get_game_detail_returns_stored_denormalized_disparities():
 
 @pytest.mark.asyncio
 async def test_get_game_steam_activity_returns_points_and_curated_markers():
-    now = _utc(2026, 3, 16)
+    now = _utc(2026, 3, 20)
     game = Game(
         id=11,
         title="Marathon",
@@ -707,13 +707,13 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
     snapshots = [
         SteamPlayerRangeSnapshot(
             game_id=11,
-            sampled_at=datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc),
+            sampled_at=datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc),
             players_24h_high=57000,
             players_24h_low=21000,
         ),
         SteamPlayerRangeSnapshot(
             game_id=11,
-            sampled_at=datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc),
+            sampled_at=datetime(2026, 3, 19, 0, 0, tzinfo=timezone.utc),
             players_24h_high=55000,
             players_24h_low=20000,
         ),
@@ -722,11 +722,16 @@ async def test_get_game_steam_activity_returns_points_and_curated_markers():
     db = FakeAsyncSession(
         results=[
             FakeResult(scalar_one_or_none=game),
+            FakeResult(one=(
+                datetime(2026, 3, 19, 0, 0, tzinfo=timezone.utc),
+                datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc),
+                2,
+            )),
             FakeResult(scalars_all=snapshots),
             FakeResult(
                 all_rows=[
-                    (datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc), 53000),
-                    (datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc), 54000),
+                    (datetime(2026, 3, 19, 0, 0, tzinfo=timezone.utc), 53000),
+                    (datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc), 54000),
                 ]
             ),
         ]
@@ -2010,9 +2015,9 @@ async def test_get_game_similar_soulslike_selector_ignores_secondary_only_when_e
 async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    now = _utc(2026, 3, 16)
-    first_sample = datetime(2026, 3, 10, 0, 0, tzinfo=timezone.utc)
-    last_sample = datetime(2026, 3, 11, 0, 0, tzinfo=timezone.utc)
+    now = _utc(2026, 3, 20)
+    first_sample = datetime(2026, 3, 19, 0, 0, tzinfo=timezone.utc)
+    last_sample = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
     game = Game(
         id=21,
         title="Marathon",
@@ -2097,6 +2102,7 @@ async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
     db = FakeAsyncSession(
         results=[
             FakeResult(scalar_one_or_none=game),
+            FakeResult(one=(first_sample, last_sample, 2)),
             FakeResult(scalars_all=snapshots),
             FakeResult(
                 all_rows=[
@@ -2151,8 +2157,13 @@ async def test_get_game_steam_activity_ignores_legacy_pre_release_range_points_w
     db = FakeAsyncSession(
         results=[
             FakeResult(scalar_one_or_none=game),
+            FakeResult(one=(
+                datetime(2026, 2, 4, 0, 0, tzinfo=timezone.utc),
+                datetime(2026, 3, 3, 0, 0, tzinfo=timezone.utc),
+                2,
+            )),
             FakeResult(scalars_all=legacy_range_snapshots),
-            FakeResult(all_rows=[]),
+            FakeResult(one=(None, None, 0)),
             FakeResult(scalars_all=[]),
         ]
     )

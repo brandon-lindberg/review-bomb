@@ -24,6 +24,7 @@ import { withTrendSnapshot } from "@/lib/share-url";
 
 type ReviewData = ReviewWithDisparity | ReviewWithJournalist;
 const EMPTY_SIMILAR_GAMES: SimilarGame[] = [];
+const STEAM_ACTIVITY_PANEL_POINT_BUDGET = 700;
 
 function ChartModuleFallback() {
   return (
@@ -319,8 +320,11 @@ export function LazyChartSection({
     setSteamActivityLoading(true);
     setSteamActivityError(false);
 
-    getGameSteamActivity(entityId, 1000)
-      .then((data) => setSteamActivity(data))
+    getGameSteamActivity(entityId, STEAM_ACTIVITY_PANEL_POINT_BUDGET, "max")
+      .then((data) => {
+        steamMaxFetchedRef.current = true;
+        setSteamActivity(data);
+      })
       .catch(() => {
         steamActivityFetchedRef.current = false;
         setSteamActivityError(true);
@@ -634,7 +638,7 @@ export function LazyChartSection({
                       if (steamMaxFetchedRef.current || steamMaxLoading) return;
                       steamMaxFetchedRef.current = true;
                       setSteamMaxLoading(true);
-                      getGameSteamActivity(entityId, 1000, "max")
+                      getGameSteamActivity(entityId, STEAM_ACTIVITY_PANEL_POINT_BUDGET, "max")
                         .then((data) => setSteamActivity(data))
                         .catch(() => {
                           steamMaxFetchedRef.current = false;

@@ -281,11 +281,21 @@ class SteamPlayerMarker(BaseModel):
     detail: Optional[str] = None
 
 
+class SteamActivityMetadata(BaseModel):
+    """Coverage and aggregation details for the returned Steam activity series."""
+    coverage_start: Optional[datetime] = None
+    coverage_end: Optional[datetime] = None
+    raw_point_count: int = 0
+    bucket_seconds: Optional[int] = None
+    is_aggregated: bool = False
+
+
 class SteamActivityResponse(BaseModel):
     """Steam activity payload for charts and timelines."""
     summary: GameWithScores
     points: list[SteamPlayerPoint] = []
     markers: list[SteamPlayerMarker] = []
+    metadata: SteamActivityMetadata = Field(default_factory=SteamActivityMetadata)
 
 
 # =============================================================================

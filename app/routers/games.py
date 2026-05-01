@@ -1,8 +1,9 @@
 """Games API endpoints."""
 
 import json
+import math
 from typing import Literal, Optional
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -30,6 +31,7 @@ from app.schemas.schemas import (
     GameWithScores,
     DisparitySnapshot as DisparitySnapshotSchema,
     SteamActivityResponse,
+    SteamActivityMetadata,
     SteamPlayerPoint,
     SteamPlayerMarker,
     ReviewWithJournalist,
@@ -69,6 +71,9 @@ MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
 MIN_CRITIC_REVIEWS_FOR_GAMES_LIST = 5
 STEAM_ACTIVITY_PREVIEW_POINTS = 12
+STEAM_ACTIVITY_DEFAULT_MAX_POINTS = 700
+STEAM_ACTIVITY_MIN_BUCKET_SECONDS = 60 * 60
+STEAM_ACTIVITY_TRACKING_START_AT = datetime(2026, 3, 19, tzinfo=timezone.utc)
 
 
 def _steam_score_is_valid(game: Game) -> bool:
@@ -83,6 +88,81 @@ def _metacritic_score_is_valid(game: Game) -> bool:
             or game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS
         )
     )
+
+
+def _get_steam_activity_window_start(coverage_end: datetime, window: str) -> datetime | None:
+    if window == "24h":
+        return coverage_end - timedelta(hours=24)
+    if window == "48h":
+        return coverage_end - timedelta(hours=48)
+    if window == "1w":
+        return coverage_end - timedelta(days=7)
+    if window == "1m":
+        return coverage_end - timedelta(days=30)
+    if window == "3m":
+        return coverage_end - timedelta(days=90)
+    if window == "6m":
+        return coverage_end - timedelta(days=180)
+    if window == "1y":
+        return coverage_end - timedelta(days=365)
+    return None
+
+
+def _resolve_steam_activity_point_budget(limit: int | None, max_points: int | None) -> int:
+    if max_points is not None:
+        return max_points
+    if limit is not None:
+        return limit
+    return STEAM_ACTIVITY_DEFAULT_MAX_POINTS
+
+
+def _bucket_steam_activity_points(
+    points: list[SteamPlayerPoint],
+    max_points: int,
+) -> tuple[list[SteamPlayerPoint], int | None, bool]:
+    if max_points <= 0 or not points:
+        return [], None, False
+    if len(points) <= max_points:
+        return points, None, False
+
+    first_timestamp = points[0].sampled_at
+    last_timestamp = points[-1].sampled_at
+    span_seconds = max(1, int((last_timestamp - first_timestamp).total_seconds()))
+    bucket_seconds = max(
+        STEAM_ACTIVITY_MIN_BUCKET_SECONDS,
+        math.ceil(span_seconds / max_points),
+    )
+
+    buckets: dict[int, SteamPlayerPoint] = {}
+    for point in points:
+        bucket_index = int(point.sampled_at.timestamp()) // bucket_seconds
+        existing = buckets.get(bucket_index)
+        low_candidate = point.observed_24h_low
+        if low_candidate == 0 and point.observed_24h_high > 0:
+            low_candidate = existing.observed_24h_low if existing else 0
+
+        if existing is None:
+            buckets[bucket_index] = SteamPlayerPoint(
+                sampled_at=point.sampled_at,
+                observed_24h_high=point.observed_24h_high,
+                observed_24h_low=low_candidate,
+                latest_players=point.latest_players,
+            )
+            continue
+
+        existing.observed_24h_high = max(existing.observed_24h_high, point.observed_24h_high)
+        if low_candidate > 0 or existing.observed_24h_low == 0:
+            existing.observed_24h_low = (
+                min(existing.observed_24h_low, low_candidate)
+                if existing.observed_24h_low > 0 and low_candidate > 0
+                else low_candidate
+            )
+        if point.sampled_at >= existing.sampled_at:
+            existing.sampled_at = point.sampled_at
+            existing.latest_players = point.latest_players
+
+    bucketed_points = sorted(buckets.values(), key=lambda point: point.sampled_at)
+    return bucketed_points, bucket_seconds, True
 
 
 def _meaningful_game_signal_expression():
@@ -1099,13 +1179,22 @@ async def get_game_similar(
 @router.get("/{game_id}/steam-activity", response_model=SteamActivityResponse)
 async def get_game_steam_activity(
     game_id: str,
-    limit: int = Query(10000, ge=1, le=10000),
-    window: Literal["1y", "max"] = Query("1y"),
+    limit: Optional[int] = Query(None, ge=1, le=10000),
+    max_points: Optional[int] = Query(None, ge=24, le=5000),
+    window: Literal["24h", "48h", "1w", "1m", "3m", "6m", "1y", "max"] = Query("1y"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get Steam activity range history and derived milestone markers for a game."""
-    window_value = window if isinstance(window, str) and window in {"1y", "max"} else "1y"
-    cache_hash = cache_key("games:steam-activity:v9", game_id=game_id, limit=limit, window=window_value)
+    limit = limit if isinstance(limit, int) else None
+    max_points = max_points if isinstance(max_points, int) else None
+    window_value = window if isinstance(window, str) else "1y"
+    point_budget = _resolve_steam_activity_point_budget(limit, max_points)
+    cache_hash = cache_key(
+        "games:steam-activity:v12",
+        game_id=game_id,
+        max_points=point_budget,
+        window=window_value,
+    )
     cached = await get_cached(f"games:steam-activity:{cache_hash}")
     if cached:
         return SteamActivityResponse(**json.loads(cached))
@@ -1124,8 +1213,8 @@ async def get_game_steam_activity(
             async with player_scraper:
                 scraper_activity = await player_scraper.get_steam_activity(
                     game.steam_app_id,
-                    limit=limit,
-                    window=window_value,
+                    limit=point_budget,
+                    window="max" if window_value == "max" else "1y",
                 )
 
     if scraper_activity and scraper_activity.points:
@@ -1134,22 +1223,45 @@ async def get_game_steam_activity(
         # below can include them in the same request.
         await db.flush()
 
+    range_filters = [SteamPlayerRangeSnapshot.game_id == game.id]
+    snapshot_filters = [SteamPlayerSnapshot.game_id == game.id]
+    range_filters.append(SteamPlayerRangeSnapshot.sampled_at >= STEAM_ACTIVITY_TRACKING_START_AT)
+    snapshot_filters.append(SteamPlayerSnapshot.sampled_at >= STEAM_ACTIVITY_TRACKING_START_AT)
+    if game.release_date is not None:
+        range_filters.append(func.date(SteamPlayerRangeSnapshot.sampled_at) >= game.release_date)
+        snapshot_filters.append(func.date(SteamPlayerSnapshot.sampled_at) >= game.release_date)
+
+    range_coverage_result = await db.execute(
+        select(
+            func.min(SteamPlayerRangeSnapshot.sampled_at),
+            func.max(SteamPlayerRangeSnapshot.sampled_at),
+            func.count(SteamPlayerRangeSnapshot.id),
+        ).where(*range_filters)
+    )
+    coverage_start, coverage_end, raw_point_count = range_coverage_result.one()
+    raw_point_count = int(raw_point_count or 0)
+
+    series_range_filters = list(range_filters)
+    if coverage_end is not None:
+        window_start = _get_steam_activity_window_start(coverage_end, window_value)
+        if window_start is not None:
+            series_range_filters.append(SteamPlayerRangeSnapshot.sampled_at >= window_start)
+
     range_result = await db.execute(
         select(SteamPlayerRangeSnapshot)
-        .where(SteamPlayerRangeSnapshot.game_id == game.id)
-        .order_by(desc(SteamPlayerRangeSnapshot.sampled_at))
-        .limit(limit)
+        .where(*series_range_filters)
+        .order_by(asc(SteamPlayerRangeSnapshot.sampled_at))
     )
-    range_snapshots = list(reversed(range_result.scalars().all()))
+    range_snapshots = list(range_result.scalars().all())
+    range_snapshots = [
+        snapshot
+        for snapshot in range_snapshots
+        if snapshot.sampled_at >= STEAM_ACTIVITY_TRACKING_START_AT
+        and (game.release_date is None or snapshot.sampled_at.date() >= game.release_date)
+    ]
+    range_snapshots.sort(key=lambda snapshot: snapshot.sampled_at)
 
     if range_snapshots:
-        if game.release_date is not None:
-            range_snapshots = [
-                snapshot
-                for snapshot in range_snapshots
-                if snapshot.sampled_at.date() >= game.release_date
-            ]
-
         snapshot_result = await db.execute(
             select(
                 SteamPlayerSnapshot.sampled_at,
@@ -1165,73 +1277,45 @@ async def get_game_steam_activity(
         for sampled_at, concurrent_players in snapshot_result.all():
             latest_players_by_sampled_at[sampled_at] = concurrent_players
 
-        trusted_range_snapshots = [
-            snapshot
-            for snapshot in range_snapshots
-            if snapshot.sampled_at in latest_players_by_sampled_at
-        ]
-
-        if trusted_range_snapshots:
-            points = [
-                SteamPlayerPoint(
-                    sampled_at=snapshot.sampled_at,
-                    observed_24h_high=snapshot.players_24h_high,
-                    observed_24h_low=snapshot.players_24h_low,
-                    latest_players=latest_players_by_sampled_at.get(snapshot.sampled_at),
-                )
-                for snapshot in trusted_range_snapshots
-            ]
-            marker_source_points = [
-                {
-                    "sampled_at": snapshot.sampled_at,
-                    "concurrent_players": latest_players_by_sampled_at[snapshot.sampled_at],
-                }
-                for snapshot in trusted_range_snapshots
-            ]
-        else:
-            snapshots_result = await db.execute(
-                select(SteamPlayerSnapshot)
-                .where(SteamPlayerSnapshot.game_id == game.id)
-                .order_by(desc(SteamPlayerSnapshot.sampled_at))
-                .limit(limit)
+        points = [
+            SteamPlayerPoint(
+                sampled_at=snapshot.sampled_at,
+                observed_24h_high=snapshot.players_24h_high,
+                observed_24h_low=snapshot.players_24h_low,
+                latest_players=latest_players_by_sampled_at.get(snapshot.sampled_at),
             )
-            snapshots = list(reversed(snapshots_result.scalars().all()))
-            if game.release_date is not None:
-                snapshots = [
-                    snapshot
-                    for snapshot in snapshots
-                    if snapshot.sampled_at.date() >= game.release_date
-                ]
-            raw_points = [
-                {
-                    "sampled_at": snapshot.sampled_at,
-                    "concurrent_players": snapshot.concurrent_players,
-                }
-                for snapshot in snapshots
-            ]
-            observed_points = build_observed_24h_player_points(raw_points)
-            points = [SteamPlayerPoint(**point) for point in observed_points]
-            marker_source_points = [
-                {
-                    "sampled_at": point["sampled_at"],
-                    "concurrent_players": point.get("latest_players", point["observed_24h_high"]),
-                }
-                for point in observed_points
-            ]
+            for snapshot in range_snapshots
+        ]
     else:
+        snapshot_coverage_result = await db.execute(
+            select(
+                func.min(SteamPlayerSnapshot.sampled_at),
+                func.max(SteamPlayerSnapshot.sampled_at),
+                func.count(SteamPlayerSnapshot.id),
+            ).where(*snapshot_filters)
+        )
+        coverage_start, coverage_end, raw_point_count = snapshot_coverage_result.one()
+        raw_point_count = int(raw_point_count or 0)
+
+        series_snapshot_filters = list(snapshot_filters)
+        if coverage_end is not None:
+            window_start = _get_steam_activity_window_start(coverage_end, window_value)
+            if window_start is not None:
+                series_snapshot_filters.append(SteamPlayerSnapshot.sampled_at >= window_start)
+
         snapshots_result = await db.execute(
             select(SteamPlayerSnapshot)
-            .where(SteamPlayerSnapshot.game_id == game.id)
-            .order_by(desc(SteamPlayerSnapshot.sampled_at))
-            .limit(limit)
+            .where(*series_snapshot_filters)
+            .order_by(asc(SteamPlayerSnapshot.sampled_at))
         )
-        snapshots = list(reversed(snapshots_result.scalars().all()))
-        if game.release_date is not None:
-            snapshots = [
-                snapshot
-                for snapshot in snapshots
-                if snapshot.sampled_at.date() >= game.release_date
-            ]
+        snapshots = list(snapshots_result.scalars().all())
+        snapshots = [
+            snapshot
+            for snapshot in snapshots
+            if snapshot.sampled_at >= STEAM_ACTIVITY_TRACKING_START_AT
+            and (game.release_date is None or snapshot.sampled_at.date() >= game.release_date)
+        ]
+        snapshots.sort(key=lambda snapshot: snapshot.sampled_at)
         raw_points = [
             {
                 "sampled_at": snapshot.sampled_at,
@@ -1249,9 +1333,21 @@ async def get_game_steam_activity(
             for point in observed_points
         ]
 
+    summary_source_points = points
+    points, bucket_seconds, is_aggregated = _bucket_steam_activity_points(points, point_budget)
+    marker_source_points = [
+        {
+            "sampled_at": point.sampled_at,
+            "concurrent_players": point.latest_players
+            if point.latest_players is not None
+            else point.observed_24h_high,
+        }
+        for point in points
+    ]
+
     summary = _build_game_with_scores(game)
-    if points:
-        latest_point = points[-1]
+    if summary_source_points:
+        latest_point = summary_source_points[-1]
         # Guard against transient zero lows: if the 24h low is 0 but the high
         # is healthy, a server blip likely corrupted the low.  Keep the
         # previous value (None lets the model default stand).
@@ -1263,7 +1359,7 @@ async def get_game_steam_activity(
             "steam_player_24h_low_observed": observed_low,
             "steam_player_stats_synced_at": latest_point.sampled_at,
         }
-        peak_point = max(points, key=lambda point: point.observed_24h_high)
+        peak_point = max(summary_source_points, key=lambda point: point.observed_24h_high)
         trusted_summary_updates["steam_player_all_time_peak"] = peak_point.observed_24h_high
         trusted_summary_updates["steam_player_all_time_peak_at"] = peak_point.sampled_at
         summary = summary.model_copy(update=trusted_summary_updates)
@@ -1289,6 +1385,13 @@ async def get_game_steam_activity(
         summary=summary,
         points=points,
         markers=markers,
+        metadata=SteamActivityMetadata(
+            coverage_start=coverage_start,
+            coverage_end=coverage_end,
+            raw_point_count=raw_point_count,
+            bucket_seconds=bucket_seconds,
+            is_aggregated=is_aggregated,
+        ),
     )
     await set_cached(
         f"games:steam-activity:{cache_hash}",

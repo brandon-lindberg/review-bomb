@@ -22,6 +22,7 @@ from app.schemas.schemas import (
     GameDetail,
     GameWithScores,
     SteamActivityResponse,
+    SteamActivityMetadata,
     SteamPlayerPoint,
     SteamPlayerMarker,
     # Review
@@ -66,6 +67,7 @@ __all__ = [
     "GameDetail",
     "GameWithScores",
     "SteamActivityResponse",
+    "SteamActivityMetadata",
     "SteamPlayerPoint",
     "SteamPlayerMarker",
     "ReviewBase",

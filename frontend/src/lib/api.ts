@@ -256,10 +256,10 @@ export async function getGameHistory(
 
 export async function getGameSteamActivity(
   id: string | number,
-  limit = 10000,
-  window: "1y" | "max" = "1y"
+  maxPoints = 700,
+  window: "24h" | "48h" | "1w" | "1m" | "3m" | "6m" | "1y" | "max" = "1y"
 ): Promise<SteamActivityResponse> {
-  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?limit=${limit}&window=${window}`);
+  return fetchAPI<SteamActivityResponse>(`/games/${id}/steam-activity?max_points=${maxPoints}&window=${window}`);
 }
 
 // All reviews for charts - fetches ALL reviews by paginating through all pages
