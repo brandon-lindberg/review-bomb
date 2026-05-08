@@ -398,6 +398,7 @@ async def cmd_steam(args):
     from app.models.models import Game, UserScore, UserScoreSource
     from sqlalchemy import delete
     from difflib import SequenceMatcher
+    from contextlib import AsyncExitStack
     import re
 
     mapping_similarity_min = 0.65
@@ -415,6 +416,11 @@ async def cmd_steam(args):
             normalize_title_for_match(b),
         ).ratio()
 
+    run_activity = bool(getattr(args, "with_activity", False))
+    if not run_activity:
+        print("Steam activity writes are disabled for this run (scores-only mode).")
+        print("Use --with-activity only when scraper worker is paused to avoid write contention.")
+
     async with async_session_maker() as db:
         synced = 0
         activity_updated = 0
@@ -428,7 +434,13 @@ async def cmd_steam(args):
         cleared_mismatch = 0
         cleared_steam_score_rows = 0
 
-        async with SteamService() as service, SteamActivityService() as activity_service:
+        async with AsyncExitStack() as stack:
+            service = await stack.enter_async_context(SteamService())
+            activity_service = (
+                await stack.enter_async_context(SteamActivityService())
+                if run_activity
+                else None
+            )
             curated_stats = await ensure_tracked_steam_games(db, service)
             if curated_stats["created"] or curated_stats["updated"]:
                 print(
@@ -552,22 +564,23 @@ async def cmd_steam(args):
                             f"(steam_title='{steam_title}', release='{release_raw}')"
                         )
 
-                    activity_result = await sync_game_steam_public_activity(
-                        db,
-                        game,
-                        activity_service,
-                    )
-                    if activity_result["snapshot_created"]:
-                        activity_snapshots += 1
-                    if (
-                        activity_result["snapshot_created"]
-                        or activity_result["achievement_updated"]
-                    ):
-                        activity_updated += 1
-                        if activity_result["current_players"] is not None:
-                            print(f"  Players Right Now: {activity_result['current_players']:,}")
-                        if game.steam_achievement_count is not None:
-                            print(f"  Achievements: {game.steam_achievement_count:,}")
+                    if run_activity and activity_service is not None:
+                        activity_result = await sync_game_steam_public_activity(
+                            db,
+                            game,
+                            activity_service,
+                        )
+                        if activity_result["snapshot_created"]:
+                            activity_snapshots += 1
+                        if (
+                            activity_result["snapshot_created"]
+                            or activity_result["achievement_updated"]
+                        ):
+                            activity_updated += 1
+                            if activity_result["current_players"] is not None:
+                                print(f"  Players Right Now: {activity_result['current_players']:,}")
+                            if game.steam_achievement_count is not None:
+                                print(f"  Achievements: {game.steam_achievement_count:,}")
 
                 except Exception as e:
                     print(f"  Error: {e}")
@@ -3664,6 +3677,11 @@ def main():
     steam_parser.add_argument("--app-id", type=int, help="Only process a specific Steam app ID")
     steam_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     steam_parser.add_argument("--days", type=int, help="Only process games released in the last N days")
+    steam_parser.add_argument(
+        "--with-activity",
+        action="store_true",
+        help="Also write Steam activity snapshots/current players (default: scores-only to avoid overlap with player-count-scraper mirror)",
+    )
 
     # SteamDB command
     steamdb_parser = subparsers.add_parser(
