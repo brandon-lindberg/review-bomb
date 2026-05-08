@@ -8,6 +8,7 @@ from app.services.game_similarity_v3 import (
     SIMILARITY_V3_VERSION,
     LocalSimilarityV3MCP,
     _family_rerank_adjustment,
+    _can_publish_similarity_v3_neighbors,
     _is_nonstandalone_similarity_candidate,
     _jrpg_story_rpg_lane_fit,
     _metroidvania_lane_fit,
@@ -131,6 +132,48 @@ def test_similarity_v3_local_hash_profile_is_taxonomy_heavy_and_disables_vector_
 def test_normalize_taxonomy_score_uses_backend_divisor():
     assert _normalize_taxonomy_score(210, divisor=300.0) == 0.7
     assert _normalize_taxonomy_score(400, divisor=300.0) == 1.0
+
+
+def _single_publish_scored_neighbor(
+    *,
+    final_score: float,
+    relationship_type: str,
+    gold_expected: bool = False,
+) -> SimilarityV3ScoredNeighbor:
+    return SimilarityV3ScoredNeighbor(
+        candidate=Game(title="Candidate"),
+        final_score=final_score,
+        taxonomy_score=1.0,
+        text_vector_score=0.0,
+        facet_vector_score=0.0,
+        prototype_score=0.0,
+        rerank_score=0.0,
+        quality_prior=0.0,
+        relationship_type=relationship_type,
+        used_vector_exception=False,
+        explanation_payload={"gold_corpus_expected_neighbor": True} if gold_expected else {},
+    )
+
+
+def test_can_publish_similarity_v3_neighbors_allows_single_excellent_gold_expected_match():
+    neighbors = [
+            _single_publish_scored_neighbor(
+            final_score=0.94,
+            relationship_type="adjacent_secondary",
+            gold_expected=True,
+        )
+    ]
+
+    assert _can_publish_similarity_v3_neighbors(neighbors) is True
+
+
+def test_can_publish_similarity_v3_neighbors_blocks_single_weak_or_unverified_match():
+    assert _can_publish_similarity_v3_neighbors(
+        [_single_publish_scored_neighbor(final_score=0.89, relationship_type="same")]
+    ) is False
+    assert _can_publish_similarity_v3_neighbors(
+        [_single_publish_scored_neighbor(final_score=0.94, relationship_type="adjacent_neighbor")]
+    ) is False
 
 
 class _TitleScalars:

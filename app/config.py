@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/review_disparity"
     database_echo: bool = False
+    database_pool_size: int = 5
+    database_max_overflow: int = 10
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"

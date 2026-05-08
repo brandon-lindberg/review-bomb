@@ -11,6 +11,7 @@ from app.services.game_taxonomy_v2 import (
     TAXONOMY_V2_STATUS_HIDDEN,
     ArchetypeCandidate,
     _prefer_primary_archetype_candidate,
+    _title_parent_edition_keys,
     analyze_taxonomy_v2_label,
     assign_taxonomy_v2_archetypes,
     apply_taxonomy_v2_result_to_game,
@@ -410,6 +411,67 @@ def test_build_game_taxonomy_v2_prefers_3d_collectathon_for_first_person_parkour
     assert result.primary_archetype == "3d_collectathon"
     assert "first_person" in result.fingerprint["perspective"]
     assert "parkour" in result.fingerprint["traversal_verbs"]
+
+
+def test_build_game_taxonomy_v2_assigns_cozy_exploration_for_open_world_movement_adventure():
+    game = Game(
+        title="Lil Gator Style Adventure",
+        description=(
+            "There's a buddy atop every hill in this open-world, movement-focused adventure. "
+            "Bop cardboard baddies, brave serene hills and forests, and scale sheer rocks. "
+            "Embark on an adorable adventure, discover new friends, and uncover everything the island has to offer."
+        ),
+        steam_short_description=(
+            "Climb, Swim, Glide and slide your way into the hearts of the many different characters "
+            "you meet on your travels!"
+        ),
+    )
+
+    result = build_game_taxonomy_v2(game, [])
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cozy_exploration_adventure"
+    assert "cozy" in result.fingerprint["tone"]
+    assert "platforming" in result.fingerprint["traversal_verbs"]
+
+
+def test_build_game_taxonomy_v2_assigns_cozy_exploration_for_nature_hiking_adventure():
+    game = Game(
+        title="Peaceful Mountain Hike",
+        description=(
+            "Hike, climb, and soar through the peaceful mountainside landscapes of Hawk Peak Provincial Park. "
+            "Follow the marked trails or explore the backcountry as you make your way to the summit. "
+            "Along the way, meet other hikers and discover hidden treasures."
+        ),
+    )
+
+    result = build_game_taxonomy_v2(game, [])
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cozy_exploration_adventure"
+    assert "climbing" in result.fingerprint["traversal_verbs"]
+
+
+def test_build_game_taxonomy_v2_assigns_cozy_exploration_for_wildlife_island_adventure():
+    game = Game(
+        title="Wildlife Island",
+        description=(
+            "Join Alba on a Mediterranean island for a peaceful summer of wildlife exploration. "
+            "Set out to save her beautiful island and its wildlife while meeting people across the island."
+        ),
+    )
+
+    result = build_game_taxonomy_v2(game, [])
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cozy_exploration_adventure"
+    assert "cozy" in result.fingerprint["tone"]
+    assert "platforming" not in result.fingerprint.get("traversal_verbs", [])
+
+
+def test_title_parent_edition_keys_extracts_exact_goty_parent_titles():
+    assert _title_parent_edition_keys("Lil Gator Game: Gator of the Year") == ["lil gator game"]
+    assert _title_parent_edition_keys("Example Game Game of the Year Edition") == ["example game"]
 
 
 def test_build_game_taxonomy_v2_assigns_action_platformer_from_retro_2d_action_language():
@@ -1001,6 +1063,97 @@ def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_mythic_l
     assert "semi_open" in result.fingerprint["world_topology"]
     assert "setpiece_driven" in result.fingerprint["world_density"]
     assert "authored_linear" in result.fingerprint["narrative_structure"]
+
+
+def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_historical_knight_profile():
+    game = Game(
+        id=1741,
+        title="Medieval Knight Adventure",
+        steam_short_description=(
+            "Journey through a tumultuous Medieval Italy as a young knight errant on a brutal quest. "
+            "A cinematic action-adventure inspired by chivalric tales and the late medieval period."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=1741, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=1741, source="steam", facet="genre", raw_label="Adventure", normalized_label="adventure"),
+        GameSourceTaxonomyLabel(game_id=1741, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cinematic_action_adventure"
+    assert "historical" in result.fingerprint["setting"]
+    assert "historical_first" in result.hard_exclusions
+
+
+def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_roman_soldier_profile():
+    game = Game(
+        id=1742,
+        title="Roman Soldier Adventure",
+        steam_short_description=(
+            "Fight as a soldier. Lead as a general. A young Roman soldier travels with the Roman army to Britannia "
+            "during the late Roman Empire to seek revenge."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=1742, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=1742, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cinematic_action_adventure"
+    assert "historical" in result.fingerprint["setting"]
+    assert "authored_linear" in result.fingerprint["narrative_structure"]
+
+
+def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_plague_history_profile():
+    game = Game(
+        id=1743,
+        title="Plague History Adventure",
+        steam_short_description=(
+            "Follow the grim tale of a sister and her little brother in a heartrending journey through the darkest hours of history. "
+            "Hunted by Inquisition soldiers, the adventure blends action, adventure and stealth phases."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=1743, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=1743, source="steam", facet="genre", raw_label="Adventure", normalized_label="adventure"),
+        GameSourceTaxonomyLabel(game_id=1743, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cinematic_action_adventure"
+    assert "historical" in result.fingerprint["setting"]
+    assert "bleak" in result.fingerprint["tone"]
+
+
+def test_build_game_taxonomy_v2_assigns_cinematic_action_adventure_from_viking_myth_profile():
+    game = Game(
+        id=1744,
+        title="Viking Myth Adventure",
+        steam_short_description=(
+            "A warrior's brutal journey into myth and madness. Set in the Viking age, "
+            "a Celtic warrior embarks on a haunting vision quest through a nightmarish realm."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=1744, source="steam", facet="genre", raw_label="Action", normalized_label="action"),
+        GameSourceTaxonomyLabel(game_id=1744, source="steam", facet="genre", raw_label="Adventure", normalized_label="adventure"),
+        GameSourceTaxonomyLabel(game_id=1744, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "cinematic_action_adventure"
+    assert "mythic" in result.fingerprint["setting"]
+    assert "bleak" in result.fingerprint["tone"]
 
 
 def test_build_game_taxonomy_v2_assigns_mmo_action_rpg_from_sandbox_mmorpg_text():
@@ -4012,6 +4165,50 @@ def test_build_game_taxonomy_v2_assigns_survival_horror_from_supernatural_villag
     assert result.status == TAXONOMY_V2_STATUS_COMPUTED
     assert result.primary_archetype == "survival_horror"
     assert "horror" in result.fingerprint["setting"]
+
+
+def test_build_game_taxonomy_v2_assigns_survival_horror_from_hotel_cult_investigation_profile():
+    game = Game(
+        id=24634,
+        title="Hotel Cult Horror",
+        steam_short_description=(
+            "An amateur journalist explores a decadent hotel after mysterious disappearances and paranormal activity. "
+            "Uncover the dark history of a fanatical cult while solving mysteries across the hotel."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=24634, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+        GameSourceTaxonomyLabel(game_id=24634, source="steam", facet="genre", raw_label="Adventure", normalized_label="adventure"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "survival_horror"
+    assert "puzzle_gating" in result.fingerprint["challenge_model"]
+    assert "solve_mysteries" in result.fingerprint["rules_goals"]
+
+
+def test_build_game_taxonomy_v2_assigns_survival_horror_from_thriller_survival_horror_profile():
+    game = Game(
+        id=24635,
+        title="Family Attic Horror",
+        steam_short_description=(
+            "A story-driven adventure with a unique twist on thriller and survival horror. "
+            "Uncover long-buried secrets, personal tragedies, and madness as you combat the enemies and solve riddles."
+        ),
+    )
+    rows = [
+        GameSourceTaxonomyLabel(game_id=24635, source="steam", facet="category", raw_label="Single-player", normalized_label="single-player"),
+        GameSourceTaxonomyLabel(game_id=24635, source="steam", facet="genre", raw_label="Adventure", normalized_label="adventure"),
+    ]
+
+    result = build_game_taxonomy_v2(game, rows)
+
+    assert result.status == TAXONOMY_V2_STATUS_COMPUTED
+    assert result.primary_archetype == "survival_horror"
+    assert "survival" in result.fingerprint["combat_style"]
+    assert "encounter_driven" in result.fingerprint["combat_structure"]
 
 
 def test_build_game_taxonomy_v2_assigns_hidden_object_puzzle_from_organization_profile():

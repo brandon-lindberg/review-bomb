@@ -12,7 +12,7 @@ from html import unescape
 from pathlib import Path
 from typing import Any, Iterable
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import Game, GameSourceTaxonomyLabel, GameTaxonomyV2Evidence
@@ -28,6 +28,11 @@ TAXONOMY_V2_STATUS_FAILED = "failed"
 TAXONOMY_V2_STATUS_NEEDS_REVIEW = "needs_review"
 TAXONOMY_V2_READY_STATUSES = frozenset({TAXONOMY_V2_STATUS_COMPUTED, TAXONOMY_V2_STATUS_CURATED})
 TAXONOMY_V2_LEGACY_HIDDEN_STATUSES = frozenset({TAXONOMY_V2_STATUS_FAILED, TAXONOMY_V2_STATUS_NEEDS_REVIEW})
+_TITLE_EDITION_PARENT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"\s*[:\-–—]\s*(?:game of the year|goty|gator of the year)(?: edition)?\s*$"),
+    re.compile(r"\s+(?:game of the year|goty|gator of the year)(?: edition)?\s*$"),
+    re.compile(r"\s+(?:game of the year|goty|complete|definitive|ultimate|deluxe) edition\s*$"),
+)
 
 FINGERPRINT_AXES = (
     "world_topology",
@@ -2117,6 +2122,26 @@ def _canonical_token(value: str | None) -> str:
     return normalized.replace(" ", "_")
 
 
+def _title_parent_edition_keys(value: str | None) -> list[str]:
+    normalized = normalize_taxonomy_label(value or "")
+    if not normalized:
+        return []
+
+    keys: list[str] = []
+    for pattern in _TITLE_EDITION_PARENT_PATTERNS:
+        parent_key = " ".join(pattern.sub(" ", normalized).split())
+        if parent_key and parent_key != normalized and len(parent_key.split()) >= 2:
+            keys.append(parent_key)
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for key in keys:
+        if key not in seen:
+            seen.add(key)
+            ordered.append(key)
+    return ordered
+
+
 def _canonical_provenance_token(value: str | None) -> str:
     if not value:
         return ""
@@ -2947,9 +2972,23 @@ def _prefer_primary_archetype_candidate(
 
     physics_roguelite_strategy_candidate = candidates_by_archetype.get("physics_roguelite_strategy")
     merge_puzzle_candidate = candidates_by_archetype.get("merge_puzzle")
+    narrative_exploration_candidate = candidates_by_archetype.get("narrative_exploration_adventure")
     cinematic_puzzle_candidate = candidates_by_archetype.get("cinematic_puzzle_adventure")
     hidden_object_candidate = candidates_by_archetype.get("hidden_object_puzzle")
     visual_novel_candidate = candidates_by_archetype.get("visual_novel")
+    narrative_exploration_profile = (
+        narrative_exploration_candidate is not None
+        and "campaign" in session_shape
+        and "none" in combat_presence
+        and "narrative_exploration" in keyword_layer
+        and bool(narrative_structure & {"authored_linear", "authored_branching"})
+        and "match_session" not in session_shape
+        and not sports_theme
+        and not vehicular_theme
+    )
+    if narrative_exploration_profile and preferred_archetype is None:
+        preferred_archetype = "narrative_exploration_adventure"
+
     cinematic_puzzle_profile = (
         cinematic_puzzle_candidate is not None
         and "campaign" in session_shape
@@ -3082,6 +3121,26 @@ def _prefer_primary_archetype_candidate(
     if management_tycoon_profile and preferred_archetype is None:
         preferred_archetype = "management_tycoon"
 
+    cozy_exploration_candidate = candidates_by_archetype.get("cozy_exploration_adventure")
+    cozy_exploration_profile = (
+        cozy_exploration_candidate is not None
+        and bool(world_topology & {"open_world", "semi_open"})
+        and bool(world_density & {"handcrafted_discovery", "sandbox_light"})
+        and bool(tone & {"cozy", "whimsical"})
+        and "dominant" not in combat_presence
+        and bool(
+            traversal_verbs & {"climbing", "gliding", "platforming"}
+            or mechanics_structure & {"quest_exploration_loop", "environmental_puzzle_solving"}
+            or entity_interaction & {"relationship_social"}
+        )
+        and not sports_theme
+        and not vehicular_theme
+        and "match_session" not in session_shape
+        and "mmo" not in mode_profile
+    )
+    if cozy_exploration_profile and preferred_archetype in {None, "metroidvania", "action_platformer", "3d_collectathon"}:
+        preferred_archetype = "cozy_exploration_adventure"
+
     open_world_fantasy_profile = (
         open_world_candidate is not None
         and
@@ -3118,7 +3177,7 @@ def _prefer_primary_archetype_candidate(
         and "dominant" not in combat_presence
         and "match_session" not in session_shape
     )
-    if three_d_collectathon_profile:
+    if three_d_collectathon_profile and preferred_archetype != "cozy_exploration_adventure":
         preferred_archetype = "3d_collectathon"
 
     open_world_action_candidate = candidates_by_archetype.get("open_world_action_adventure")
@@ -3169,6 +3228,7 @@ def _prefer_primary_archetype_candidate(
         and "open_world" in world_topology
         and traversal_verbs & {"gliding", "platforming"}
         and "match_session" not in session_shape
+        and preferred_archetype != "cozy_exploration_adventure"
     ):
         if open_world_action_candidate is not None:
             preferred_archetype = "open_world_action_adventure"
@@ -6953,7 +7013,105 @@ async def compute_game_taxonomy_v2(db: AsyncSession, game: Game) -> TaxonomyV2Re
         select(GameSourceTaxonomyLabel).where(GameSourceTaxonomyLabel.game_id == game.id)
     )
     rows = result.scalars().all()
-    return build_game_taxonomy_v2(game, rows)
+    result = build_game_taxonomy_v2(game, rows)
+    inherited_result = await _maybe_inherit_taxonomy_v2_from_edition_parent(db, game, result)
+    return inherited_result or result
+
+
+async def _maybe_inherit_taxonomy_v2_from_edition_parent(
+    db: AsyncSession,
+    game: Game,
+    result: TaxonomyV2Result,
+) -> TaxonomyV2Result | None:
+    if result.status in TAXONOMY_V2_READY_STATUSES:
+        return None
+
+    parent_keys = _title_parent_edition_keys(getattr(game, "title", None))
+    if not parent_keys:
+        return None
+
+    parent_rows = (
+        await db.execute(
+            select(Game)
+            .where(
+                Game.id != game.id,
+                func.lower(Game.title).in_(parent_keys),
+            )
+            .order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+        )
+    ).scalars().all()
+    if not parent_rows:
+        return None
+
+    for parent in parent_rows:
+        parent_result: TaxonomyV2Result | None = None
+        if getattr(parent, "taxonomy_v2_status", None) in TAXONOMY_V2_READY_STATUSES:
+            parent_result = TaxonomyV2Result(
+                version=str(getattr(parent, "taxonomy_v2_version", None) or TAXONOMY_V2_VERSION),
+                status=str(getattr(parent, "taxonomy_v2_status", None)),
+                primary_family=getattr(parent, "taxonomy_v2_primary_family", None),
+                primary_archetype=getattr(parent, "taxonomy_v2_primary_archetype", None),
+                secondary_archetypes=list(getattr(parent, "taxonomy_v2_secondary_archetypes", None) or []),
+                hard_exclusions=list(getattr(parent, "taxonomy_v2_hard_exclusions", None) or []),
+                soft_penalties=list(getattr(parent, "taxonomy_v2_soft_penalties", None) or []),
+                confidence=float(getattr(parent, "taxonomy_v2_confidence", None) or 0),
+                fingerprint=dict(getattr(parent, "taxonomy_v2_fingerprint", None) or {}),
+                curated=bool(getattr(parent, "taxonomy_v2_curated", False)),
+                evidence=[],
+                debug_payload=dict(getattr(parent, "taxonomy_v2_debug_payload", None) or {}),
+            )
+        else:
+            parent_result = await compute_game_taxonomy_v2(db, parent)
+            if parent_result.status in TAXONOMY_V2_READY_STATUSES:
+                await store_game_taxonomy_v2(db, parent, parent_result)
+
+        if (
+            parent_result is None
+            or parent_result.status not in TAXONOMY_V2_READY_STATUSES
+            or not parent_result.primary_family
+            or not parent_result.primary_archetype
+            or not parent_result.fingerprint
+        ):
+            continue
+
+        parent_confidence = parent_result.confidence or 0.0
+        inherited_confidence = max(0.85, min(0.93, parent_confidence - 0.01 if parent_confidence else 0.88))
+        return TaxonomyV2Result(
+            version=TAXONOMY_V2_VERSION,
+            status=TAXONOMY_V2_STATUS_COMPUTED,
+            primary_family=parent_result.primary_family,
+            primary_archetype=parent_result.primary_archetype,
+            secondary_archetypes=list(parent_result.secondary_archetypes),
+            hard_exclusions=list(parent_result.hard_exclusions),
+            soft_penalties=list(parent_result.soft_penalties),
+            confidence=inherited_confidence,
+            fingerprint={key: list(values) for key, values in parent_result.fingerprint.items()},
+            curated=False,
+            evidence=[
+                TaxonomyV2EvidenceRecord(
+                    field="primary_archetype",
+                    value=parent_result.primary_archetype,
+                    source="title_variant_inheritance",
+                    source_field="parent_title",
+                    confidence=inherited_confidence,
+                    evidence_text=getattr(parent, "title", None),
+                )
+            ],
+            debug_payload={
+                **(result.debug_payload or {}),
+                "audit_state": "edition_parent_inherited",
+                "inherited_from_parent_game": {
+                    "id": getattr(parent, "id", None),
+                    "public_id": getattr(parent, "public_id", None),
+                    "title": getattr(parent, "title", None),
+                    "taxonomy_v2_status": parent_result.status,
+                    "primary_archetype": parent_result.primary_archetype,
+                    "confidence": parent_result.confidence,
+                },
+            },
+        )
+
+    return None
 
 
 def apply_taxonomy_v2_result_to_game(game: Game, result: TaxonomyV2Result) -> None:

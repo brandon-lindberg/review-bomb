@@ -39,6 +39,7 @@ SIMILARITY_V3_STATUS_COMPUTED = "computed"
 SIMILARITY_V3_STATUS_HIDDEN = "hidden"
 SIMILARITY_V3_VECTOR_DIMENSIONS = 384
 SIMILARITY_V3_MIN_PUBLISHED_NEIGHBORS = 2
+SIMILARITY_V3_SINGLE_NEIGHBOR_PUBLISH_SCORE = 0.90
 SIMILARITY_V3_TEXT_NEIGHBOR_LIMIT = 250
 SIMILARITY_V3_FACET_NEIGHBOR_LIMIT = 150
 SIMILARITY_V3_TAXONOMY_NEIGHBOR_LIMIT = 500
@@ -5573,6 +5574,23 @@ def _cap_similarity_v3_neighbors(
     return capped
 
 
+def _can_publish_similarity_v3_neighbors(neighbors: list[SimilarityV3ScoredNeighbor]) -> bool:
+    if len(neighbors) >= SIMILARITY_V3_MIN_PUBLISHED_NEIGHBORS:
+        return True
+    if len(neighbors) != 1:
+        return False
+
+    neighbor = neighbors[0]
+    if neighbor.final_score < SIMILARITY_V3_SINGLE_NEIGHBOR_PUBLISH_SCORE:
+        return False
+
+    explanation_payload = neighbor.explanation_payload or {}
+    return bool(
+        explanation_payload.get("gold_corpus_expected_neighbor")
+        or neighbor.relationship_type in {"same", "gold_corpus_expected"}
+    )
+
+
 async def compute_similarity_v3_neighbors_for_game(
     db: AsyncSession,
     anchor: Game,
@@ -5773,7 +5791,7 @@ async def publish_similarity_v3_neighbors_for_games(
                 GameSimilarityV3Neighbor.similarity_version == SIMILARITY_V3_VERSION,
             )
         )
-        if len(neighbors) < SIMILARITY_V3_MIN_PUBLISHED_NEIGHBORS:
+        if not _can_publish_similarity_v3_neighbors(neighbors):
             game.similarity_v3_version = SIMILARITY_V3_VERSION
             game.similarity_v3_status = SIMILARITY_V3_STATUS_HIDDEN
             game.similarity_v3_computed_at = datetime.now(timezone.utc)

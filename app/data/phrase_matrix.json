@@ -1,5 +1,5 @@
 {
-  "version": "phrase_matrix_v21",
+  "version": "phrase_matrix_v26",
   "rules": [
     {
       "id": "jrpg_party_journey",
@@ -1643,6 +1643,89 @@
       ]
     },
     {
+      "id": "story_driven_survival_horror_investigation",
+      "scope": [
+        "survival_horror",
+        "psychological_horror",
+        "action_horror"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bsurvival horror experience\\b",
+        "\\bunnerving survival horror\\b",
+        "\\bstory[- ]driven adventure\\b",
+        "\\bthriller and survival horror\\b",
+        "\\blong[- ]buried secrets\\b",
+        "\\bpersonal tragedies\\b",
+        "\\bmadness\\b",
+        "\\bcombat the enemies\\b",
+        "\\bsolve riddles\\b",
+        "\\bparanormal activity\\b",
+        "\\bmysterious disappearances\\b",
+        "\\bamateur journalist\\b",
+        "\\bexplore a decadent hotel\\b",
+        "\\bdark history of a fanatical cult\\b",
+        "\\bfanatical cult\\b"
+      ],
+      "emits": [
+        [
+          "setting",
+          "horror",
+          0.92
+        ],
+        [
+          "combat_style",
+          "survival",
+          0.86
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.8
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.82
+        ],
+        [
+          "session_shape",
+          "campaign",
+          0.8
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.78
+        ],
+        [
+          "rules_goals",
+          "solve_mysteries",
+          0.8
+        ],
+        [
+          "tone",
+          "bleak",
+          0.84
+        ],
+        [
+          "tone",
+          "grotesque",
+          0.78
+        ],
+        [
+          "narrative_topic",
+          "survival_escape",
+          0.82
+        ],
+        [
+          "keyword_layer",
+          "psychological_horror",
+          0.78
+        ]
+      ]
+    },
+    {
       "id": "haunted_village_escape_puzzle_horror",
       "scope": [
         "survival_horror",
@@ -2213,6 +2296,174 @@
           "tone",
           "whimsical",
           0.78
+        ]
+      ]
+    },
+    {
+      "id": "cozy_open_world_movement_adventure",
+      "scope": [
+        "cozy_exploration_adventure",
+        "3d_collectathon",
+        "open_world_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bopen[- ]world,? movement[- ]focused adventure\\b",
+        "\\bopen[- ]world adventure focused on movement\\b",
+        "\\badorable adventure\\b",
+        "\\bdiscover new friends\\b",
+        "\\buncover everything the island has to offer\\b",
+        "\\bclimb,? swim,? glide and slide\\b",
+        "\\bclimb,? swim,? glide,? and slide\\b",
+        "\\bslide your way into\\b",
+        "\\bbuddy atop every hill\\b",
+        "\\bbop cardboard baddies\\b",
+        "\\bserene hills and forests\\b",
+        "\\bhike,? climb,? and soar\\b",
+        "\\bpeaceful mountainside landscapes\\b",
+        "\\bhawk peak provincial park\\b",
+        "\\bfollow the marked trails\\b",
+        "\\bexplore the backcountry\\b",
+        "\\bmake your way to the summit\\b",
+        "\\bdiscover hidden treasures\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.9
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.9
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.86
+        ],
+        [
+          "visual_presentation",
+          "third_person_3d",
+          0.84
+        ],
+        [
+          "traversal_verbs",
+          "platforming",
+          0.88
+        ],
+        [
+          "traversal_verbs",
+          "climbing",
+          0.9
+        ],
+        [
+          "traversal_verbs",
+          "gliding",
+          0.9
+        ],
+        [
+          "mechanics_structure",
+          "platform_navigation",
+          0.86
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.82
+        ],
+        [
+          "entity_interaction",
+          "relationship_social",
+          0.76
+        ],
+        [
+          "tone",
+          "cozy",
+          0.88
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "single_player",
+          0.82
+        ]
+      ]
+    },
+    {
+      "id": "cozy_wildlife_island_exploration",
+      "scope": [
+        "cozy_exploration_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bwildlife exploration\\b",
+        "\\bmediterranean island\\b",
+        "\\bbeautiful island and its wildlife\\b",
+        "\\bsave her beautiful island\\b",
+        "\\bpeaceful summer of wildlife\\b",
+        "\\bsmallest person can make a big difference\\b"
+      ],
+      "emits": [
+        [
+          "world_topology",
+          "open_world",
+          0.9
+        ],
+        [
+          "world_density",
+          "handcrafted_discovery",
+          0.9
+        ],
+        [
+          "perspective",
+          "third_person",
+          0.86
+        ],
+        [
+          "visual_presentation",
+          "third_person_3d",
+          0.84
+        ],
+        [
+          "mechanics_structure",
+          "quest_exploration_loop",
+          0.82
+        ],
+        [
+          "entity_interaction",
+          "relationship_social",
+          0.76
+        ],
+        [
+          "tone",
+          "cozy",
+          0.88
+        ],
+        [
+          "tone",
+          "whimsical",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "light",
+          0.82
+        ],
+        [
+          "mode_profile",
+          "single_player",
+          0.82
         ]
       ]
     },
@@ -3824,6 +4075,98 @@
           "narrative_topic",
           "heroic_journey",
           0.84
+        ]
+      ]
+    },
+    {
+      "id": "historical_cinematic_action_adventure",
+      "scope": [
+        "cinematic_action_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bhistorical action[- ]adventure\\b",
+        "\\bcinematic action[- ]adventure\\b",
+        "\\bmedieval italy\\b",
+        "\\blate medieval period\\b",
+        "\\bknight errant\\b",
+        "\\bchivalric tales\\b",
+        "\\byoung roman soldier\\b",
+        "\\broman army to britannia\\b",
+        "\\blate roman empire\\b",
+        "\\bfight as a soldier\\b",
+        "\\blead as a general\\b",
+        "\\bwarrior[’']?s brutal journey\\b",
+        "\\bbrutal journey into myth and madness\\b",
+        "\\bviking age\\b",
+        "\\bceltic warrior\\b",
+        "\\bhaunting vision quest\\b",
+        "\\bdarkest hours of history\\b",
+        "\\binquisition soldiers\\b",
+        "\\baction, adventure and stealth phases\\b",
+        "\\bstrike from the shadows\\b",
+        "\\bunleash hell\\b"
+      ],
+      "emits": [
+        [
+          "perspective",
+          "third_person",
+          0.84
+        ],
+        [
+          "world_topology",
+          "semi_open",
+          0.78
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.88
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.88
+        ],
+        [
+          "combat_presence",
+          "dominant",
+          0.78
+        ],
+        [
+          "combat_style",
+          "hybrid",
+          0.76
+        ],
+        [
+          "combat_structure",
+          "encounter_driven",
+          0.76
+        ],
+        [
+          "rules_goals",
+          "defeat_bosses",
+          0.76
+        ],
+        [
+          "setting",
+          "historical",
+          0.9
+        ],
+        [
+          "setting",
+          "mythic",
+          0.74
+        ],
+        [
+          "tone",
+          "bleak",
+          0.8
+        ],
+        [
+          "narrative_topic",
+          "heroic_journey",
+          0.78
         ]
       ]
     },
@@ -5533,6 +5876,80 @@
           "setting",
           "high_fantasy",
           0.78
+        ]
+      ]
+    },
+    {
+      "id": "narrative_exploration_adventure_loop",
+      "scope": [
+        "narrative_exploration_adventure",
+        "cinematic_puzzle_adventure"
+      ],
+      "min_matches": 2,
+      "patterns": [
+        "\\bnarrative adventure\\b",
+        "\\bnarrative[- ]driven adventure\\b",
+        "\\bnarrative[- ]driven first person experience\\b",
+        "\\bnarrative[- ]driven first[- ]person experience\\b",
+        "\\bfirst person experience\\b",
+        "\\bfirst[- ]person experience\\b",
+        "\\batmospheric narrative experience\\b",
+        "\\bstory[- ]driven adventure focused on exploration\\b",
+        "\\bfocused on exploration and discovery\\b",
+        "\\bexplore every detail\\b",
+        "\\bfinding clues\\b",
+        "\\bgripping story\\b",
+        "\\bcollection of strange tales\\b",
+        "\\bsearching for stories\\b",
+        "\\bexplores her family history\\b",
+        "\\bcollection of short stories\\b",
+        "\\bremote space facility\\b",
+        "\\bhigh[- ]tech space station\\b",
+        "\\bhidden underground complex\\b",
+        "\\bsending photographs of your surroundings\\b",
+        "\\binnovative photography gameplay\\b",
+        "\\blight logic puzzles\\b"
+      ],
+      "emits": [
+        [
+          "session_shape",
+          "campaign",
+          0.86
+        ],
+        [
+          "combat_presence",
+          "none",
+          0.86
+        ],
+        [
+          "narrative_structure",
+          "authored_linear",
+          0.86
+        ],
+        [
+          "keyword_layer",
+          "narrative_exploration",
+          0.92
+        ],
+        [
+          "world_density",
+          "setpiece_driven",
+          0.78
+        ],
+        [
+          "mechanics_structure",
+          "environmental_puzzle_solving",
+          0.78
+        ],
+        [
+          "challenge_model",
+          "puzzle_gating",
+          0.74
+        ],
+        [
+          "narrative_topic",
+          "detective_mystery",
+          0.72
         ]
       ]
     },

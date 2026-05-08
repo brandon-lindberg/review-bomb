@@ -1,5 +1,5 @@
 {
-  "version": "taxonomy_v2_graph_extensions_15",
+  "version": "taxonomy_v2_graph_extensions_18",
   "nodes": {
     "open_world_action_adventure": {
       "family": "action_adventure",
@@ -11,7 +11,8 @@
       },
       "preferred_axes": {
         "world_density": ["handcrafted_discovery", "systemic_sandbox"],
-        "traversal_verbs": ["climbing", "parkour"],
+        "traversal_verbs": ["climbing", "gliding", "parkour"],
+        "mode_profile": ["single_player"],
         "tone": ["heroic", "serious"]
       },
       "strong_neighbors": ["cinematic_action_adventure", "western_narrative_rpg", "3d_collectathon"],
@@ -28,12 +29,32 @@
       },
       "preferred_axes": {
         "world_density": ["handcrafted_discovery"],
-        "tone": ["heroic", "whimsical"]
+        "tone": ["heroic", "whimsical", "cozy"]
       },
       "strong_neighbors": ["action_platformer"],
       "adjacent_neighbors": ["precision_platformer", "open_world_action_adventure"],
       "blocked_neighbors": ["survival_horror", "military_fps", "grand_strategy", "city_builder"],
       "hard_exclusions": ["grim_horror", "realistic_military"]
+    },
+    "cozy_exploration_adventure": {
+      "family": "adventure",
+      "required_axes": {
+        "world_topology": ["open_world", "semi_open"],
+        "world_density": ["handcrafted_discovery"],
+        "combat_presence": ["none", "light"],
+        "tone": ["cozy", "whimsical"]
+      },
+      "preferred_axes": {
+        "traversal_verbs": ["climbing", "gliding", "platforming"],
+        "mechanics_structure": ["quest_exploration_loop", "environmental_puzzle_solving", "platform_navigation"],
+        "entity_interaction": ["relationship_social"],
+        "narrative_topic": ["interpersonal"],
+        "mode_profile": ["single_player"]
+      },
+      "strong_neighbors": ["3d_collectathon", "narrative_exploration_adventure"],
+      "adjacent_neighbors": ["open_world_action_adventure", "farming_sim", "life_sim"],
+      "blocked_neighbors": ["survival_horror", "military_fps", "grand_strategy", "city_builder", "traditional_fighter"],
+      "hard_exclusions": ["match_based_only", "realistic_military", "grim_horror"]
     },
     "precision_platformer": {
       "family": "platformer",
@@ -187,6 +208,25 @@
       },
       "strong_neighbors": ["hidden_object_puzzle"],
       "adjacent_neighbors": ["cinematic_action_adventure", "visual_novel", "psychological_horror"],
+      "blocked_neighbors": ["military_fps", "traditional_fighter", "sports_sim", "mmo_action_rpg"],
+      "hard_exclusions": ["twitch_shooter", "dominant_combat", "match_based_only"]
+    },
+    "narrative_exploration_adventure": {
+      "family": "narrative",
+      "required_axes": {
+        "session_shape": ["campaign"],
+        "combat_presence": ["none"],
+        "narrative_structure": ["authored_linear", "authored_branching"],
+        "keyword_layer": ["narrative_exploration"]
+      },
+      "preferred_axes": {
+        "perspective": ["first_person", "third_person"],
+        "world_density": ["setpiece_driven", "handcrafted_discovery"],
+        "mechanics_structure": ["environmental_puzzle_solving", "quest_exploration_loop"],
+        "narrative_topic": ["detective_mystery", "survival_escape", "interpersonal_drama"]
+      },
+      "strong_neighbors": ["cinematic_puzzle_adventure", "visual_novel"],
+      "adjacent_neighbors": ["psychological_horror", "hidden_object_puzzle"],
       "blocked_neighbors": ["military_fps", "traditional_fighter", "sports_sim", "mmo_action_rpg"],
       "hard_exclusions": ["twitch_shooter", "dominant_combat", "match_based_only"]
     },
