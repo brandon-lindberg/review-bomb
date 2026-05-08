@@ -2,14 +2,8 @@ name: Scheduled Jobs
 
 on:
   schedule:
-    # Core discovery sync (new games + ID matching) - daily
-    - cron: '0 2 * * *'
-    # Enrichment refresh for recent 14-day window - every 48 hours
-    - cron: '30 3 */2 * *'
     # News sync - every 4 hours
     - cron: '0 */4 * * *'
-    # News relink backfill (last 14 days) - weekly Tuesday
-    - cron: '30 3 * * 2'
   workflow_dispatch:
     inputs:
       job:
@@ -17,11 +11,7 @@ on:
         required: true
         type: choice
         options:
-          - pipeline
-          - pipeline-core
-          - pipeline-enrichment
           - news
-          - news-backfill
 
 env:
   DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -32,102 +22,6 @@ env:
   FRONTEND_REVALIDATE_SECRET: ${{ secrets.FRONTEND_REVALIDATE_SECRET }}
 
 jobs:
-  pipeline-core:
-    name: Core Ingestion Pipeline (Daily)
-    runs-on: ubuntu-latest
-    concurrency:
-      group: core-pipeline-${{ github.repository }}-${{ github.ref_name }}-core
-      cancel-in-progress: false
-    if: >
-      github.event.schedule == '0 2 * * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'pipeline-core')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Validate OpenCritic API key
-        run: |
-          if [ -z "${RAPIDAPI_KEY}" ]; then
-            echo "::error::RAPIDAPI_KEY secret is missing."
-            exit 1
-          fi
-      - run: pip install -r requirements.txt
-      - name: Run OpenCritic -> Match
-        run: |
-          set -euo pipefail
-          python -u -m app sync --stale-pages 5 --no-auto-review-refresh
-          python -u -m app match --days 14
-        timeout-minutes: 120
-
-  pipeline-enrichment:
-    name: Enrichment Pipeline (14-Day Window, 48h)
-    runs-on: ubuntu-latest
-    concurrency:
-      group: core-pipeline-${{ github.repository }}-${{ github.ref_name }}-enrichment
-      cancel-in-progress: false
-    if: >
-      github.event.schedule == '30 3 */2 * *' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'pipeline-enrichment')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Validate OpenCritic API key
-        run: |
-          if [ -z "${RAPIDAPI_KEY}" ]; then
-            echo "::error::RAPIDAPI_KEY secret is missing."
-            exit 1
-          fi
-      - run: pip install -r requirements.txt
-      - name: Install Playwright browsers
-        run: python -m playwright install chromium --with-deps
-      - name: Run review refresh -> Steam -> Metacritic -> Disparity
-        run: |
-          set -euo pipefail
-          python -u -m app refresh-reviews --days 14 --min-hours-since-last-sync 24
-          python -u -m app steam --days 14
-          python -u -m app metacritic --recent 14
-          python -u -m app disparity --journalists --outlets --games
-        timeout-minutes: 240
-
-  pipeline:
-    name: Full Ingestion Pipeline (Manual)
-    runs-on: ubuntu-latest
-    concurrency:
-      group: core-pipeline-${{ github.repository }}-${{ github.ref_name }}-manual-full
-      cancel-in-progress: false
-    if: >
-      github.event_name == 'workflow_dispatch' &&
-      github.event.inputs.job == 'pipeline'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - name: Validate OpenCritic API key
-        run: |
-          if [ -z "${RAPIDAPI_KEY}" ]; then
-            echo "::error::RAPIDAPI_KEY secret is missing."
-            exit 1
-          fi
-      - run: pip install -r requirements.txt
-      - name: Install Playwright browsers
-        run: python -m playwright install chromium --with-deps
-      - name: Run full pipeline
-        run: |
-          set -euo pipefail
-          python -u -m app sync --stale-pages 5 --review-refresh-days 14 --review-refresh-min-hours 24
-          python -u -m app match --days 14
-          python -u -m app steam --days 14
-          python -u -m app metacritic --recent 14
-          python -u -m app disparity --journalists --outlets --games
-        timeout-minutes: 360
-
   news:
     name: Sync News Feeds
     runs-on: ubuntu-latest
@@ -143,19 +37,3 @@ jobs:
       - run: pip install -r requirements.txt
       - run: python -m app news
         timeout-minutes: 30
-
-  news-backfill:
-    name: Backfill News Game Links (14 Days)
-    runs-on: ubuntu-latest
-    if: >
-      github.event.schedule == '30 3 * * 2' ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'news-backfill')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-          cache: 'pip'
-      - run: pip install -r requirements.txt
-      - run: python -m app news-backfill --all --relink --days 14
-        timeout-minutes: 90
