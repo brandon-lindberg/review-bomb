@@ -1,0 +1,39 @@
+name: Review Data Pipeline
+
+on:
+  schedule:
+    # Twice daily, 12 hours apart
+    - cron: '30 0,12 * * *'
+  workflow_dispatch:
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  REDIS_URL: ${{ secrets.REDIS_URL }}
+  RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+  ENVIRONMENT: production
+  FRONTEND_REVALIDATE_URL: ${{ secrets.FRONTEND_REVALIDATE_URL }}
+  FRONTEND_REVALIDATE_SECRET: ${{ secrets.FRONTEND_REVALIDATE_SECRET }}
+
+jobs:
+  data-pipeline:
+    name: Refresh Review Data Pipeline
+    runs-on: ubuntu-latest
+    concurrency:
+      group: review-data-pipeline
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Run review data pipeline
+        timeout-minutes: 180
+        run: |
+          python -u -m app sync --stale-pages 0
+          python -m app match --days 10 --limit 300
+          python -u -m app metacritic --recent 10 --limit 300
+          python -u -m app disparity --journalists --outlets
+          python -u -m app disparity --games
