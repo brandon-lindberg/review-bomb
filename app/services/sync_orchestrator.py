@@ -1362,9 +1362,13 @@ class SyncOrchestrator:
                         mark_game_similarity_v3_dirty(game, "source_identifier_steam")
                         stats["steam_matched"] += 1
                         stats["matched"] += 1
+                        match_reason = match_result.get("steam_match_reason", "matched")
+                        # Surface non-default reasons (manual_override, rescue paths)
+                        # so cron logs show when fallback logic kicked in.
+                        reason_suffix = f" [{match_reason}]" if match_reason != "matched" else ""
                         print(
                             f"  Matched Steam: {game.title} -> "
-                            f"{match_result['steam_app_id']}"
+                            f"{match_result['steam_app_id']}{reason_suffix}"
                         )
                     if await self._sync_single_game_image_from_steam(
                         game,

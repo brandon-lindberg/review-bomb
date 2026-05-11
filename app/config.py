@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     player_scraper_api_token: Optional[str] = None
     player_scraper_timeout_seconds: float = 15.0
 
+    # Token the player-count-scraper presents when reading the internal registry endpoint.
+    # Keep separate from player_scraper_api_token (which is for outbound calls).
+    scraper_api_token: Optional[str] = None
+
     # Rate limiting
     rate_limit_per_minute: int = 100
     search_rate_limit_per_minute: int = 10

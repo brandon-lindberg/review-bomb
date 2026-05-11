@@ -17,6 +17,21 @@ from app.services.metacritic import MetacriticService
 class GameMatcher:
     """Service for matching games across different platforms."""
 
+    # Rescue-path tunables. Activate only when title similarity alone was below the
+    # main 0.85 threshold but Steam's app type + release date can disambiguate.
+    # - RESCUE_TOP_N_TO_INSPECT: how many of the title-filtered candidates to fetch
+    #   appdetails for. The matcher already fetches the top similarity > 0.8 ones,
+    #   so the marginal cost is small per stuck game.
+    # - RESCUE_MIN_SIMILARITY: floor below which we don't even consider a candidate.
+    #   Set low enough to catch storefront-name quirks (e.g. "Everything Is Crab"
+    #   scoring ~0.54 against the OpenCritic title) but well above arbitrary noise.
+    # - RESCUE_RELEASE_DATE_TOLERANCE_DAYS: window between OpenCritic and Steam
+    #   release dates. Cross-platform ports can differ by months, so this is
+    #   intentionally tight — the rescue path is for "same launch, ambiguous title."
+    RESCUE_TOP_N_TO_INSPECT = 20
+    RESCUE_MIN_SIMILARITY = 0.4
+    RESCUE_RELEASE_DATE_TOLERANCE_DAYS = 7
+
     # Manual overrides for games that are hard to match automatically
     # Format: {opencritic_id: {"steam_app_id": int, "metacritic_slug": str}}
     MANUAL_OVERRIDES: Dict[int, Dict[str, Any]] = {
@@ -293,12 +308,19 @@ class GameMatcher:
 
         # Evaluate strongest candidates first; limit app-details requests.
         scored.sort(key=lambda item: item[0], reverse=True)
+        app_details_cache: Dict[int, Optional[Dict[str, Any]]] = {}
+
+        async def _details_for(app_id: int) -> Optional[Dict[str, Any]]:
+            if app_id not in app_details_cache:
+                app_details_cache[app_id] = await self.steam_service.get_app_details(app_id)
+            return app_details_cache[app_id]
+
         for similarity, result in scored[:10]:
             adjusted = similarity
 
             # Get release date from Steam for verification if we have one
             if similarity > 0.8 and release_date:
-                app_details = await self.steam_service.get_app_details(result["steam_app_id"])
+                app_details = await _details_for(result["steam_app_id"])
                 if app_details:
                     steam_data = SteamService.transform_app_details(
                         app_details, result["steam_app_id"]
@@ -317,6 +339,42 @@ class GameMatcher:
         # Only return if confidence is high enough
         if best_score >= 0.85:
             return best_match, "matched"
+
+        # Release-date + app-type rescue path. Activates when title similarity alone
+        # was inconclusive but Steam's own metadata can disambiguate — typical case:
+        # storefront search returns a "Supporter Pack" / "Soundtrack" / "Demo"
+        # ahead of the base game because it ranks DLCs in the same search results.
+        # We trust two strong signals together: Steam's app `type == "game"` and
+        # a Steam-reported release date inside a tight window of the expected one.
+        if release_date is not None:
+            rescue_candidates: List[Tuple[float, Dict[str, Any]]] = []
+            for similarity, result in scored[: self.RESCUE_TOP_N_TO_INSPECT]:
+                if similarity < self.RESCUE_MIN_SIMILARITY:
+                    continue
+                app_details = await _details_for(result["steam_app_id"])
+                if not app_details:
+                    continue
+                if app_details.get("type") != "game":
+                    continue
+                steam_data = SteamService.transform_app_details(
+                    app_details, result["steam_app_id"]
+                )
+                steam_release = steam_data.get("release_date")
+                if steam_release is None:
+                    continue
+                if abs((release_date - steam_release).days) > self.RESCUE_RELEASE_DATE_TOLERANCE_DAYS:
+                    continue
+                rescue_candidates.append((similarity, result))
+
+            if rescue_candidates:
+                rescue_candidates.sort(key=lambda item: item[0], reverse=True)
+                top_sim, top_result = rescue_candidates[0]
+                reason = (
+                    "matched_by_release_date_pivot"
+                    if len(rescue_candidates) == 1
+                    else f"matched_by_release_date_pivot_top_of_{len(rescue_candidates)}"
+                )
+                return top_result["steam_app_id"], reason
 
         return None, f"below_threshold (best={best_score:.2f}, candidate=\"{best_match_title}\" app_id={best_match})"
 
