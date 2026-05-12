@@ -86,7 +86,7 @@ export function Header() {
             "linear-gradient(180deg, color-mix(in srgb, var(--background-card-strong) 94%, var(--background) 6%), color-mix(in srgb, var(--background-card) 92%, var(--background) 8%))",
         }}
       >
-        <div className="mx-auto max-w-[88rem] px-4 py-4 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-[96rem] px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between gap-4">
             <Link href="/" className="flex min-w-0 items-center gap-3">
               <div
@@ -120,8 +120,8 @@ export function Header() {
               </div>
             </Link>
 
-	            <div className="hidden min-w-0 items-center gap-3 lg:flex">
-	              <nav className="site-tab-nav" aria-label="Primary navigation">
+            <div className="hidden min-w-0 flex-1 items-center justify-end gap-3 xl:flex">
+              <nav className="site-tab-nav" aria-label="Primary navigation">
                 {navigation.map((item) => {
                   const isActive = stablePathname === item.href
                     || (item.href !== "/" && stablePathname.startsWith(item.href));
@@ -136,16 +136,16 @@ export function Header() {
                     </Link>
                   );
                 })}
-	              </nav>
+              </nav>
 
-	              {renderSearchTrigger()}
-	              <ThemeToggle />
-	            </div>
+              {renderSearchTrigger()}
+              <ThemeToggle />
+            </div>
 
-	            <div className="flex items-center gap-2 lg:hidden">
-	              {renderSearchTrigger()}
-	              <button
-	                type="button"
+            <div className="flex items-center gap-2 xl:hidden">
+              {renderSearchTrigger()}
+              <button
+                type="button"
                 className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border"
                 style={{
                   borderColor: "var(--border)",
@@ -178,14 +178,14 @@ export function Header() {
         </div>
       </header>
 
-	      {mobileMenuOpen && (
+      {mobileMenuOpen && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/55 lg:hidden"
+            className="fixed inset-0 z-40 bg-black/55 xl:hidden"
             onClick={() => setMobileMenuOpen(false)}
             aria-hidden="true"
           />
-          <div className="fixed inset-0 z-50 px-4 py-4 lg:hidden">
+          <div className="fixed inset-0 z-50 px-4 py-4 xl:hidden">
             <div
               className="mx-auto flex h-full max-w-md flex-col overflow-hidden rounded-[1.75rem] border"
               style={{
@@ -297,9 +297,9 @@ export function Header() {
             </div>
           </div>
         </>
-	      )}
+      )}
 
-	      <HeaderSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
-	    </>
+      <HeaderSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+    </>
   );
 }

@@ -668,13 +668,20 @@ html.dark .hover\:text-blue-800:hover {
 
 .site-tab-nav {
   display: inline-flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 0.55rem;
   padding: 0.45rem;
   border: 1px solid var(--border);
   border-radius: 9999px;
   background: color-mix(in srgb, var(--background-card-strong) 92%, var(--color-tan) 8%);
   box-shadow: var(--shadow-soft);
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.site-tab-nav::-webkit-scrollbar {
+  display: none;
 }
 
 .site-tab-link {
@@ -687,6 +694,7 @@ html.dark .hover\:text-blue-800:hover {
   color: var(--foreground-muted);
   font-size: 0.85rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .site-tab-link:hover {
@@ -697,6 +705,19 @@ html.dark .hover\:text-blue-800:hover {
   background: linear-gradient(135deg, var(--color-rust), var(--color-orange));
   color: white;
   box-shadow: 0 10px 22px rgba(187, 59, 14, 0.18);
+}
+
+@media (min-width: 80rem) and (max-width: 89.9375rem) {
+  .site-tab-nav {
+    gap: 0.3rem;
+    padding: 0.35rem;
+  }
+
+  .site-tab-link {
+    min-height: 2.35rem;
+    padding: 0.55rem 0.72rem;
+    font-size: 0.78rem;
+  }
 }
 
 .site-table-wrap {
