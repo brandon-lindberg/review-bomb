@@ -66,7 +66,8 @@ from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
-# Anti-gaming: minimum user reviews required for a game to appear in lists (per source)
+# Anti-gaming: minimum Steam reviews before we treat user score as strong enough for disparity.
+# Denormalized score/sample are still returned when a score exists (see _build_game_with_scores).
 MIN_STEAM_USER_REVIEWS = 50
 MIN_METACRITIC_USER_REVIEWS = 20
 MIN_CRITIC_REVIEWS_FOR_GAMES_LIST = 5
@@ -77,6 +78,7 @@ STEAM_ACTIVITY_TRACKING_START_AT = datetime(2026, 3, 19, tzinfo=timezone.utc)
 
 
 def _steam_score_is_valid(game: Game) -> bool:
+    """True when Steam user score is backed by enough reviews for disparity / comparative metrics."""
     return game.steam_sample_size is not None and game.steam_sample_size >= MIN_STEAM_USER_REVIEWS
 
 
@@ -209,8 +211,8 @@ def _build_game_with_scores(
         steam_app_id=game.steam_app_id,
         critic_review_count=game.critic_review_count or 0,
         opencritic_score=game.top_critic_score,
-        steam_user_score=game.steam_user_score if steam_valid else None,
-        steam_sample_size=game.steam_sample_size if steam_valid else None,
+        steam_user_score=game.steam_user_score,
+        steam_sample_size=game.steam_sample_size if game.steam_user_score is not None else None,
         steam_current_players=game.steam_current_players,
         steam_current_players_sampled_at=game.steam_current_players_sampled_at,
         steam_activity_preview=steam_activity_preview or [],
@@ -234,7 +236,6 @@ def _build_similar_game(
     game: Game,
     breakdown,
 ) -> SimilarGame:
-    steam_valid = _steam_score_is_valid(game)
     metacritic_valid = _metacritic_score_is_valid(game)
 
     return SimilarGame(
@@ -244,7 +245,7 @@ def _build_similar_game(
         release_date=game.release_date,
         image_url=game.image_url,
         avg_critic_score=game.avg_critic_score,
-        steam_user_score=game.steam_user_score if steam_valid else None,
+        steam_user_score=game.steam_user_score,
         metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
         critic_review_count=game.critic_review_count or 0,
         match_reasons=breakdown.match_reasons,
@@ -257,7 +258,6 @@ def _build_v3_similar_game(
     game: Game,
     neighbor: GameSimilarityV3Neighbor,
 ) -> SimilarGame:
-    steam_valid = _steam_score_is_valid(game)
     metacritic_valid = _metacritic_score_is_valid(game)
     payload = neighbor.explanation_payload or {}
     match_reasons = list(payload.get("match_reasons") or [])
@@ -270,7 +270,7 @@ def _build_v3_similar_game(
         release_date=game.release_date,
         image_url=game.image_url,
         avg_critic_score=game.avg_critic_score,
-        steam_user_score=game.steam_user_score if steam_valid else None,
+        steam_user_score=game.steam_user_score,
         metacritic_user_score=game.metacritic_user_score if metacritic_valid else None,
         critic_review_count=game.critic_review_count or 0,
         match_reasons=match_reasons[:3],
