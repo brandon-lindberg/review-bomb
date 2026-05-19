@@ -19,6 +19,40 @@ from app.schemas.schemas import PaginatedResponse, NewsArticleSummary
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 EXCLUDED_NEWS_SOURCES = {"Smash JT"}
+NEWS_SOURCE_GROUPS = {
+    "Jason Schreier": (
+        "Jason Schreier (Bloomberg)",
+        "Jason Schreier (Schrei Guy)",
+    ),
+    "Paul Tassi": (
+        "Paul Tassi (Forbes)",
+        "Paul Tassi (God Rolls)",
+    ),
+}
+
+
+def _source_filter_values(source: str | None) -> tuple[str, ...] | None:
+    if not source:
+        return None
+    return NEWS_SOURCE_GROUPS.get(source, (source,))
+
+
+def _display_sources(raw_sources: list[str]) -> list[str]:
+    raw_set = set(raw_sources)
+    grouped_members = {
+        member
+        for members in NEWS_SOURCE_GROUPS.values()
+        for member in members
+    }
+    sources = [
+        source
+        for source in raw_sources
+        if source not in grouped_members
+    ]
+    for group_name, members in NEWS_SOURCE_GROUPS.items():
+        if raw_set.intersection(members):
+            sources.append(group_name)
+    return sorted(sources)
 
 
 @router.get("", response_model=PaginatedResponse[NewsArticleSummary])
@@ -47,9 +81,10 @@ async def list_news(
         query = query.where(NewsArticle.source_name.notin_(excluded_sources))
         count_query = count_query.where(NewsArticle.source_name.notin_(excluded_sources))
 
-    if source:
-        query = query.where(NewsArticle.source_name == source)
-        count_query = count_query.where(NewsArticle.source_name == source)
+    source_values = _source_filter_values(source)
+    if source_values:
+        query = query.where(NewsArticle.source_name.in_(source_values))
+        count_query = count_query.where(NewsArticle.source_name.in_(source_values))
 
     if search:
         search_filter = or_(
@@ -108,7 +143,7 @@ async def list_sources(
         .distinct()
         .order_by(NewsArticle.source_name)
     )
-    sources = [row[0] for row in result.all()]
+    sources = _display_sources([row[0] for row in result.all()])
 
     await set_cached("news:sources", json.dumps(sources), expire_seconds=CACHE_TTL_MEDIUM)
 
