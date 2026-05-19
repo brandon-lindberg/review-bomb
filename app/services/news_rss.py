@@ -18,6 +18,8 @@ import httpx
 class NewsRSSService:
     """Fetches and parses gaming news RSS feeds."""
 
+    FeedConfig = str | tuple[str, ...]
+
     FEEDS = {
         "IGN": "https://feeds.feedburner.com/ign/all",
         "GameSpot": "https://www.gamespot.com/feeds/news/",
@@ -26,10 +28,16 @@ class NewsRSSService:
         "Polygon": "https://www.polygon.com/rss/index.xml",
         "Eurogamer": "https://www.eurogamer.net/feed",
         "The Verge": "https://www.theverge.com/rss/games/index.xml",
-        "Jason Schreier (Bloomberg)": "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
+        "Jason Schreier (Bloomberg)": (
+            "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
+            "https://jasonschreier.substack.com/feed",
+        ),
         # Forbes author feeds are blocked in this environment. Use Innovation feed
         # and filter to Paul Tassi entries by author and URL.
-        "Paul Tassi (Forbes)": "https://www.forbes.com/innovation/feed/",
+        "Paul Tassi (Forbes)": (
+            "https://www.forbes.com/innovation/feed/",
+            "https://paultassi.substack.com/feed",
+        ),
         "Bellular": "https://bellular.games/tag/news-posts/feed/",
         "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
         "The Game Business": "https://www.thegamebusiness.com/feed",
@@ -43,12 +51,15 @@ class NewsRSSService:
         "Video Games Industry Memo": "https://www.videogamesindustrymemo.com/feed",
     }
 
-    SOURCE_RULES: dict[str, dict[str, Any]] = {
-        "Paul Tassi (Forbes)": {
+    FEED_RULES: dict[str, dict[str, Any]] = {
+        "https://www.forbes.com/innovation/feed/": {
             "required_author_contains": "paul tassi",
             "required_url_contains": "/sites/paultassi/",
             "enforce_game_relevance": True,
         },
+    }
+
+    SOURCE_RULES: dict[str, dict[str, Any]] = {
         "Bellular": {
             "enforce_game_relevance": True,
         },
@@ -174,7 +185,41 @@ class NewsRSSService:
             return False
         return has_game_signal
 
-    def _parse_entry(self, entry: dict, source_name: str) -> Optional[dict[str, Any]]:
+    @classmethod
+    def _iter_feed_urls(cls, feed_config: FeedConfig) -> tuple[str, ...]:
+        if isinstance(feed_config, str):
+            return (feed_config,)
+        return feed_config
+
+    @classmethod
+    def _rules_for_entry(
+        cls,
+        source_name: str,
+        feed_url: str | None = None,
+    ) -> dict[str, Any]:
+        rules = dict(cls.SOURCE_RULES.get(source_name, {}))
+        if feed_url is not None:
+            rules.update(cls.FEED_RULES.get(feed_url, {}))
+            return rules
+
+        feed_config = cls.FEEDS.get(source_name)
+        if feed_config is None:
+            return rules
+        feed_rules = [
+            cls.FEED_RULES[url]
+            for url in cls._iter_feed_urls(feed_config)
+            if url in cls.FEED_RULES
+        ]
+        if len(feed_rules) == 1:
+            rules.update(feed_rules[0])
+        return rules
+
+    def _parse_entry(
+        self,
+        entry: dict,
+        source_name: str,
+        feed_url: str | None = None,
+    ) -> Optional[dict[str, Any]]:
         """Parse a single RSS feed entry into our article format."""
         title = self._strip_html(entry.get("title"))
         link = entry.get("link")
@@ -189,7 +234,7 @@ class NewsRSSService:
             description = description[:497] + "..."
 
         author = entry.get("author")
-        rules = self.SOURCE_RULES.get(source_name, {})
+        rules = self._rules_for_entry(source_name, feed_url)
         required_author = rules.get("required_author_contains")
         if required_author and required_author not in (author or "").lower():
             return None
@@ -230,7 +275,7 @@ class NewsRSSService:
             feed = feedparser.parse(response.text)
             articles = []
             for entry in feed.entries:
-                article = self._parse_entry(entry, source_name)
+                article = self._parse_entry(entry, source_name, url)
                 if article:
                     articles.append(article)
 
@@ -243,7 +288,9 @@ class NewsRSSService:
     async def fetch_all_feeds(self) -> list[dict[str, Any]]:
         """Fetch all configured RSS feeds concurrently."""
         tasks = [
-            self.fetch_feed(name, url) for name, url in self.FEEDS.items()
+            self.fetch_feed(name, url)
+            for name, feed_config in self.FEEDS.items()
+            for url in self._iter_feed_urls(feed_config)
         ]
         results = await asyncio.gather(*tasks)
 

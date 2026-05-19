@@ -19,6 +19,19 @@ NEW_NEWS_FEEDS = {
 }
 
 
+def test_author_substack_feeds_are_grouped_under_existing_sources():
+    assert NewsRSSService.FEEDS["Jason Schreier (Bloomberg)"] == (
+        "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
+        "https://jasonschreier.substack.com/feed",
+    )
+    assert NewsRSSService.FEEDS["Paul Tassi (Forbes)"] == (
+        "https://www.forbes.com/innovation/feed/",
+        "https://paultassi.substack.com/feed",
+    )
+    assert "Jason Schreier (Substack)" not in NewsRSSService.FEEDS
+    assert "Paul Tassi (Substack)" not in NewsRSSService.FEEDS
+
+
 def test_new_newsletter_sources_are_configured():
     for source_name, feed_url in NEW_NEWS_FEEDS.items():
         assert NewsRSSService.FEEDS[source_name] == feed_url
@@ -38,6 +51,44 @@ def test_parse_entry_keeps_new_newsletter_source_names(source_name):
 
     assert article is not None
     assert article["source_name"] == source_name
+
+
+def test_parse_entry_keeps_paul_tassi_substack_under_forbes_source():
+    service = NewsRSSService()
+    entry = {
+        "title": "God Rolls - Destiny Burns, Starfield's Sky, Diablo 4 Doubts",
+        "link": "https://paultassi.substack.com/p/god-rolls-destiny-burns-starfields",
+        "summary": "A weekly roundup about Destiny, Starfield, and Diablo 4.",
+        "author": "Paul Tassi",
+    }
+
+    article = service._parse_entry(
+        entry,
+        "Paul Tassi (Forbes)",
+        "https://paultassi.substack.com/feed",
+    )
+
+    assert article is not None
+    assert article["source_name"] == "Paul Tassi (Forbes)"
+
+
+def test_parse_entry_keeps_jason_schreier_substack_under_bloomberg_source():
+    service = NewsRSSService()
+    entry = {
+        "title": "Frequently asked questions about Play Nice",
+        "link": "https://jasonschreier.substack.com/p/frequently-asked-questions-about-play",
+        "summary": "A note about Play Nice: The Rise, Fall, and Future of Blizzard Entertainment.",
+        "author": "Jason Schreier",
+    }
+
+    article = service._parse_entry(
+        entry,
+        "Jason Schreier (Bloomberg)",
+        "https://jasonschreier.substack.com/feed",
+    )
+
+    assert article is not None
+    assert article["source_name"] == "Jason Schreier (Bloomberg)"
 
 
 def test_parse_entry_keeps_paul_tassi_game_article():
