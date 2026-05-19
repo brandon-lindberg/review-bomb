@@ -192,6 +192,14 @@ class NewsRSSService:
         return feed_config
 
     @classmethod
+    def configured_feed_count(cls) -> int:
+        return sum(len(cls._iter_feed_urls(feed_config)) for feed_config in cls.FEEDS.values())
+
+    @classmethod
+    def configured_source_count(cls) -> int:
+        return len(cls.FEEDS)
+
+    @classmethod
     def _rules_for_entry(
         cls,
         source_name: str,

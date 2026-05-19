@@ -743,7 +743,11 @@ async def _sync_news_feeds():
 
         print("Fetching gaming news RSS feeds...")
         articles = await service.fetch_all_feeds()
-        print(f"Fetched {len(articles)} articles from {len(service.FEEDS)} feeds")
+        print(
+            f"Fetched {len(articles)} articles from "
+            f"{service.configured_feed_count()} feed URLs across "
+            f"{service.configured_source_count()} sources"
+        )
 
         # Load game titles for matching
         games_result = await db.execute(select(Game.id, Game.title))

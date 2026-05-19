@@ -32,6 +32,11 @@ def test_author_substack_feeds_are_grouped_under_existing_sources():
     assert "Paul Tassi (Substack)" not in NewsRSSService.FEEDS
 
 
+def test_configured_feed_count_counts_grouped_feed_urls():
+    assert NewsRSSService.configured_source_count() == 20
+    assert NewsRSSService.configured_feed_count() == 22
+
+
 def test_new_newsletter_sources_are_configured():
     for source_name, feed_url in NEW_NEWS_FEEDS.items():
         assert NewsRSSService.FEEDS[source_name] == feed_url
