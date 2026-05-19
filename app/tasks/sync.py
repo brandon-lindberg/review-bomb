@@ -723,8 +723,8 @@ def sync_news_feeds():
     """
     Fetch latest articles from all gaming news RSS feeds.
 
-    This fetches RSS feeds from IGN, GameSpot, Kotaku, PC Gamer,
-    Polygon, Eurogamer, and The Verge, inserting new articles.
+    This fetches every feed configured in NewsRSSService.FEEDS, inserting
+    new articles.
     Articles are kept permanently since they may be displayed on game pages.
     """
     run_async_task(lambda: _sync_news_feeds())

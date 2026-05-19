@@ -31,6 +31,16 @@ class NewsRSSService:
         # and filter to Paul Tassi entries by author and URL.
         "Paul Tassi (Forbes)": "https://www.forbes.com/innovation/feed/",
         "Bellular": "https://bellular.games/tag/news-posts/feed/",
+        "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
+        "The Game Business": "https://www.thegamebusiness.com/feed",
+        "Game File": "https://www.gamefile.news/feed",
+        "Hit Points": "https://newsletter.hitpoints.co/rss/",
+        "Crossplay": "https://www.crossplay.news/feed",
+        "Post Games": "https://postgame.substack.com/feed",
+        "Game & Word": "https://gameandword.substack.com/feed",
+        "SuperJoost Playlist": "https://superjoost.substack.com/feed",
+        "Game (Pad and Pixel)": "https://game.substack.com/feed",
+        "Video Games Industry Memo": "https://www.videogamesindustrymemo.com/feed",
     }
 
     SOURCE_RULES: dict[str, dict[str, Any]] = {

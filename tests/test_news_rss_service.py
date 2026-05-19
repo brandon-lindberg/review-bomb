@@ -1,6 +1,43 @@
 from __future__ import annotations
 
+import pytest
+
 from app.services.news_rss import NewsRSSService
+
+
+NEW_NEWS_FEEDS = {
+    "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
+    "The Game Business": "https://www.thegamebusiness.com/feed",
+    "Game File": "https://www.gamefile.news/feed",
+    "Hit Points": "https://newsletter.hitpoints.co/rss/",
+    "Crossplay": "https://www.crossplay.news/feed",
+    "Post Games": "https://postgame.substack.com/feed",
+    "Game & Word": "https://gameandword.substack.com/feed",
+    "SuperJoost Playlist": "https://superjoost.substack.com/feed",
+    "Game (Pad and Pixel)": "https://game.substack.com/feed",
+    "Video Games Industry Memo": "https://www.videogamesindustrymemo.com/feed",
+}
+
+
+def test_new_newsletter_sources_are_configured():
+    for source_name, feed_url in NEW_NEWS_FEEDS.items():
+        assert NewsRSSService.FEEDS[source_name] == feed_url
+
+
+@pytest.mark.parametrize("source_name", NEW_NEWS_FEEDS)
+def test_parse_entry_keeps_new_newsletter_source_names(source_name):
+    service = NewsRSSService()
+    entry = {
+        "title": "Steam launch analysis shows a breakout indie game",
+        "link": f"https://example.com/{source_name.lower().replace(' ', '-')}",
+        "summary": "A market note about Steam performance and video game discovery.",
+        "author": "Example Author",
+    }
+
+    article = service._parse_entry(entry, source_name)
+
+    assert article is not None
+    assert article["source_name"] == source_name
 
 
 def test_parse_entry_keeps_paul_tassi_game_article():
