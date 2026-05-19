@@ -13,7 +13,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   return {
     title: "Gaming News",
     description:
-      "Latest gaming news from IGN, GameSpot, Kotaku, PC Gamer, Polygon, Eurogamer, and more.",
+      "Latest gaming news from top gaming outlets, industry newsletters, and independent games media.",
     alternates: { canonical: "/news" },
     ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
