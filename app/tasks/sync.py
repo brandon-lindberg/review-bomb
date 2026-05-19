@@ -761,12 +761,18 @@ async def _sync_news_feeds():
             stmt = pg_insert(NewsArticle).values(**article)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["url"],
-                set_={"game_id": stmt.excluded.game_id},
-                where=and_(
-                    stmt.excluded.game_id.isnot(None),
-                    or_(
-                        NewsArticle.game_id.is_(None),
-                        NewsArticle.game_id != stmt.excluded.game_id,
+                set_={
+                    "source_name": stmt.excluded.source_name,
+                    "game_id": func.coalesce(stmt.excluded.game_id, NewsArticle.game_id),
+                },
+                where=or_(
+                    NewsArticle.source_name != stmt.excluded.source_name,
+                    and_(
+                        stmt.excluded.game_id.isnot(None),
+                        or_(
+                            NewsArticle.game_id.is_(None),
+                            NewsArticle.game_id != stmt.excluded.game_id,
+                        ),
                     ),
                 ),
             )

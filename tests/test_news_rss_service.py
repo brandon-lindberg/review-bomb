@@ -6,6 +6,8 @@ from app.services.news_rss import NewsRSSService
 
 
 NEW_NEWS_FEEDS = {
+    "Jason Schreier (Schrei Guy)": "https://jasonschreier.substack.com/feed",
+    "Paul Tassi (God Rolls)": "https://paultassi.substack.com/feed",
     "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
     "The Game Business": "https://www.thegamebusiness.com/feed",
     "Game File": "https://www.gamefile.news/feed",
@@ -19,21 +21,20 @@ NEW_NEWS_FEEDS = {
 }
 
 
-def test_author_substack_feeds_are_grouped_under_existing_sources():
-    assert NewsRSSService.FEEDS["Jason Schreier (Bloomberg)"] == (
-        "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
-        "https://jasonschreier.substack.com/feed",
+def test_author_substack_feeds_are_labeled_as_independent_sources():
+    assert (
+        NewsRSSService.FEEDS["Jason Schreier (Bloomberg)"]
+        == "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss"
     )
-    assert NewsRSSService.FEEDS["Paul Tassi (Forbes)"] == (
-        "https://www.forbes.com/innovation/feed/",
-        "https://paultassi.substack.com/feed",
-    )
+    assert NewsRSSService.FEEDS["Jason Schreier (Schrei Guy)"] == "https://jasonschreier.substack.com/feed"
+    assert NewsRSSService.FEEDS["Paul Tassi (Forbes)"] == "https://www.forbes.com/sites/paultassi/feed/"
+    assert NewsRSSService.FEEDS["Paul Tassi (God Rolls)"] == "https://paultassi.substack.com/feed"
     assert "Jason Schreier (Substack)" not in NewsRSSService.FEEDS
     assert "Paul Tassi (Substack)" not in NewsRSSService.FEEDS
 
 
 def test_configured_feed_count_counts_grouped_feed_urls():
-    assert NewsRSSService.configured_source_count() == 20
+    assert NewsRSSService.configured_source_count() == 22
     assert NewsRSSService.configured_feed_count() == 22
 
 
@@ -58,7 +59,7 @@ def test_parse_entry_keeps_new_newsletter_source_names(source_name):
     assert article["source_name"] == source_name
 
 
-def test_parse_entry_keeps_paul_tassi_substack_under_forbes_source():
+def test_parse_entry_keeps_paul_tassi_substack_under_god_rolls_source():
     service = NewsRSSService()
     entry = {
         "title": "God Rolls - Destiny Burns, Starfield's Sky, Diablo 4 Doubts",
@@ -69,15 +70,15 @@ def test_parse_entry_keeps_paul_tassi_substack_under_forbes_source():
 
     article = service._parse_entry(
         entry,
-        "Paul Tassi (Forbes)",
+        "Paul Tassi (God Rolls)",
         "https://paultassi.substack.com/feed",
     )
 
     assert article is not None
-    assert article["source_name"] == "Paul Tassi (Forbes)"
+    assert article["source_name"] == "Paul Tassi (God Rolls)"
 
 
-def test_parse_entry_keeps_jason_schreier_substack_under_bloomberg_source():
+def test_parse_entry_keeps_jason_schreier_substack_under_schrei_guy_source():
     service = NewsRSSService()
     entry = {
         "title": "Frequently asked questions about Play Nice",
@@ -88,12 +89,12 @@ def test_parse_entry_keeps_jason_schreier_substack_under_bloomberg_source():
 
     article = service._parse_entry(
         entry,
-        "Jason Schreier (Bloomberg)",
+        "Jason Schreier (Schrei Guy)",
         "https://jasonschreier.substack.com/feed",
     )
 
     assert article is not None
-    assert article["source_name"] == "Jason Schreier (Bloomberg)"
+    assert article["source_name"] == "Jason Schreier (Schrei Guy)"
 
 
 def test_parse_entry_keeps_paul_tassi_game_article():
@@ -110,6 +111,25 @@ def test_parse_entry_keeps_paul_tassi_game_article():
     assert article is not None
     assert article["source_name"] == "Paul Tassi (Forbes)"
     assert article["author"] == "Paul Tassi, Senior Contributor"
+
+
+def test_parse_entry_keeps_paul_tassi_forbes_author_feed_game_article():
+    service = NewsRSSService()
+    entry = {
+        "title": "Bungie May Transform 'Marathon' Entirely This Year, According To Its New Roadmap",
+        "link": "https://www.forbes.com/sites/paultassi/2026/05/16/bungie-may-transform-marathon-entirely-this-year-according-to-its-new-roadmap/",
+        "summary": "Marathon may transform what the entire game is over the next year.",
+        "author": "Paul Tassi, Senior Contributor",
+    }
+
+    article = service._parse_entry(
+        entry,
+        "Paul Tassi (Forbes)",
+        "https://www.forbes.com/sites/paultassi/feed/",
+    )
+
+    assert article is not None
+    assert article["source_name"] == "Paul Tassi (Forbes)"
 
 
 def test_parse_entry_drops_paul_tassi_non_game_media_article():

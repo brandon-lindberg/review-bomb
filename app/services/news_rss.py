@@ -28,16 +28,10 @@ class NewsRSSService:
         "Polygon": "https://www.polygon.com/rss/index.xml",
         "Eurogamer": "https://www.eurogamer.net/feed",
         "The Verge": "https://www.theverge.com/rss/games/index.xml",
-        "Jason Schreier (Bloomberg)": (
-            "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
-            "https://jasonschreier.substack.com/feed",
-        ),
-        # Forbes author feeds are blocked in this environment. Use Innovation feed
-        # and filter to Paul Tassi entries by author and URL.
-        "Paul Tassi (Forbes)": (
-            "https://www.forbes.com/innovation/feed/",
-            "https://paultassi.substack.com/feed",
-        ),
+        "Jason Schreier (Bloomberg)": "https://www.bloomberg.com/authors/AUvqMRVAZCw/jason-schreier.rss",
+        "Jason Schreier (Schrei Guy)": "https://jasonschreier.substack.com/feed",
+        "Paul Tassi (Forbes)": "https://www.forbes.com/sites/paultassi/feed/",
+        "Paul Tassi (God Rolls)": "https://paultassi.substack.com/feed",
         "Bellular": "https://bellular.games/tag/news-posts/feed/",
         "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
         "The Game Business": "https://www.thegamebusiness.com/feed",
@@ -52,7 +46,7 @@ class NewsRSSService:
     }
 
     FEED_RULES: dict[str, dict[str, Any]] = {
-        "https://www.forbes.com/innovation/feed/": {
+        "https://www.forbes.com/sites/paultassi/feed/": {
             "required_author_contains": "paul tassi",
             "required_url_contains": "/sites/paultassi/",
             "enforce_game_relevance": True,
@@ -91,8 +85,19 @@ class NewsRSSService:
         "indie game",
         "game studio",
         "developer",
+        "bungie",
+        "crimson desert",
+        "destiny",
+        "diablo",
+        "forza",
+        "grand theft auto",
+        "gta",
+        "marathon",
         "metacritic",
         "opencritic",
+        "pearl abyss",
+        "pve",
+        "pvp",
     )
     NON_GAME_MEDIA_TERMS = (
         "netflix",
