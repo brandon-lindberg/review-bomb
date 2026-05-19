@@ -9,7 +9,9 @@ export default function AppImage({
 }: ImageProps) {
   const normalizedSrc = typeof src === "string" ? normalizeImageUrl(src) : src;
   const shouldBypassOptimization =
-    unoptimized ?? (typeof normalizedSrc === "string" && isRemoteImageUrl(normalizedSrc));
+    typeof normalizedSrc === "string" && isRemoteImageUrl(normalizedSrc)
+      ? true
+      : Boolean(unoptimized);
 
   return (
     <NextImage

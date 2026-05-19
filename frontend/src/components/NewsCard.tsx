@@ -31,7 +31,7 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
         year: "numeric",
       })
     : null;
-  const unoptimized = shouldBypassImageOptimizer(article);
+  const bypassImageOptimizer = shouldBypassImageOptimizer(article);
 
   if (compact) {
     return (
@@ -50,7 +50,10 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
                 width={80}
                 height={64}
                 sizes="(max-width: 640px) 64px, 80px"
-                unoptimized={unoptimized}
+                unoptimized={bypassImageOptimizer || undefined}
+                loading="lazy"
+                decoding="async"
+                fetchPriority="low"
                 className="h-full w-full object-cover"
               />
             </div>
@@ -102,7 +105,10 @@ export function NewsCard({ article, compact = false }: NewsCardProps) {
             alt=""
             fill
             sizes="(max-width: 768px) 100vw, (max-width: 1280px) 50vw, 33vw"
-            unoptimized={unoptimized}
+            unoptimized={bypassImageOptimizer || undefined}
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         </div>
