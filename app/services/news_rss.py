@@ -24,6 +24,7 @@ class NewsRSSService:
         "IGN": "https://feeds.feedburner.com/ign/all",
         "GameSpot": "https://www.gamespot.com/feeds/news/",
         "Kotaku": "https://kotaku.com/rss",
+        "GamesRadar+": "https://www.gamesradar.com/feeds.xml",
         "PC Gamer": "https://www.pcgamer.com/rss/",
         "Polygon": "https://www.polygon.com/rss/index.xml",
         "Eurogamer": "https://www.eurogamer.net/feed",
@@ -55,6 +56,9 @@ class NewsRSSService:
 
     SOURCE_RULES: dict[str, dict[str, Any]] = {
         "Bellular": {
+            "enforce_game_relevance": True,
+        },
+        "GamesRadar+": {
             "enforce_game_relevance": True,
         },
     }
@@ -102,6 +106,10 @@ class NewsRSSService:
         "early access",
         "indie game",
         "game studio",
+        "/games/",
+        "/gaming/",
+        "/hardware/gaming",
+        "/platforms/",
         "developer",
         "bungie",
         "crimson desert",
@@ -196,8 +204,9 @@ class NewsRSSService:
         title: str,
         description: str | None,
         url: str,
+        tags: list[str] | None = None,
     ) -> bool:
-        combined = f"{title} {description or ''} {url}".lower()
+        combined = f"{title} {description or ''} {url} {' '.join(tags or [])}".lower()
         if any(term in combined for term in self.NON_VIDEO_GAME_PUZZLE_TERMS):
             return False
 
@@ -275,10 +284,16 @@ class NewsRSSService:
             return None
 
         if rules.get("enforce_game_relevance"):
+            tags = [
+                tag.get("term", "")
+                for tag in entry.get("tags", [])
+                if isinstance(tag, dict)
+            ]
             if not self._is_video_game_relevant(
                 title=title,
                 description=description,
                 url=link,
+                tags=tags,
             ):
                 return None
 

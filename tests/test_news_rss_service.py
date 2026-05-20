@@ -8,6 +8,7 @@ from app.services.news_rss import NewsRSSService
 NEW_NEWS_FEEDS = {
     "Jason Schreier (Schrei Guy)": "https://jasonschreier.substack.com/feed",
     "Paul Tassi (God Rolls)": "https://paultassi.substack.com/feed",
+    "GamesRadar+": "https://www.gamesradar.com/feeds.xml",
     "GameDiscoverCo": "https://newsletter.gamediscover.co/feed",
     "The Game Business": "https://www.thegamebusiness.com/feed",
     "Game File": "https://www.gamefile.news/feed",
@@ -34,8 +35,8 @@ def test_author_substack_feeds_are_labeled_as_independent_sources():
 
 
 def test_configured_feed_count_counts_grouped_feed_urls():
-    assert NewsRSSService.configured_source_count() == 22
-    assert NewsRSSService.configured_feed_count() == 22
+    assert NewsRSSService.configured_source_count() == 23
+    assert NewsRSSService.configured_feed_count() == 23
 
 
 def test_new_newsletter_sources_are_configured():
@@ -165,6 +166,46 @@ def test_parse_entry_keeps_platform_business_and_hardware_news(title, summary):
     )
 
     assert article is not None
+
+
+def test_parse_entry_keeps_gamesradar_game_article_from_tags_and_url():
+    service = NewsRSSService()
+    entry = {
+        "title": "Hasbro cancels Dungeons & Dragons game from God of War veteran",
+        "link": "https://www.gamesradar.com/games/action/hasbro-cancels-dungeons-and-dragons-game/",
+        "summary": "At least we have Exodus.",
+        "author": "Ashley Bardhan",
+        "tags": [
+            {"term": "Action Games"},
+            {"term": "PC Gaming"},
+            {"term": "PlayStation"},
+            {"term": "Xbox"},
+        ],
+    }
+
+    article = service._parse_entry(entry, "GamesRadar+")
+
+    assert article is not None
+    assert article["source_name"] == "GamesRadar+"
+
+
+def test_parse_entry_drops_gamesradar_entertainment_article():
+    service = NewsRSSService()
+    entry = {
+        "title": "The Mandalorian and Grogu is one of the lowest-rated Star Wars movies",
+        "link": "https://www.gamesradar.com/entertainment/star-wars-movies/mandalorian-and-grogu-rotten-tomatoes/",
+        "summary": "It's the first Star Wars movie in seven years.",
+        "author": "Lauren Milici",
+        "tags": [
+            {"term": "Star Wars Movies"},
+            {"term": "Entertainment"},
+            {"term": "Movies"},
+        ],
+    }
+
+    article = service._parse_entry(entry, "GamesRadar+")
+
+    assert article is None
 
 
 def test_parse_entry_drops_paul_tassi_non_game_media_article():
