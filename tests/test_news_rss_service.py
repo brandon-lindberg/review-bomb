@@ -132,6 +132,41 @@ def test_parse_entry_keeps_paul_tassi_forbes_author_feed_game_article():
     assert article["source_name"] == "Paul Tassi (Forbes)"
 
 
+@pytest.mark.parametrize(
+    ("title", "summary"),
+    [
+        (
+            "Sony's PlayStation PC Departure Is The Right Move For Them, Not Players",
+            "Sony is changing its PlayStation PC port strategy for single-player games.",
+        ),
+        (
+            "Xbox Reveals Its Top 10 Player Demands In New Transparency Era",
+            "Microsoft shares the most requested Xbox hardware and Game Pass changes.",
+        ),
+        (
+            "Steam Deck Rival Gets New Hardware Revision",
+            "A new handheld PC gaming device targets Steam users.",
+        ),
+    ],
+)
+def test_parse_entry_keeps_platform_business_and_hardware_news(title, summary):
+    service = NewsRSSService()
+    entry = {
+        "title": title,
+        "link": "https://www.forbes.com/sites/paultassi/2026/05/19/platform-business-news/",
+        "summary": summary,
+        "author": "Paul Tassi, Senior Contributor",
+    }
+
+    article = service._parse_entry(
+        entry,
+        "Paul Tassi (Forbes)",
+        "https://www.forbes.com/sites/paultassi/feed/",
+    )
+
+    assert article is not None
+
+
 def test_parse_entry_drops_paul_tassi_non_game_media_article():
     service = NewsRSSService()
     entry = {
