@@ -439,6 +439,18 @@ html.dark .hover\:text-blue-800:hover {
   background: color-mix(in srgb, var(--background-card-strong) 92%, var(--color-tan) 8%);
 }
 
+.route-kpi--link {
+  text-decoration: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+
+.route-kpi--link:hover,
+.route-kpi--link:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--background-card-strong) 82%, var(--accent) 18%);
+  transform: translateY(-1px);
+}
+
 .route-kpi__value {
   color: var(--foreground);
   font-size: 0.95rem;

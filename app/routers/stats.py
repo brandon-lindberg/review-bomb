@@ -17,7 +17,7 @@ from app.schemas.schemas import (
 )
 from app.cache import get_cached, set_cached, CACHE_TTL_HOT
 from app.cache import CACHE_TTL_LONG, CACHE_TTL_SHORT
-from app.services.site_stats import get_stored_site_stats_snapshot, refresh_site_stats_snapshot
+from app.services.site_stats import compute_site_stats_snapshot
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.trending import TrendingAggregator
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
@@ -93,13 +93,8 @@ async def _get_sitemap_entries(
 async def get_stats(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get site-wide statistics from a stored snapshot (fallback computes and stores)."""
-    snapshot = await get_stored_site_stats_snapshot(db)
-    if snapshot:
-        return snapshot
-
-    # Fallback path for first boot / empty cache-store.
-    return await refresh_site_stats_snapshot(db)
+    """Get site-wide statistics from the current database state."""
+    return await compute_site_stats_snapshot(db)
 
 
 @router.get("/recent-reviews", response_model=list[ReviewWithJournalist])

@@ -211,6 +211,12 @@ export default async function Home() {
     : [];
   const featuredTrend = trendingGames?.items?.[0] ?? null;
   const featuredReview = sortedRecentReviews[0] ?? null;
+  const featuredTrendHref = featuredTrend?.is_linked && (featuredTrend.game_public_id || featuredTrend.game_id)
+    ? buildEntityPath("games", featuredTrend.title, featuredTrend.game_public_id ?? featuredTrend.game_id!)
+    : null;
+  const featuredReviewHref = featuredReview?.game_public_id || featuredReview?.game_id
+    ? buildEntityPath("games", featuredReview.game_title, featuredReview.game_public_id ?? featuredReview.game_id)
+    : null;
 
   return (
     <div className="space-y-8">
@@ -250,16 +256,30 @@ export default async function Home() {
               <span className="route-kpi__label">Reviews</span>
             </span>
             {featuredTrend && (
-              <span className="route-kpi">
-                <span className="route-kpi__value">{featuredTrend.title}</span>
-                <span className="route-kpi__label">Trending</span>
-              </span>
+              featuredTrendHref ? (
+                <Link className="route-kpi route-kpi--link" href={featuredTrendHref}>
+                  <span className="route-kpi__value">{featuredTrend.title}</span>
+                  <span className="route-kpi__label">Trending</span>
+                </Link>
+              ) : (
+                <span className="route-kpi">
+                  <span className="route-kpi__value">{featuredTrend.title}</span>
+                  <span className="route-kpi__label">Trending</span>
+                </span>
+              )
             )}
             {featuredReview && (
-              <span className="route-kpi">
-                <span className="route-kpi__value">{featuredReview.game_title}</span>
-                <span className="route-kpi__label">Latest review</span>
-              </span>
+              featuredReviewHref ? (
+                <Link className="route-kpi route-kpi--link" href={featuredReviewHref}>
+                  <span className="route-kpi__value">{featuredReview.game_title}</span>
+                  <span className="route-kpi__label">Latest review</span>
+                </Link>
+              ) : (
+                <span className="route-kpi">
+                  <span className="route-kpi__value">{featuredReview.game_title}</span>
+                  <span className="route-kpi__label">Latest review</span>
+                </span>
+              )
             )}
           </div>
         )}

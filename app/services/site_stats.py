@@ -1,9 +1,4 @@
-"""
-Site stats snapshot helpers.
-
-Stores precomputed site-wide stats in SyncState so `/api/v1/stats` can return a
-persisted snapshot instead of recomputing expensive aggregates on every request.
-"""
+"""Site-wide stats helpers for live aggregates and optional stored snapshots."""
 
 import json
 from datetime import datetime, timezone
@@ -15,7 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import get_cached, set_cached, CACHE_TTL_SHORT
-from app.models.models import Journalist, Outlet, Review, SyncState
+from app.models.models import Game, Journalist, Outlet, Review, SyncState
 from app.schemas.schemas import SiteStats
 
 SITE_STATS_SYNC_STATE_KEY = "site_stats_snapshot:v1"
@@ -24,30 +19,16 @@ SITE_STATS_CACHE_KEY = "stats:site:v3"
 
 async def compute_site_stats_snapshot(db: AsyncSession) -> SiteStats:
     """Compute site-wide statistics from source tables."""
-    journalist_count = await db.execute(
-        select(func.count()).select_from(Journalist).where(Journalist.avg_disparity.isnot(None))
-    )
+    journalist_count = await db.execute(select(func.count()).select_from(Journalist))
     total_journalists = journalist_count.scalar() or 0
 
-    outlet_count = await db.execute(
-        select(func.count()).select_from(Outlet).where(Outlet.avg_disparity.isnot(None))
-    )
+    outlet_count = await db.execute(select(func.count()).select_from(Outlet))
     total_outlets = outlet_count.scalar() or 0
 
-    games_with_reviews = (
-        select(Review.game_id)
-        .where(Review.score_normalized.isnot(None))
-        .distinct()
-        .subquery()
-    )
-    game_count = await db.execute(select(func.count()).select_from(games_with_reviews))
+    game_count = await db.execute(select(func.count()).select_from(Game))
     total_games = game_count.scalar() or 0
 
-    review_count = await db.execute(
-        select(func.count()).select_from(Review).where(
-            Review.score_normalized.isnot(None),
-        )
-    )
+    review_count = await db.execute(select(func.count()).select_from(Review))
     total_reviews = review_count.scalar() or 0
 
     avg_disparity_result = await db.execute(
