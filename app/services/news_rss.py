@@ -154,8 +154,30 @@ class NewsRSSService:
         clean = re.sub(r"\s+", " ", clean).strip()
         return clean
 
-    @staticmethod
-    def _extract_image(entry: dict) -> Optional[str]:
+    # Matches the news_articles.image_url column width; longer values are
+    # rejected rather than truncated mid-URL (a truncated URL is useless).
+    MAX_IMAGE_URL_LENGTH = 1024
+
+    @classmethod
+    def _clean_image_url(cls, url: Optional[str]) -> Optional[str]:
+        """Return ``url`` only if it is a usable, storable remote image link.
+
+        Feeds occasionally inline images as ``data:image/...;base64,...`` URIs,
+        which can be hundreds of KB. Storing those bloats every news row and the
+        in-memory article batch during sync, so we only accept http(s) links
+        that fit the database column.
+        """
+        if not url:
+            return None
+        url = url.strip()
+        if not url.lower().startswith(("http://", "https://")):
+            return None
+        if len(url) > cls.MAX_IMAGE_URL_LENGTH:
+            return None
+        return url
+
+    @classmethod
+    def _extract_image(cls, entry: dict) -> Optional[str]:
         """Extract the best image URL from an RSS entry."""
         # media:content (common in RSS 2.0 with media namespace)
         media_content = entry.get("media_content", [])
@@ -165,25 +187,29 @@ class NewsRSSService:
                 if media.get("medium") == "image" or any(
                     ext in url.lower() for ext in (".jpg", ".jpeg", ".png", ".webp")
                 ):
-                    return url
+                    if cleaned := cls._clean_image_url(url):
+                        return cleaned
 
         # media:thumbnail
         media_thumbnail = entry.get("media_thumbnail", [])
         if media_thumbnail:
-            return media_thumbnail[0].get("url")
+            if cleaned := cls._clean_image_url(media_thumbnail[0].get("url")):
+                return cleaned
 
         # enclosures (standard RSS)
         enclosures = entry.get("enclosures", [])
         for enc in enclosures:
             enc_type = enc.get("type", "")
             if enc_type.startswith("image/"):
-                return enc.get("href") or enc.get("url")
+                if cleaned := cls._clean_image_url(enc.get("href") or enc.get("url")):
+                    return cleaned
 
         # og:image in links
         links = entry.get("links", [])
         for link in links:
             if link.get("type", "").startswith("image/"):
-                return link.get("href")
+                if cleaned := cls._clean_image_url(link.get("href")):
+                    return cleaned
 
         return None
 
