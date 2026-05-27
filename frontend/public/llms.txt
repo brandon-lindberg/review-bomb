@@ -1,0 +1,22 @@
+# ReviewDisparity
+
+> ReviewDisparity tracks the gap between professional game critic review scores and real player scores (from Steam and Metacritic). It surfaces which critics and outlets align with players and which diverge, so readers can judge review credibility. Data is updated continuously, so the live pages are always the authoritative, current source.
+
+## Key pages
+
+- [Games](https://reviewdisparity.com/games): Browse tracked games with critic vs. player score disparities, release dates, and score breakdowns.
+- [Journalists](https://reviewdisparity.com/journalists): Individual game critics ranked by how closely their scores track real players, with full scoring history.
+- [Outlets](https://reviewdisparity.com/outlets): Publications/outlets and their aggregate disparity from player scores.
+- [Leaderboards](https://reviewdisparity.com/leaderboards): Games, journalists, and outlets ranked by disparity and recency.
+- [Compare](https://reviewdisparity.com/compare): Compare up to four games, journalists, or outlets side by side.
+- [Search](https://reviewdisparity.com/search): Search across games, journalists, and outlets.
+
+## About
+
+- [How it works](https://reviewdisparity.com/about): Methodology for calculating disparity, data sources (Steam, Metacritic, OpenCritic), and the scoring system. Note: games need at least 50 Steam user reviews before Steam counts toward disparity.
+- [FAQ](https://reviewdisparity.com/faq): Plain-language answers to common questions about disparity, scoring, data sources, and leaderboard thresholds.
+
+## Notes
+
+- The full URL list is in the [sitemap](https://reviewdisparity.com/sitemap.xml).
+- "Disparity" = critic score minus player score, normalized to a 0–100 scale. A positive disparity means critics scored higher than players.

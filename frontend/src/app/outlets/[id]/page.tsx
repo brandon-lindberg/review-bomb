@@ -18,6 +18,7 @@ import {
   parseEntityRouteSegment,
 } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
+import { freshestDate } from "@/lib/freshest-date";
 import { buildEntitySnapshotShareUrl } from "@/lib/share-url";
 import {
   deriveSourceScoreFromDisparity,
@@ -340,6 +341,10 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     url: `${siteUrl}${canonicalPath}`,
     ...(outlet.logo_url && { logo: outlet.logo_url }),
     ...(outlet.website_url && { sameAs: [outlet.website_url] }),
+    ...(() => {
+      const dateModified = freshestDate(outlet.latest_review?.published_at);
+      return dateModified ? { dateModified } : {};
+    })(),
   };
   const breadcrumbJsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",

@@ -18,6 +18,7 @@ import {
   parseEntityRouteSegment,
 } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
+import { freshestDate } from "@/lib/freshest-date";
 import { buildEntitySnapshotShareUrl } from "@/lib/share-url";
 import {
   deriveSourceScoreFromDisparity,
@@ -361,6 +362,13 @@ export default async function JournalistDetailPage({
     ...(journalist.image_url && { image: journalist.image_url }),
     ...(journalist.bio && { description: journalist.bio }),
     jobTitle: "Game Journalist",
+    ...(() => {
+      const dateModified = freshestDate(
+        journalist.updated_at,
+        journalist.latest_review?.published_at,
+      );
+      return dateModified ? { dateModified } : {};
+    })(),
   };
   const breadcrumbJsonLd: Record<string, unknown> = {
     "@context": "https://schema.org",

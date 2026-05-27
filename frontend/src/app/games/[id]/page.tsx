@@ -18,6 +18,7 @@ import {
   parseEntityRouteSegment,
 } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
+import { freshestDate } from "@/lib/freshest-date";
 import {
   buildEntitySnapshotShareUrl,
 } from "@/lib/share-url";
@@ -306,6 +307,14 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     name: game.title,
     url: `${siteUrl}${canonicalPath}`,
     ...(game.release_date && { datePublished: game.release_date }),
+    ...(() => {
+      const dateModified = freshestDate(
+        game.steam_player_stats_synced_at,
+        game.steam_current_players_sampled_at,
+        game.latest_review?.published_at,
+      );
+      return dateModified ? { dateModified } : {};
+    })(),
     ...(game.description && { description: game.description }),
     ...(game.avg_critic_score != null && {
       aggregateRating: {
