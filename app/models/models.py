@@ -838,6 +838,32 @@ class SyncState(Base):
     )
 
 
+class OpenCriticMalformedGame(Base):
+    """
+    Quarantined OpenCritic game payloads that are not safe to publish as games.
+    """
+    __tablename__ = "opencritic_malformed_games"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    opencritic_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False, index=True)
+    name: Mapped[Optional[str]] = mapped_column(String(1024))
+    source_url: Mapped[Optional[str]] = mapped_column(String(1024))
+    reason: Mapped[str] = mapped_column(String(255), nullable=False)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    seen_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default=text("1"))
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("idx_opencritic_malformed_games_reason", "reason", "last_seen_at"),
+    )
+
+
 class NewsArticle(Base):
     """
     Gaming news articles fetched from RSS feeds.

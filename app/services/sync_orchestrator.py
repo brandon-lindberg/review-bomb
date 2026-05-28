@@ -18,14 +18,14 @@ from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
-from sqlalchemy import select, func, and_, or_, case
+from sqlalchemy import select, func, and_, or_, case, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session_maker
 from app.models.models import (
     Game, Journalist, Outlet, Review, SyncState, SyncLog,
-    SyncSource, SyncType, SyncStatus,
+    SyncSource, SyncType, SyncStatus, OpenCriticMalformedGame,
 )
 from app.public_ids import generate_public_id
 from app.services.opencritic import OpenCriticService
@@ -84,6 +84,7 @@ class SyncOrchestrator:
         self.db = db
         self.service = OpenCriticService()
         self._request_count = 0  # For stats tracking only
+        self._malformed_games_quarantined = 0
 
     @staticmethod
     def _should_replace_release_date(
@@ -122,6 +123,29 @@ class SyncOrchestrator:
 
         return True
 
+    @staticmethod
+    def _opencritic_game_rejection_reason(game_data: Dict[str, Any]) -> Optional[str]:
+        """Return why an upstream record is not safe to publish as a game."""
+        if not game_data or not game_data.get("id"):
+            return "missing_opencritic_id"
+
+        name = str(game_data.get("name") or "").strip()
+        if not name:
+            return "missing_name"
+
+        # OpenCritic occasionally exposes bad direct-ID records where the
+        # "game" name is a review URL. Do not create public game pages for them.
+        normalized_name = name.lower()
+        if normalized_name.startswith(("http://", "https://")) or "://" in normalized_name:
+            return "name_is_url"
+
+        return None
+
+    @classmethod
+    def _is_valid_opencritic_game_data(cls, game_data: Dict[str, Any]) -> bool:
+        """Reject malformed upstream records that are not real game entries."""
+        return cls._opencritic_game_rejection_reason(game_data) is None
+
     async def _get_state(self, key: str, default: str = "") -> str:
         """Get a sync state value."""
         result = await self.db.execute(
@@ -159,6 +183,48 @@ class SyncOrchestrator:
     async def _set_games_queue(self, queue: List[Dict[str, Any]]) -> None:
         """Update the games queue."""
         await self._set_state(self.STATE_GAMES_QUEUE, json.dumps(queue))
+
+    async def _quarantine_malformed_opencritic_game(
+        self,
+        game_data: Dict[str, Any],
+        reason: str,
+    ) -> None:
+        """Store malformed OpenCritic game data without publishing a game row."""
+        opencritic_id = game_data.get("id") if game_data else None
+        if opencritic_id is None:
+            return
+
+        try:
+            opencritic_id = int(opencritic_id)
+        except (TypeError, ValueError):
+            return
+
+        now = datetime.now(timezone.utc)
+        stmt = insert(OpenCriticMalformedGame).values(
+            opencritic_id=opencritic_id,
+            name=game_data.get("name"),
+            source_url=game_data.get("url"),
+            reason=reason,
+            raw_payload=game_data,
+            seen_count=1,
+            first_seen_at=now,
+            last_seen_at=now,
+            resolved_at=None,
+        )
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["opencritic_id"],
+            set_={
+                "name": stmt.excluded.name,
+                "source_url": stmt.excluded.source_url,
+                "reason": stmt.excluded.reason,
+                "raw_payload": stmt.excluded.raw_payload,
+                "seen_count": OpenCriticMalformedGame.seen_count + 1,
+                "last_seen_at": now,
+                "resolved_at": None,
+            },
+        )
+        await self.db.execute(stmt)
+        self._malformed_games_quarantined += 1
 
     async def _fetch_game_batch(self, skip: int = 0) -> tuple[List[Dict[str, Any]], int]:
         """
@@ -309,6 +375,29 @@ class SyncOrchestrator:
 
     async def _upsert_game(self, game_data: Dict[str, Any]) -> Optional[int]:
         """Insert/update game and return internal ID."""
+        rejection_reason = self._opencritic_game_rejection_reason(game_data)
+        if rejection_reason:
+            await self._quarantine_malformed_opencritic_game(
+                game_data,
+                rejection_reason,
+            )
+            print(
+                "Quarantined malformed OpenCritic game payload "
+                f"(OC ID: {game_data.get('id') if game_data else None}, "
+                f"reason: {rejection_reason}, "
+                f"name: {game_data.get('name') if game_data else None})"
+            )
+            return None
+
+        await self.db.execute(
+            update(OpenCriticMalformedGame)
+            .where(
+                OpenCriticMalformedGame.opencritic_id == game_data.get("id"),
+                OpenCriticMalformedGame.resolved_at.is_(None),
+            )
+            .values(resolved_at=datetime.now(timezone.utc))
+        )
+
         transformed = OpenCriticService.transform_game(game_data)
         stmt = insert(Game).values(public_id=generate_public_id(), **transformed)
         today = datetime.now(timezone.utc).date()
@@ -526,7 +615,7 @@ class SyncOrchestrator:
             if opencritic_game_id in synced_ids:
                 continue
 
-            game_data = await self.service.get_game(opencritic_game_id)
+            game_data = await self.service.get_game(opencritic_game_id, quiet_missing=True)
             self._request_count += 1
             if not game_data or not game_data.get("id"):
                 continue
@@ -752,6 +841,7 @@ class SyncOrchestrator:
             "recent_reviews_refreshed_games": 0,
             "recent_reviews_refreshed_reviews": 0,
             "recent_reviews_refresh_failed": 0,
+            "malformed_games_quarantined": 0,
             "journalists_discovered": 0,
             "outlets_discovered": 0,
             "requests_used": 0,
@@ -951,6 +1041,7 @@ class SyncOrchestrator:
             stats["journalists_discovered"] = (journalists_after.scalar() or 0) - journalists_count_before
             stats["outlets_discovered"] = (outlets_after.scalar() or 0) - outlets_count_before
             stats["requests_used"] = self._request_count
+            stats["malformed_games_quarantined"] = self._malformed_games_quarantined
 
             # Update sync log
             sync_log.status = SyncStatus.COMPLETED
@@ -983,6 +1074,7 @@ class SyncOrchestrator:
                 "  Existing-game refresh failures: "
                 f"{stats['recent_reviews_refresh_failed']}"
             )
+            print(f"  Malformed OpenCritic games quarantined: {stats['malformed_games_quarantined']}")
             print(f"  New journalists: {stats['journalists_discovered']}")
             print(f"  New outlets: {stats['outlets_discovered']}")
             print(f"  API requests used: {stats['requests_used']}")

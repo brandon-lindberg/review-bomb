@@ -6,7 +6,7 @@ Fetches critics, outlets, games, and reviews from OpenCritic via RapidAPI.
 
 import asyncio
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from decimal import Decimal
 
 import httpx
@@ -73,9 +73,11 @@ class OpenCriticService:
         endpoint: str,
         params: Optional[Dict[str, Any]] = None,
         max_retries: int = 3,
+        quiet_status_codes: Optional[Set[int]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Make a rate-limited request to the OpenCritic API with retry logic."""
         retryable_status_codes = {429, 500, 502, 503, 504}
+        quiet_status_codes = quiet_status_codes or set()
         
         for attempt in range(max_retries):
             async with rate_limiter:
@@ -107,7 +109,8 @@ class OpenCriticService:
                             print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
                             await asyncio.sleep(wait_time)
                             continue
-                        print(f"HTTP error {status_code}: {e.response.text[:200]}")
+                        if status_code not in quiet_status_codes:
+                            print(f"HTTP error {status_code}: {e.response.text[:200]}")
                         return None
                     except httpx.RequestError as e:
                         if attempt < max_retries - 1:
@@ -223,9 +226,17 @@ class OpenCriticService:
         )
         return data if isinstance(data, list) else []
 
-    async def get_game(self, game_id: int) -> Optional[Dict[str, Any]]:
+    async def get_game(
+        self,
+        game_id: int,
+        quiet_missing: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """Fetch a single game by ID with full details."""
-        return await self._request("GET", f"/game/{game_id}")
+        return await self._request(
+            "GET",
+            f"/game/{game_id}",
+            quiet_status_codes={400, 404} if quiet_missing else None,
+        )
 
     async def search_games(self, query: str) -> List[Dict[str, Any]]:
         """Search for games by title."""

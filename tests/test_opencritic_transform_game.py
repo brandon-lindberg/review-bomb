@@ -1,4 +1,6 @@
+from app.models.models import OpenCriticMalformedGame
 from app.services.opencritic import OpenCriticService
+from app.services.sync_orchestrator import SyncOrchestrator
 
 
 def test_transform_game_maps_negative_placeholders_to_none():
@@ -59,3 +61,35 @@ def test_transform_game_reads_current_images_payload_shape():
     )
 
     assert transformed["image_url"] == "https://img.opencritic.com/game/19224/o/icLXuJWa.jpg"
+
+
+def test_sync_rejects_malformed_opencritic_game_named_as_url():
+    payload = {
+        "id": 19801,
+        "name": "https://nichegamer.com/reviews/fuga-melodies-of-steel-3-review/",
+    }
+
+    assert SyncOrchestrator._opencritic_game_rejection_reason(payload) == "name_is_url"
+    assert (
+        SyncOrchestrator._is_valid_opencritic_game_data(payload)
+        is False
+    )
+
+
+def test_sync_accepts_normal_opencritic_game_payload():
+    assert (
+        SyncOrchestrator._is_valid_opencritic_game_data(
+            {
+                "id": 19224,
+                "name": "007 First Light",
+            }
+        )
+        is True
+    )
+
+
+def test_opencritic_malformed_game_quarantine_model_has_raw_payload():
+    assert "opencritic_id" in OpenCriticMalformedGame.__table__.c
+    assert "reason" in OpenCriticMalformedGame.__table__.c
+    assert "raw_payload" in OpenCriticMalformedGame.__table__.c
+    assert "resolved_at" in OpenCriticMalformedGame.__table__.c
