@@ -57,7 +57,10 @@ class SyncOrchestrator:
     GAMES_PER_REQUEST = 20  # OpenCritic RapidAPI currently returns max 20 per page
     DEFAULT_STALE_PAGES_BEFORE_STOP = 5  # For fast incremental tail-scan runs
     DEFAULT_TAIL_SCAN_PAGES = 60  # Always scan this many tail pages before stale-stop
-    RECENT_ID_RECON_WINDOW = 300  # Reconcile /game/{id} for recent IDs missing from /game list
+    # Some OpenCritic games are created months before release, then receive
+    # review metadata after our incremental tail scan has already moved past
+    # their catalog position. Keep this wide enough to catch those backfills.
+    RECENT_ID_RECON_WINDOW = 2500  # Reconcile /game/{id} for recent IDs missing from /game list
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
     AUTO_REVIEW_REFRESH_LIMIT = None  # Refresh all games in the rolling window

@@ -368,6 +368,15 @@ class OpenCriticService:
             banner = data.get("bannerScreenshot")
             if isinstance(banner, dict):
                 image_url = banner.get("fullRes") or banner.get("og")
+        if not image_url:
+            images = data.get("images")
+            if isinstance(images, dict):
+                box = images.get("box")
+                banner = images.get("banner")
+                if isinstance(box, dict):
+                    image_url = box.get("og") or box.get("sm")
+                if not image_url and isinstance(banner, dict):
+                    image_url = banner.get("og") or banner.get("sm")
         image_url = cls._normalize_image_url(image_url)
 
         top_critic_raw = data.get("topCriticScore")
