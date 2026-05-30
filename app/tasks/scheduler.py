@@ -18,6 +18,7 @@ from app.tasks.sync import (
     sync_metacritic_scores,
     match_games_to_platforms,
     sync_news_feeds,
+    reconcile_release_dates,
 )
 from app.tasks.disparity import calculate_daily_snapshots
 from app.tasks.performance import prewarm_core_api_caches
@@ -68,6 +69,16 @@ def create_scheduler() -> BlockingScheduler:
         replace_existing=True,
     )
 
+    # Stale release-date reconcile - daily at 4 AM UTC (after Steam/Metacritic syncs,
+    # before disparity snapshots so corrected dates feed into them)
+    scheduler.add_job(
+        lambda: reconcile_release_dates.send(),
+        trigger=CronTrigger(hour=4, minute=0),
+        id="reconcile_release_dates",
+        name="Reconcile stale 'announced then delayed' release dates",
+        replace_existing=True,
+    )
+
     # Disparity snapshots - daily at 5 AM UTC (after all syncs complete)
     scheduler.add_job(
         lambda: calculate_daily_snapshots.send(),
@@ -106,6 +117,7 @@ def main():
     print("  - Steam scores + Steam-owned activity sync: daily at 2 AM and 2 PM UTC")
     print("  - Metacritic scores sync: daily at 3 AM UTC")
     print("  - Game matching: daily at 1 AM UTC")
+    print("  - Release-date reconcile: daily at 4 AM UTC")
     print("  - Disparity snapshots: daily at 5 AM UTC")
     print("  - News RSS feeds: every 4 hours")
     print("  - Cache prewarm: every 1 hour")

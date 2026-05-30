@@ -485,6 +485,47 @@ async def _sync_steam_scores():
             raise
 
 
+# Window (in days) for the scheduled stale-release-date reconcile. Bounds runtime
+# under Steam's app-details rate limit (~1 request / 2s) while still covering the
+# recently-announced games where "announced then delayed" drift actually happens.
+RECONCILE_RELEASE_DATE_WINDOW_DAYS = 365
+
+
+@dramatiq.actor(queue_name=QUEUE_LOW_PRIORITY_ACTIVITY, max_retries=2, time_limit=5400000)  # 90 min time limit
+def reconcile_release_dates():
+    """
+    Repair stale "announced then delayed" release dates using Steam's coming_soon flag.
+
+    Catches games whose announced release date has already passed in our DB but that
+    Steam still reports as upcoming, correcting them to Steam's current announced date.
+    Shares LOCK_DB_HEAVY_BULK with the Steam score sync so the two never hammer Steam
+    concurrently.
+    """
+    run_async_task(
+        lambda: _reconcile_release_dates(),
+        blocked_by=(LOCK_DB_HEAVY_BULK,),
+        retry_delay_ms=300_000,
+    )
+
+
+async def _reconcile_release_dates():
+    """Async implementation of the scheduled release-date reconcile."""
+    from app.services.steam_catalog import reconcile_stale_release_dates
+
+    async with async_session_maker() as db:
+        async with SteamService() as service:
+            stats = await reconcile_stale_release_dates(
+                db, service, days=RECONCILE_RELEASE_DATE_WINDOW_DAYS
+            )
+        if stats["corrected"]:
+            await db.commit()
+        print(
+            "Release-date reconcile complete: "
+            f"{stats['corrected']} corrected, {stats['scanned']} scanned, "
+            f"{stats['skipped_no_details']} skipped"
+        )
+
+
 # =============================================================================
 # Metacritic Sync Tasks
 # =============================================================================
