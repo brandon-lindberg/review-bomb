@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable
@@ -292,6 +292,7 @@ async def reconcile_stale_release_dates(
     *,
     dry_run: bool = False,
     limit: int | None = None,
+    days: int | None = None,
 ) -> dict[str, Any]:
     """
     Repair stale "announced then delayed" release dates across all Steam-linked games.
@@ -300,23 +301,41 @@ async def reconcile_stale_release_dates(
     authoritatively still marks the title as ``coming_soon`` (i.e. it has not actually
     released). That past date is necessarily a stale announced date the game slipped
     past; replace it with Steam's current announced (future) date.
+
+    Only games with a non-null, already-past stored date can exhibit the anomaly, so
+    we pre-filter to those in SQL to avoid fetching Steam details for every catalog
+    entry. ``days`` further narrows to dates that passed within the last N days, since
+    a freshly-delayed game's stale date is recent.
     """
     today = datetime.now(timezone.utc).date()
 
-    query = select(Game).where(Game.steam_app_id.isnot(None))
+    query = select(Game).where(
+        Game.steam_app_id.isnot(None),
+        Game.release_date.isnot(None),
+        Game.release_date <= today,
+    )
+    if days is not None:
+        query = query.where(Game.release_date >= today - timedelta(days=days))
+    query = query.order_by(Game.release_date.desc())
     if limit is not None:
         query = query.limit(limit)
 
     games = (await db.execute(query)).scalars().all()
+    total = len(games)
+    mode = "[dry-run] " if dry_run else ""
+    print(f"{mode}Reconciling release dates for {total} Steam-linked games...")
 
     stats = {"scanned": 0, "corrected": 0, "skipped_no_details": 0}
     corrections: list[StaleReleaseDateCorrection] = []
 
-    for game in games:
+    for index, game in enumerate(games, start=1):
         stats["scanned"] += 1
+        print(f"[{index}/{total}] Checking {game.title} (app {game.steam_app_id})...")
+
         app_details = await steam_service.get_app_details(game.steam_app_id)
         if not app_details:
             stats["skipped_no_details"] += 1
+            print("  Skip: no Steam app details returned")
             continue
 
         transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
@@ -335,6 +354,11 @@ async def reconcile_stale_release_dates(
         ):
             continue
 
+        old = game.release_date.isoformat() if game.release_date else "None"
+        print(
+            f"  Stale date: Steam marks coming_soon but we hold {old}; "
+            f"correcting -> {announced.isoformat()}"
+        )
         corrections.append(
             StaleReleaseDateCorrection(
                 game_id=game.id,
@@ -348,8 +372,15 @@ async def reconcile_stale_release_dates(
             game.release_date = announced
         stats["corrected"] += 1
 
+        if stats["corrected"] % 25 == 0:
+            print(f"  ...{stats['corrected']} corrections so far ({index}/{total} scanned)")
+
     if corrections and not dry_run:
         await db.flush()
 
     stats["corrections"] = corrections
+    print(
+        f"{mode}Scan complete: {stats['corrected']} corrected, "
+        f"{stats['scanned']} scanned, {stats['skipped_no_details']} skipped"
+    )
     return stats

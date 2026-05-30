@@ -672,12 +672,13 @@ async def cmd_reconcile_release_dates(args):
 
     dry_run = bool(getattr(args, "dry_run", False))
     limit = getattr(args, "limit", None)
+    days = getattr(args, "days", None)
 
     async with async_session_maker() as db:
         async with AsyncExitStack() as stack:
             service = await stack.enter_async_context(SteamService())
             stats = await reconcile_stale_release_dates(
-                db, service, dry_run=dry_run, limit=limit
+                db, service, dry_run=dry_run, limit=limit, days=days
             )
 
         for correction in stats.get("corrections", []):
@@ -3735,6 +3736,11 @@ def main():
         help="Fix stale 'announced then delayed' release dates via Steam coming_soon",
     )
     reconcile_parser.add_argument("--limit", type=int, help="Limit number of games to scan")
+    reconcile_parser.add_argument(
+        "--days",
+        type=int,
+        help="Only scan games whose stored release date passed within the last N days",
+    )
     reconcile_parser.add_argument(
         "--dry-run",
         action="store_true",

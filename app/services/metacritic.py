@@ -246,12 +246,91 @@ class MetacriticService:
         return slug.strip("-")
 
     @classmethod
+    def _numeral_slug_variants(cls, slug: str) -> List[str]:
+        """
+        Swap roman-numeral tokens with their arabic form and vice versa.
+
+        Metacritic is inconsistent about sequel numbering (for example
+        "Slay the Spire II" lives at the ``slay-the-spire-2`` slug). We only
+        convert multi-character roman numerals (and the arabic numbers that map
+        back to them) to avoid mangling single-letter titles like "Mega Man X".
+        """
+        if not slug:
+            return []
+
+        arabic_to_roman = {
+            number: roman
+            for roman, number in cls.ROMAN_NUMERAL_MAP.items()
+            if len(roman) >= 2
+        }
+        tokens = slug.split("-")
+        arabic_tokens = list(tokens)
+        roman_tokens = list(tokens)
+        changed_arabic = changed_roman = False
+
+        for index, token in enumerate(tokens):
+            if token in cls.ROMAN_NUMERAL_MAP and len(token) >= 2:
+                arabic_tokens[index] = cls.ROMAN_NUMERAL_MAP[token]
+                changed_arabic = True
+            elif token in arabic_to_roman:
+                roman_tokens[index] = arabic_to_roman[token]
+                changed_roman = True
+
+        variants: List[str] = []
+        if changed_arabic:
+            variants.append("-".join(arabic_tokens))
+        if changed_roman:
+            variants.append("-".join(roman_tokens))
+        return variants
+
+    @classmethod
+    def _split_compound_title(cls, value: str) -> List[str]:
+        """
+        Split dual-release titles joined by "and"/"&"/"/" into their parts.
+
+        Some bundled records (for example "Pokémon HeartGold Version and
+        Pokémon SoulSilver Version") only exist on Metacritic as separate pages.
+        """
+        if not value:
+            return []
+
+        parts = re.split(r"\s+(?:and|&)\s+|\s*/\s*", value, flags=re.IGNORECASE)
+        cleaned = [part.strip() for part in parts if part and part.strip()]
+        if len(cleaned) < 2:
+            return []
+        # Only treat as a compound when each side is itself a substantial title.
+        return [part for part in cleaned if len(cls.normalize_slug(part)) >= 3]
+
+    @classmethod
+    def _base_slug_variants(cls, value: str) -> List[str]:
+        """Build slug variants for a single title (no compound splitting)."""
+        variants: List[str] = []
+
+        def add(candidate: str) -> None:
+            c = (candidate or "").strip().strip("/")
+            if c and c not in variants:
+                variants.append(c)
+
+        expanded = cls.normalize_slug(cls._expand_symbol_tokens(value))
+        normalized = cls.normalize_slug(value)
+
+        for base in (expanded, normalized):
+            add(base)
+            add(cls._drop_connector_tokens(base))
+            for numeral_variant in cls._numeral_slug_variants(base):
+                add(numeral_variant)
+
+        return variants
+
+    @classmethod
     def build_slug_candidates(cls, value: str) -> List[str]:
         """
         Build likely slug variants for Metacritic lookups.
 
-        This handles patterns where punctuation is represented as words
-        in canonical slugs (for example "+ -> plus").
+        This handles patterns where punctuation is represented as words in
+        canonical slugs (for example "+ -> plus"), sequel numbering that swaps
+        roman numerals for arabic ("II" -> "2"), and bundled dual-release titles
+        that only exist as separate Metacritic pages.
         """
         candidates: List[str] = []
 
@@ -260,13 +339,13 @@ class MetacriticService:
             if c and c not in candidates:
                 candidates.append(c)
 
-        expanded = cls.normalize_slug(cls._expand_symbol_tokens(value))
-        normalized = cls.normalize_slug(value)
+        # Whole-title variants first so compound parts are only fallbacks.
+        for variant in cls._base_slug_variants(value):
+            add(variant)
 
-        add(expanded)
-        add(normalized)
-        add(cls._drop_connector_tokens(expanded))
-        add(cls._drop_connector_tokens(normalized))
+        for part in cls._split_compound_title(value):
+            for variant in cls._base_slug_variants(part):
+                add(variant)
 
         return candidates
 

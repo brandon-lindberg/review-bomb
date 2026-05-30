@@ -40,6 +40,46 @@ def test_accepts_compact_yearly_sports_format_variant():
     )
 
 
+def test_slug_candidates_convert_roman_numeral_to_arabic():
+    candidates = MetacriticService.build_slug_candidates("Slay the Spire II")
+    assert "slay-the-spire-ii" in candidates
+    assert "slay-the-spire-2" in candidates
+
+
+def test_slug_candidates_convert_arabic_numeral_to_roman():
+    candidates = MetacriticService.build_slug_candidates("Final Fantasy VII")
+    assert "final-fantasy-7" in candidates
+
+
+def test_slug_candidates_do_not_mangle_single_letter_numerals():
+    # "Mega Man X" must not become "mega-man-10".
+    candidates = MetacriticService.build_slug_candidates("Mega Man X")
+    assert candidates == ["mega-man-x"]
+
+
+def test_slug_candidates_split_compound_dual_release_titles():
+    candidates = MetacriticService.build_slug_candidates(
+        "Pokémon HeartGold Version and Pokémon SoulSilver Version"
+    )
+    # Whole-title variant comes first, split parts are fallbacks.
+    assert candidates[0] == "pokemon-heartgold-version-and-pokemon-soulsilver-version"
+    assert "pokemon-heartgold-version" in candidates
+    assert "pokemon-soulsilver-version" in candidates
+
+
+def test_slug_candidates_keep_ampersand_title_intact_first():
+    # "&" expands to "and" before any compound split is attempted.
+    candidates = MetacriticService.build_slug_candidates("Ratchet & Clank")
+    assert candidates[0] == "ratchet-and-clank"
+
+
+def test_compound_split_accepts_single_half_page_title():
+    assert MetacriticService._titles_look_related(
+        "Pokémon HeartGold Version and Pokémon SoulSilver Version",
+        "Pokémon HeartGold Version",
+    )
+
+
 @pytest.mark.asyncio
 async def test_get_scores_passes_title_through_slug_candidate_recursion():
     class SpyMetacriticService(MetacriticService):
