@@ -15,6 +15,12 @@
       "title": "Supraworld",
       "release_date": "2025-08-15",
       "reason": "Steam early access game with meaningful user-review signal that needs catalog coverage even without dependable OpenCritic reviews."
+    },
+    {
+      "steam_app_id": 1875580,
+      "title": "Mina the Hollower",
+      "release_date": "2026-05-29",
+      "reason": "Originally announced for Halloween 2025 (2025-10-31) then delayed to 2026-05-29; the stale announced date was ingested and the anti-regression guardrails blocked the forward correction while the real date was still in the future. Pin the corrected date."
     }
   ]
 }

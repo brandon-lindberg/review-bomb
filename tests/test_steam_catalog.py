@@ -1,12 +1,15 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
 from app.models.models import Game
+from app.services.steam import SteamService
 from app.services.steam_catalog import (
     TrackedSteamGame,
+    _should_update_release_date,
     ensure_tracked_steam_games,
     load_tracked_steam_games,
+    reconcile_stale_release_dates,
 )
 
 
@@ -144,3 +147,150 @@ async def test_ensure_tracked_steam_games_reuses_alias_match_and_applies_steam_m
     assert existing_game.steam_detailed_description == "Drop into a battle royale sandbox."
     assert existing_game.image_url == "https://cdn.example/pubg.jpg"
     assert session.flush_count == 1
+
+
+def test_should_update_release_date_blocks_past_to_future_without_signal():
+    today = datetime.now(timezone.utc).date()
+    existing = today - timedelta(days=30)
+    candidate = today + timedelta(days=60)
+
+    # Without an authoritative "still upcoming" signal we must not regress a
+    # seemingly-released date to a future one (remaster/port placeholder guard).
+    assert _should_update_release_date(existing, candidate) is False
+
+
+def test_should_update_release_date_corrects_stale_past_when_coming_soon():
+    today = datetime.now(timezone.utc).date()
+    # Stale announced date that already passed; Steam still says coming_soon.
+    existing = today - timedelta(days=30)
+    candidate = today + timedelta(days=60)
+
+    assert (
+        _should_update_release_date(existing, candidate, source_coming_soon=True)
+        is True
+    )
+
+
+def test_transform_app_details_surfaces_coming_soon_announced_date():
+    data = {
+        "name": "Mina the Hollower",
+        "release_date": {"coming_soon": True, "date": "May 29, 2026"},
+    }
+
+    transformed = SteamService.transform_app_details(data, 1875580)
+
+    # release_date keeps its "already released" meaning (None while upcoming)...
+    assert transformed["release_date"] is None
+    # ...but the concrete announced date + coming_soon flag are now available.
+    assert transformed["release_coming_soon"] is True
+    assert transformed["announced_release_date"] == date(2026, 5, 29)
+
+
+class _FakeScalarResult:
+    def __init__(self, values):
+        self._values = list(values)
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return list(self._values)
+
+
+class _FakeReconcileSession:
+    def __init__(self, games):
+        self._games = list(games)
+        self.flush_count = 0
+
+    async def execute(self, statement):
+        return _FakeScalarResult(self._games)
+
+    async def flush(self):
+        self.flush_count += 1
+
+
+@pytest.mark.asyncio
+async def test_reconcile_corrects_delayed_game_with_stale_past_date():
+    today = datetime.now(timezone.utc).date()
+    announced = today + timedelta(days=60)
+
+    game = Game(
+        title="Mina the Hollower",
+        steam_app_id=1875580,
+        release_date=today - timedelta(days=30),
+    )
+    game.id = 42
+    session = _FakeReconcileSession([game])
+    steam_service = _FakeSteamService(
+        {
+            1875580: {
+                "name": "Mina the Hollower",
+                "release_date": {
+                    "coming_soon": True,
+                    "date": announced.strftime("%b %d, %Y"),
+                },
+            }
+        }
+    )
+
+    stats = await reconcile_stale_release_dates(session, steam_service)
+
+    assert stats["corrected"] == 1
+    assert game.release_date == announced
+    assert session.flush_count == 1
+    assert stats["corrections"][0].game_id == 42
+
+
+@pytest.mark.asyncio
+async def test_reconcile_dry_run_does_not_mutate():
+    today = datetime.now(timezone.utc).date()
+    announced = today + timedelta(days=60)
+    original = today - timedelta(days=30)
+
+    game = Game(title="Mina the Hollower", steam_app_id=1875580, release_date=original)
+    game.id = 7
+    session = _FakeReconcileSession([game])
+    steam_service = _FakeSteamService(
+        {
+            1875580: {
+                "name": "Mina the Hollower",
+                "release_date": {
+                    "coming_soon": True,
+                    "date": announced.strftime("%b %d, %Y"),
+                },
+            }
+        }
+    )
+
+    stats = await reconcile_stale_release_dates(session, steam_service, dry_run=True)
+
+    assert stats["corrected"] == 1
+    assert game.release_date == original
+    assert session.flush_count == 0
+
+
+@pytest.mark.asyncio
+async def test_reconcile_leaves_released_games_untouched():
+    today = datetime.now(timezone.utc).date()
+
+    game = Game(
+        title="Released Game",
+        steam_app_id=999,
+        release_date=today - timedelta(days=30),
+    )
+    game.id = 1
+    session = _FakeReconcileSession([game])
+    # Steam reports the game as actually released -> no anomaly, no change.
+    steam_service = _FakeSteamService(
+        {
+            999: {
+                "name": "Released Game",
+                "release_date": {"coming_soon": False, "date": "Jan 01, 2020"},
+            }
+        }
+    )
+
+    stats = await reconcile_stale_release_dates(session, steam_service)
+
+    assert stats["corrected"] == 0
+    assert game.release_date == today - timedelta(days=30)

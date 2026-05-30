@@ -663,6 +663,42 @@ async def cmd_steamdb(args):
         )
 
 
+async def cmd_reconcile_release_dates(args):
+    """Repair stale 'announced then delayed' release dates using Steam's coming_soon flag."""
+    from contextlib import AsyncExitStack
+
+    from app.services.steam import SteamService
+    from app.services.steam_catalog import reconcile_stale_release_dates
+
+    dry_run = bool(getattr(args, "dry_run", False))
+    limit = getattr(args, "limit", None)
+
+    async with async_session_maker() as db:
+        async with AsyncExitStack() as stack:
+            service = await stack.enter_async_context(SteamService())
+            stats = await reconcile_stale_release_dates(
+                db, service, dry_run=dry_run, limit=limit
+            )
+
+        for correction in stats.get("corrections", []):
+            old = correction.old_release_date.isoformat() if correction.old_release_date else "None"
+            print(
+                f"  {correction.title} (app {correction.steam_app_id}): "
+                f"{old} -> {correction.new_release_date.isoformat()}"
+            )
+
+        if dry_run:
+            print("\n[dry-run] no changes committed")
+        else:
+            await db.commit()
+
+        print(
+            "\nRelease-date reconcile complete: "
+            f"{stats['corrected']} corrected, {stats['scanned']} scanned, "
+            f"{stats['skipped_no_details']} skipped (no Steam details)"
+        )
+
+
 async def cmd_import_steam_game(args):
     """Import or update a game directly from Steam, even without OpenCritic coverage."""
     import re
@@ -3693,6 +3729,18 @@ def main():
         help="Also write Steam activity snapshots/current players (default: scores-only to avoid overlap with player-count-scraper mirror)",
     )
 
+    # Release-date reconcile command
+    reconcile_parser = subparsers.add_parser(
+        "reconcile-release-dates",
+        help="Fix stale 'announced then delayed' release dates via Steam coming_soon",
+    )
+    reconcile_parser.add_argument("--limit", type=int, help="Limit number of games to scan")
+    reconcile_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Report corrections without writing them",
+    )
+
     # SteamDB command
     steamdb_parser = subparsers.add_parser(
         "steamdb",
@@ -4098,6 +4146,8 @@ def main():
         return asyncio.run(cmd_import_steam_game(args))
     elif args.command == "steam":
         return asyncio.run(cmd_steam(args))
+    elif args.command == "reconcile-release-dates":
+        return asyncio.run(cmd_reconcile_release_dates(args))
     elif args.command == "steamdb":
         return asyncio.run(cmd_steamdb(args))
     elif args.command == "game-images":

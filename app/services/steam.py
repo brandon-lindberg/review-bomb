@@ -484,18 +484,27 @@ class SteamService:
     @staticmethod
     def transform_app_details(data: Dict[str, Any], app_id: int) -> Dict[str, Any]:
         """Transform Steam app details to our game model format."""
-        release_date = None
-        release_info = data.get("release_date", {})
-        if release_info and not release_info.get("coming_soon"):
-            date_str = release_info.get("date")
-            if date_str:
-                # Steam dates are in various formats, try common ones
-                for fmt in ["%b %d, %Y", "%d %b, %Y", "%Y"]:
-                    try:
-                        release_date = datetime.strptime(date_str, fmt).date()
-                        break
-                    except ValueError:
-                        continue
+        release_info = data.get("release_date") or {}
+        coming_soon = bool(release_info.get("coming_soon"))
+
+        # Parse the concrete date Steam shows regardless of coming_soon so callers
+        # can tell an *announced* (still-upcoming) date apart from a released one.
+        parsed_date = None
+        date_str = release_info.get("date")
+        if date_str:
+            # Steam dates are in various formats, try common ones
+            for fmt in ["%b %d, %Y", "%d %b, %Y", "%Y"]:
+                try:
+                    parsed_date = datetime.strptime(date_str, fmt).date()
+                    break
+                except ValueError:
+                    continue
+
+        # `release_date` keeps its historical meaning: the date of an *already
+        # released* game (None while coming_soon). `announced_release_date` is the
+        # concrete date even for upcoming titles, paired with `release_coming_soon`
+        # so callers can authoritatively detect stale past dates on delayed games.
+        release_date = None if coming_soon else parsed_date
 
         return {
             "steam_app_id": app_id,
@@ -504,5 +513,7 @@ class SteamService:
             "steam_short_description": SteamService._normalize_store_text(data.get("short_description")),
             "steam_detailed_description": SteamService._normalize_store_text(data.get("detailed_description")),
             "release_date": release_date,
+            "release_coming_soon": coming_soon,
+            "announced_release_date": parsed_date,
             "image_url": data.get("header_image"),
         }

@@ -34,6 +34,8 @@ def _normalize_title(value: str) -> str:
 def _should_update_release_date(
     existing_release_date: date | None,
     candidate_release_date: date | None,
+    *,
+    source_coming_soon: bool = False,
 ) -> bool:
     if candidate_release_date is None:
         return False
@@ -43,6 +45,13 @@ def _should_update_release_date(
         return False
 
     today = datetime.now(timezone.utc).date()
+
+    # Authoritative "still upcoming" signal (Steam coming_soon): if the source
+    # confirms the game has not released yet, any past date we hold is a stale
+    # announced date and must yield to the real future date. This is the case the
+    # anti-regression guard below would otherwise wrongly block (delayed games).
+    if source_coming_soon and existing_release_date <= today and candidate_release_date > today:
+        return True
 
     if existing_release_date > today:
         if candidate_release_date <= today:
@@ -203,8 +212,18 @@ def _apply_catalog_fields(
             setattr(game, field_name, value)
             changed = True
 
+    # When Steam reports the title as still upcoming, the concrete announced date
+    # lives in `announced_release_date` (release_date is None while coming_soon).
+    # Prefer it so a delayed game's stale past date is corrected to the real date.
+    source_coming_soon = bool(transformed.get("release_coming_soon"))
     candidate_release_date = transformed.get("release_date")
-    if _should_update_release_date(game.release_date, candidate_release_date):
+    if source_coming_soon and transformed.get("announced_release_date") is not None:
+        candidate_release_date = transformed.get("announced_release_date")
+    if _should_update_release_date(
+        game.release_date,
+        candidate_release_date,
+        source_coming_soon=source_coming_soon,
+    ):
         game.release_date = candidate_release_date
         changed = True
 
@@ -255,4 +274,82 @@ async def ensure_tracked_steam_games(
     if changed:
         await db.flush()
 
+    return stats
+
+
+@dataclass(frozen=True, slots=True)
+class StaleReleaseDateCorrection:
+    game_id: int
+    title: str
+    steam_app_id: int
+    old_release_date: date | None
+    new_release_date: date
+
+
+async def reconcile_stale_release_dates(
+    db: AsyncSession,
+    steam_service: SteamService,
+    *,
+    dry_run: bool = False,
+    limit: int | None = None,
+) -> dict[str, Any]:
+    """
+    Repair stale "announced then delayed" release dates across all Steam-linked games.
+
+    Anomaly signature: we hold a release date that is already in the past, yet Steam
+    authoritatively still marks the title as ``coming_soon`` (i.e. it has not actually
+    released). That past date is necessarily a stale announced date the game slipped
+    past; replace it with Steam's current announced (future) date.
+    """
+    today = datetime.now(timezone.utc).date()
+
+    query = select(Game).where(Game.steam_app_id.isnot(None))
+    if limit is not None:
+        query = query.limit(limit)
+
+    games = (await db.execute(query)).scalars().all()
+
+    stats = {"scanned": 0, "corrected": 0, "skipped_no_details": 0}
+    corrections: list[StaleReleaseDateCorrection] = []
+
+    for game in games:
+        stats["scanned"] += 1
+        app_details = await steam_service.get_app_details(game.steam_app_id)
+        if not app_details:
+            stats["skipped_no_details"] += 1
+            continue
+
+        transformed = SteamService.transform_app_details(app_details, game.steam_app_id)
+        if not transformed.get("release_coming_soon"):
+            continue
+
+        announced = transformed.get("announced_release_date")
+        # Only act on the clear anomaly: a stale past date while Steam reports the
+        # game as still upcoming, with a concrete future date to replace it.
+        if (
+            announced is None
+            or announced <= today
+            or game.release_date is None
+            or game.release_date > today
+            or game.release_date == announced
+        ):
+            continue
+
+        corrections.append(
+            StaleReleaseDateCorrection(
+                game_id=game.id,
+                title=game.title,
+                steam_app_id=game.steam_app_id,
+                old_release_date=game.release_date,
+                new_release_date=announced,
+            )
+        )
+        if not dry_run:
+            game.release_date = announced
+        stats["corrected"] += 1
+
+    if corrections and not dry_run:
+        await db.flush()
+
+    stats["corrections"] = corrections
     return stats
