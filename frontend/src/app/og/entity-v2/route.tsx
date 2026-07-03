@@ -359,7 +359,10 @@ export async function GET(request: Request) {
       width: IMAGE_WIDTH,
       height: IMAGE_HEIGHT,
       headers: {
-        "Cache-Control": "no-store, max-age=0",
+        // Rendering these images (satori + resvg) is CPU-heavy; let browsers and
+        // the CDN reuse them. Data is encoded in the query string, so changed
+        // scores produce a new URL and never serve a wrong cached image.
+        "Cache-Control": "public, max-age=300, s-maxage=900, stale-while-revalidate=86400",
       },
     }
   );

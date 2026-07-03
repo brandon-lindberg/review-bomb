@@ -19,16 +19,10 @@ const nextConfig: NextConfig = {
     root: CONFIG_DIR,
   },
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "**",
-      },
-      {
-        protocol: "http",
-        hostname: "**",
-      },
-    ],
+    // All app images already bypass optimization (see AppImage), so disable the
+    // /_next/image endpoint entirely. With wildcard remotePatterns it let anyone
+    // make the server download and re-encode arbitrary images (CPU/memory spikes).
+    unoptimized: true,
   },
   async redirects() {
     return [

@@ -73,6 +73,11 @@ async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promis
   return response.json();
 }
 
+// Fetch remaining pages a few at a time instead of all at once: a large outlet
+// can span 20+ pages of 500 rows, and firing them simultaneously creates a CPU
+// and DB-connection burst on the backend.
+const ALL_REVIEWS_MAX_CONCURRENT_PAGES = 3;
+
 async function fetchAllPaginatedReviews<T>(
   buildEndpoint: (page: number) => string
 ): Promise<T[]> {
@@ -81,11 +86,22 @@ async function fetchAllPaginatedReviews<T>(
     return firstPage.items;
   }
 
-  const remainingPages = await Promise.all(
-    Array.from({ length: firstPage.total_pages - 1 }, (_, index) =>
-      fetchAPI<PaginatedResponse<T>>(buildEndpoint(index + 2))
-    )
+  const remainingPageNumbers = Array.from(
+    { length: firstPage.total_pages - 1 },
+    (_, index) => index + 2
   );
+  const remainingPages: PaginatedResponse<T>[] = [];
+  for (
+    let start = 0;
+    start < remainingPageNumbers.length;
+    start += ALL_REVIEWS_MAX_CONCURRENT_PAGES
+  ) {
+    const batch = remainingPageNumbers.slice(start, start + ALL_REVIEWS_MAX_CONCURRENT_PAGES);
+    const batchResults = await Promise.all(
+      batch.map((page) => fetchAPI<PaginatedResponse<T>>(buildEndpoint(page)))
+    );
+    remainingPages.push(...batchResults);
+  }
 
   return [
     ...firstPage.items,
