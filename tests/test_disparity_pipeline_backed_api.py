@@ -2012,9 +2012,14 @@ async def test_get_game_similar_soulslike_selector_ignores_secondary_only_when_e
 
 
 @pytest.mark.asyncio
-async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
+async def test_get_game_steam_activity_serves_mirrored_db_history_read_only(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    """The endpoint is read-only: no scraper HTTP call and no DB writes on GET.
+
+    Player-count data reaches our DB via the scraper's poll-time mirror, so the
+    handler just serves the mirrored range/snapshot series.
+    """
     now = _utc(2026, 3, 20)
     first_sample = datetime(2026, 3, 19, 0, 0, tzinfo=timezone.utc)
     last_sample = datetime(2026, 3, 20, 0, 0, tzinfo=timezone.utc)
@@ -2043,59 +2048,7 @@ async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
             players_24h_low=20000,
         ),
     ]
-    sparse_scraper_activity = ScraperSteamActivity(
-        points=[
-            SteamPlayerPoint(
-                sampled_at=last_sample,
-                observed_24h_high=57000,
-                observed_24h_low=21000,
-                latest_players=54000,
-            )
-        ],
-        storage_points=[
-            SteamPlayerPoint(
-                sampled_at=last_sample,
-                observed_24h_high=57000,
-                observed_24h_low=21000,
-                latest_players=54000,
-            )
-        ],
-        marker_source_points=[
-            {
-                "sampled_at": last_sample,
-                "concurrent_players": 54000,
-            }
-        ],
-        summary_updates={
-            "steam_player_24h_peak": 57000,
-            "steam_player_24h_low_observed": 21000,
-            "steam_player_all_time_peak": 54000,
-            "steam_player_all_time_peak_at": last_sample,
-            "steam_player_stats_synced_at": last_sample,
-        },
-    )
 
-    class FakePlayerScraperClient:
-        is_configured = True
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, exc_type, exc_val, exc_tb):
-            return None
-
-        async def get_steam_activity(self, steam_app_id: int, *, limit: int, window: str = "1y"):
-            return sparse_scraper_activity
-
-    sync_mock = AsyncMock(
-        return_value={
-            "range_snapshots_upserted": 1,
-            "player_snapshots_inserted": 1,
-            "summary_updated": True,
-        }
-    )
-    monkeypatch.setattr("app.routers.games.PlayerScraperClient", FakePlayerScraperClient)
-    monkeypatch.setattr("app.routers.games.sync_scraper_activity_to_db", sync_mock)
     monkeypatch.setattr("app.routers.games.get_cached", AsyncMock(return_value=None))
     monkeypatch.setattr("app.routers.games.set_cached", AsyncMock(return_value=True))
 
@@ -2115,8 +2068,7 @@ async def test_get_game_steam_activity_prefers_db_history_over_sparse_scraper(
 
     resp = await get_game_steam_activity(game_id=21, limit=10000, db=db)
 
-    sync_mock.assert_awaited_once()
-    assert db.flush_calls == 1
+    assert db.flush_calls == 0
     assert [point.observed_24h_high for point in resp.points] == [55000, 57000]
     assert [point.observed_24h_low for point in resp.points] == [20000, 21000]
     assert [point.latest_players for point in resp.points] == [53000, 54000]

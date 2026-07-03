@@ -726,7 +726,15 @@ export async function GET(request: Request) {
           </div>
         </div>
       ),
-      { width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
+      {
+        width: IMAGE_WIDTH,
+        height: IMAGE_HEIGHT,
+        headers: {
+          // Rendering is CPU-heavy (satori + resvg); let browsers/CDN reuse the
+          // image instead of re-rendering per crawler hit.
+          "Cache-Control": "public, max-age=300, s-maxage=900, stale-while-revalidate=86400",
+        },
+      }
     );
   } catch (error) {
     console.error("Compare OG image generation failed:", error);
@@ -755,7 +763,15 @@ export async function GET(request: Request) {
           </div>
         </div>
       ),
-      { width: IMAGE_WIDTH, height: IMAGE_HEIGHT }
+      {
+        width: IMAGE_WIDTH,
+        height: IMAGE_HEIGHT,
+        headers: {
+          // Short cache for the error fallback so a transient failure doesn't
+          // pin a placeholder image for long.
+          "Cache-Control": "public, max-age=60",
+        },
+      }
     );
   }
 }

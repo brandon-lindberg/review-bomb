@@ -1,7 +1,9 @@
 """Games API endpoints."""
 
+import asyncio
 import json
 import math
+import time
 from typing import Literal, Optional
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -12,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
-from app.database import get_db
+from app.database import async_session_maker, get_db
 from app.models.models import (
     Game,
     GameSimilarityV3Neighbor,
@@ -41,7 +43,6 @@ from app.schemas.schemas import (
 from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_SHORT
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
-from app.services.player_scraper import PlayerScraperClient, sync_scraper_activity_to_db
 from app.services.steam_activity import (
     build_observed_24h_player_points,
     build_steam_activity_markers,
@@ -1176,6 +1177,54 @@ async def get_game_similar(
     return items
 
 
+# Steam activity responses are served with a stale-while-revalidate cache: entries
+# are treated as fresh for the soft TTL, then served stale while a background task
+# recomputes them. Player-count data lands in our DB via the scraper's poll-time
+# mirror, so request handling is read-only and short TTLs are unnecessary.
+STEAM_ACTIVITY_CACHE_SOFT_TTL_SECONDS = 15 * 60
+STEAM_ACTIVITY_CACHE_HARD_TTL_SECONDS = 24 * 60 * 60
+_steam_activity_refreshes_in_flight: set[str] = set()
+
+
+def _steam_activity_cache_envelope(response: SteamActivityResponse) -> str:
+    return json.dumps(
+        {
+            "soft_expires_at": time.time() + STEAM_ACTIVITY_CACHE_SOFT_TTL_SECONDS,
+            "payload": json.loads(response.model_dump_json()),
+        }
+    )
+
+
+async def _refresh_steam_activity_cache(
+    store_key: str,
+    game_identifier: str,
+    *,
+    point_budget: int,
+    window_value: str,
+) -> None:
+    """Recompute a stale steam-activity cache entry in the background."""
+    try:
+        async with async_session_maker() as db:
+            game = await resolve_entity_by_identifier(db, Game, game_identifier)
+            if not game:
+                return
+            response = await _compute_steam_activity_response(
+                db,
+                game,
+                point_budget=point_budget,
+                window_value=window_value,
+            )
+        await set_cached(
+            store_key,
+            _steam_activity_cache_envelope(response),
+            STEAM_ACTIVITY_CACHE_HARD_TTL_SECONDS,
+        )
+    except Exception as exc:
+        print(f"Steam activity cache refresh failed ({game_identifier}, {window_value}): {exc}")
+    finally:
+        _steam_activity_refreshes_in_flight.discard(store_key)
+
+
 @router.get("/{game_id}/steam-activity", response_model=SteamActivityResponse)
 async def get_game_steam_activity(
     game_id: str,
@@ -1190,38 +1239,58 @@ async def get_game_steam_activity(
     window_value = window if isinstance(window, str) else "1y"
     point_budget = _resolve_steam_activity_point_budget(limit, max_points)
     cache_hash = cache_key(
-        "games:steam-activity:v12",
+        "games:steam-activity:v13",
         game_id=game_id,
         max_points=point_budget,
         window=window_value,
     )
-    cached = await get_cached(f"games:steam-activity:{cache_hash}")
+    store_key = f"games:steam-activity:{cache_hash}"
+    cached = await get_cached(store_key)
     if cached:
-        return SteamActivityResponse(**json.loads(cached))
+        entry = json.loads(cached)
+        payload = entry.get("payload")
+        if payload is not None:
+            is_stale = float(entry.get("soft_expires_at") or 0) <= time.time()
+            if is_stale and store_key not in _steam_activity_refreshes_in_flight:
+                _steam_activity_refreshes_in_flight.add(store_key)
+                asyncio.create_task(
+                    _refresh_steam_activity_cache(
+                        store_key,
+                        str(game_id),
+                        point_budget=point_budget,
+                        window_value=window_value,
+                    )
+                )
+            return SteamActivityResponse(**payload)
 
     game = await resolve_entity_by_identifier(db, Game, str(game_id))
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
+    response = await _compute_steam_activity_response(
+        db,
+        game,
+        point_budget=point_budget,
+        window_value=window_value,
+    )
+    await set_cached(
+        store_key,
+        _steam_activity_cache_envelope(response),
+        STEAM_ACTIVITY_CACHE_HARD_TTL_SECONDS,
+    )
+    return response
+
+
+async def _compute_steam_activity_response(
+    db: AsyncSession,
+    game: Game,
+    *,
+    point_budget: int,
+    window_value: str,
+) -> SteamActivityResponse:
+    """Build the steam-activity response from mirrored snapshot data (read-only)."""
     points: list[SteamPlayerPoint] = []
     marker_source_points: list[dict[str, object]] = []
-
-    scraper_activity = None
-    if game.steam_app_id is not None:
-        player_scraper = PlayerScraperClient()
-        if player_scraper.is_configured:
-            async with player_scraper:
-                scraper_activity = await player_scraper.get_steam_activity(
-                    game.steam_app_id,
-                    limit=point_budget,
-                    window="max" if window_value == "max" else "1y",
-                )
-
-    if scraper_activity and scraper_activity.points:
-        await sync_scraper_activity_to_db(db, game, scraper_activity)
-        # Flush any newly added player snapshots so the canonical DB-backed series
-        # below can include them in the same request.
-        await db.flush()
 
     range_filters = [SteamPlayerRangeSnapshot.game_id == game.id]
     snapshot_filters = [SteamPlayerSnapshot.game_id == game.id]
@@ -1381,7 +1450,7 @@ async def get_game_steam_activity(
     )
     markers = [SteamPlayerMarker(**marker) for marker in marker_payload]
 
-    response = SteamActivityResponse(
+    return SteamActivityResponse(
         summary=summary,
         points=points,
         markers=markers,
@@ -1393,12 +1462,6 @@ async def get_game_steam_activity(
             is_aggregated=is_aggregated,
         ),
     )
-    await set_cached(
-        f"games:steam-activity:{cache_hash}",
-        response.model_dump_json(),
-        CACHE_TTL_SHORT,
-    )
-    return response
 
 
 @router.get("/{game_id}/news", response_model=PaginatedResponse[NewsArticleSummary])
