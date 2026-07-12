@@ -21,6 +21,14 @@ if settings.environment == "production":
     connect_args["ssl"] = ssl_context
     connect_args["timeout"] = 30  # Connection timeout in seconds
 
+# Bound runaway queries so slow-DB periods (sync pipeline, mirror writes) fail
+# individual requests fast instead of piling up connections. Opt-in per process
+# via DB_STATEMENT_TIMEOUT_MS — set it on the web service, never on the pipeline.
+if settings.db_statement_timeout_ms > 0:
+    connect_args.setdefault("server_settings", {})[
+        "statement_timeout"
+    ] = str(settings.db_statement_timeout_ms)
+
 # Create async engine
 engine = create_async_engine(
     settings.database_url,

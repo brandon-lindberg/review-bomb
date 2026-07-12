@@ -40,7 +40,7 @@ from app.schemas.schemas import (
     NewsArticleSummary,
     PaginatedResponse,
 )
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_SHORT
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_SHORT, CACHE_TTL_MEDIUM
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 from app.services.steam_activity import (
@@ -845,6 +845,13 @@ async def get_game(
     db: AsyncSession = Depends(get_db),
 ):
     """Get game detail (uses denormalized columns - instant!)."""
+    # Short-TTL response cache: this endpoint runs a review-timing aggregate per
+    # call and is hit on every page render, share-card render, and bot fetch.
+    detail_cache_key = f"games:detail:v1:{game_id}"
+    cached = await get_cached(detail_cache_key)
+    if cached:
+        return GameDetail(**json.loads(cached))
+
     game = await resolve_entity_by_identifier(db, Game, str(game_id))
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -927,7 +934,7 @@ async def get_game(
 
     base_game = _build_game_with_scores(game)
 
-    return GameDetail(
+    response = GameDetail(
         **base_game.model_dump(),
         tier=game.tier,
         percent_recommended=game.percent_recommended,
@@ -938,6 +945,14 @@ async def get_game(
         updated_at=game.updated_at,
         recent_news=[NewsArticleSummary.model_validate(a) for a in recent_news],
     )
+
+    await set_cached(
+        detail_cache_key,
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_SHORT,
+    )
+
+    return response
 
 
 @router.get("/{game_id}/similar", response_model=list[SimilarGame])
@@ -1596,6 +1611,23 @@ async def get_game_reviews(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all critic reviews for a game."""
+    # Cache the full response keyed on the raw request params. Review data only
+    # changes via sync jobs, and this endpoint (especially per_page=500 pages
+    # fetched by every visitor's browser) is the single hottest DB/CPU path, so
+    # a short TTL keeps public traffic off the DB while background jobs run.
+    reviews_cache_hash = cache_key(
+        "games:reviews:v1",
+        game_id=str(game_id),
+        page=page,
+        per_page=per_page,
+        review_timing=review_timing,
+        sort_order=sort_order,
+    )
+    reviews_cache_key = f"games:reviews:{reviews_cache_hash}"
+    cached = await get_cached(reviews_cache_key)
+    if cached:
+        return PaginatedResponse[ReviewWithJournalist](**json.loads(cached))
+
     game = await resolve_entity_by_identifier(db, Game, str(game_id))
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
@@ -1701,10 +1733,18 @@ async def get_game_reviews(
             f"{corrected_count}/{len(rows)}"
         )
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        reviews_cache_key,
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+
+    return response

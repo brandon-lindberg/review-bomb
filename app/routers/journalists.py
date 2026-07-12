@@ -547,6 +547,19 @@ async def get_journalist_reviews(
     db: AsyncSession = Depends(get_db),
 ):
     """Get paginated reviews for a journalist, newest first."""
+    # Short-TTL response cache: browsers fetch every page at per_page=500 for
+    # the charts, which is one of the heaviest DB/CPU paths on the service.
+    reviews_cache_hash = cache_key(
+        "journalists:reviews:v1",
+        journalist_id=str(journalist_id),
+        page=page,
+        per_page=per_page,
+    )
+    reviews_cache_key = f"journalists:reviews:{reviews_cache_hash}"
+    cached = await get_cached(reviews_cache_key)
+    if cached:
+        return PaginatedResponse[ReviewWithDisparity](**json.loads(cached))
+
     journalist = await resolve_entity_by_identifier(db, Journalist, str(journalist_id))
     if not journalist:
         raise HTTPException(status_code=404, detail="Journalist not found")
@@ -634,13 +647,21 @@ async def get_journalist_reviews(
             f"{corrected_count}/{len(rows)}"
         )
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        reviews_cache_key,
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+
+    return response
 
 
 @router.get("/{journalist_id}/history", response_model=list[DisparitySnapshotSchema])

@@ -19,9 +19,13 @@ export const getCachedGameHistory = cache(async (id: string | number, limit = 18
 export const getCachedGameNews = cache(async (id: string | number, page = 1, perPage = 5) =>
   getGameNews(id, page, perPage)
 );
-export async function getCachedGameSimilarGames(id: string | number, limit = 4) {
-  return getGameSimilarGames(id, limit, { cache: "no-store" });
-}
+// Uses the default fetch caching (15s revalidate): the backend's similar-games
+// cache is already versioned on taxonomy/similarity state, so the previous
+// `cache: "no-store"` (an April staleness workaround) only forced every page
+// render into an extra uncached backend hit.
+export const getCachedGameSimilarGames = cache(async (id: string | number, limit = 4) =>
+  getGameSimilarGames(id, limit)
+);
 
 export const getCachedJournalist = cache(async (id: string | number) => getJournalist(id));
 export const getCachedJournalistHistory = cache(async (id: string | number, limit = 180) =>

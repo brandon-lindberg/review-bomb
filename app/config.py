@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/review_disparity"
     database_echo: bool = False
+    # Per-statement Postgres timeout in milliseconds; 0 disables. Opt-in via env
+    # (DB_STATEMENT_TIMEOUT_MS) on the *web service only* — the data pipeline and
+    # CLI share this module and legitimately run multi-minute statements, so do
+    # not set it in their environments.
+    db_statement_timeout_ms: int = 0
 
     # Redis
     redis_url: str = "redis://localhost:6379/0"
@@ -53,6 +58,11 @@ class Settings(BaseSettings):
 
     # Sentry (optional)
     sentry_dsn: Optional[str] = None
+
+    # Observability: log requests slower than this (ms; 0 disables) and emit a
+    # heartbeat line with CPU/loop-lag/request counts every N seconds (0 disables).
+    slow_request_log_ms: int = 500
+    heartbeat_log_seconds: int = 60
 
     # Security
     allowed_hosts: list[str] = []  # Empty = allow all (dev), set in production

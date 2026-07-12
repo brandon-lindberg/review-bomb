@@ -2,9 +2,59 @@
 Security middleware for production hardening.
 """
 
+import time
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
+
+
+# Shared counters for the lifespan heartbeat line (single-process uvicorn).
+_request_count = 0
+_slow_request_count = 0
+
+
+def drain_request_counters() -> tuple[int, int]:
+    """Return and reset (requests, slow requests) since the last heartbeat."""
+    global _request_count, _slow_request_count
+    counts = (_request_count, _slow_request_count)
+    _request_count = 0
+    _slow_request_count = 0
+    return counts
+
+
+class RequestObservabilityMiddleware(BaseHTTPMiddleware):
+    """Log slow requests and count traffic for the heartbeat line.
+
+    Render keeps recent stdout logs even across restarts but exposes no
+    metrics; after a CPU/memory incident email, these lines are the only way
+    to see which endpoints and callers were hot in the minutes before.
+    """
+
+    def __init__(self, app, *, slow_ms: int = 500):
+        super().__init__(app)
+        self.slow_ms = slow_ms
+
+    async def dispatch(self, request: Request, call_next):
+        global _request_count, _slow_request_count
+
+        start = time.perf_counter()
+        response: Response = await call_next(request)
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        _request_count += 1
+        if self.slow_ms > 0 and elapsed_ms >= self.slow_ms:
+            _slow_request_count += 1
+            client_ip = request.client.host if request.client else "-"
+            user_agent = request.headers.get("user-agent", "-")[:120]
+            query = f"?{request.url.query}" if request.url.query else ""
+            print(
+                f"SLOW {int(elapsed_ms)}ms {response.status_code} "
+                f'{request.method} {request.url.path}{query} ip={client_ip} ua="{user_agent}"',
+                flush=True,
+            )
+
+        return response
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):

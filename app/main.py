@@ -3,6 +3,9 @@ Main FastAPI application for Game Journalist Review Disparity Tracker.
 """
 
 import asyncio
+import resource
+import sys
+import time
 from contextlib import asynccontextmanager
 from contextlib import suppress
 
@@ -19,9 +22,11 @@ from app.config import get_settings
 from app.cache import close_redis
 from app.ip_filter import IPFilterMiddleware
 from app.middleware import (
+    RequestObservabilityMiddleware,
     SecurityHeadersMiddleware,
     TrustedProxyMiddleware,
     HTTPSRedirectMiddleware,
+    drain_request_counters,
 )
 from app.routers import journalists, outlets, games, leaderboards, search, stats, news, internal
 
@@ -34,12 +39,48 @@ limiter = Limiter(
 )
 
 
+def _process_cpu_seconds(usage: resource.struct_rusage) -> float:
+    return usage.ru_utime + usage.ru_stime
+
+
+def _max_rss_mb(usage: resource.struct_rusage) -> float:
+    # ru_maxrss is bytes on macOS, kilobytes on Linux (Render).
+    divisor = 1024 * 1024 if sys.platform == "darwin" else 1024
+    return usage.ru_maxrss / divisor
+
+
+async def _heartbeat_log_loop(interval_seconds: int) -> None:
+    """Emit a periodic resource/traffic line so incident emails are diagnosable
+    from Render's retained stdout logs (there are no platform metrics)."""
+    last_usage = resource.getrusage(resource.RUSAGE_SELF)
+    last_wall = time.monotonic()
+    while True:
+        await asyncio.sleep(interval_seconds)
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        wall = time.monotonic()
+        wall_delta = wall - last_wall
+        cpu_delta = _process_cpu_seconds(usage) - _process_cpu_seconds(last_usage)
+        # Sleep overshoot beyond the interval = event-loop scheduling lag.
+        loop_lag = max(0.0, wall_delta - interval_seconds)
+        requests, slow_requests = drain_request_counters()
+        cpu_pct = (cpu_delta / wall_delta * 100) if wall_delta > 0 else 0.0
+        print(
+            f"HEARTBEAT cpu={cpu_delta:.1f}s/{wall_delta:.0f}s ({cpu_pct:.0f}%) "
+            f"loop_lag={loop_lag:.2f}s req={requests} slow={slow_requests} "
+            f"max_rss={_max_rss_mb(usage):.0f}MB",
+            flush=True,
+        )
+        last_usage = usage
+        last_wall = wall
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     # Startup
     print(f"Starting {settings.app_name}...")
     startup_prewarm_task: asyncio.Task | None = None
+    heartbeat_task: asyncio.Task | None = None
 
     # Initialize Sentry if configured
     if settings.sentry_dsn:
@@ -64,13 +105,19 @@ async def lifespan(app: FastAPI):
     # Best-effort background prewarm for first-user experience after restart/deploy.
     startup_prewarm_task = asyncio.create_task(_startup_prewarm())
 
+    if settings.heartbeat_log_seconds > 0:
+        heartbeat_task = asyncio.create_task(
+            _heartbeat_log_loop(settings.heartbeat_log_seconds)
+        )
+
     yield
 
     # Shutdown
-    if startup_prewarm_task and not startup_prewarm_task.done():
-        startup_prewarm_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await startup_prewarm_task
+    for task in (startup_prewarm_task, heartbeat_task):
+        if task and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
     await close_redis()
     print("Shutting down...")
 
@@ -108,6 +155,12 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 # Block known abusive IPs (runs after TrustedProxyMiddleware extracts real IP)
 app.add_middleware(IPFilterMiddleware)
+
+# Slow-request logging + traffic counters (runs after TrustedProxyMiddleware so
+# logged IPs are real client IPs, before the rest so timings cover the stack)
+app.add_middleware(
+    RequestObservabilityMiddleware, slow_ms=settings.slow_request_log_ms
+)
 
 # Trusted proxy support (extract real IP from Cloudflare/Render headers)
 app.add_middleware(TrustedProxyMiddleware)

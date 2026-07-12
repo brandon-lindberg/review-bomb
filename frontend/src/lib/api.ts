@@ -42,6 +42,12 @@ function getServerRevalidateSeconds(endpoint: string): number {
   return 60;
 }
 
+// Server-side fetches must never hang: when the backend/DB is slow (sync
+// pipeline, mirror writes), un-bounded fetches let concurrent page renders
+// pile up holding memory until the instance hits its limit (Render OOM
+// restart, 2026-07-11). Fail the individual render fast instead.
+const SERVER_FETCH_TIMEOUT_MS = 10_000;
+
 async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promise<T> {
   const isServer = typeof window === "undefined";
   const hasExplicitRevalidate = options?.next?.revalidate != null;
@@ -54,6 +60,10 @@ async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promis
       ...options?.headers,
     },
   };
+
+  if (isServer && requestOptions.signal == null) {
+    requestOptions.signal = AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS);
+  }
 
   if (isServer && !hasExplicitRevalidate && !hasExplicitCache) {
     requestOptions.next = {

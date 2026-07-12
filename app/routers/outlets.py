@@ -12,7 +12,7 @@ from slowapi.util import get_remote_address
 
 from app.database import get_db
 from app.models.models import Outlet, Review, Journalist, Game, DisparitySnapshot
-from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT
+from app.cache import get_cached, set_cached, cache_key, CACHE_TTL_HOT, CACHE_TTL_MEDIUM
 from app.public_ids import resolve_entity_by_identifier
 from app.schemas.schemas import (
     OutletSummary,
@@ -283,6 +283,14 @@ async def get_outlet(
     db: AsyncSession = Depends(get_db),
 ):
     """Get outlet detail using denormalized columns - fast!"""
+    # Response cache: the score/timing metrics aggregate below scans every
+    # review the outlet has ever published (tens of thousands of rows for big
+    # outlets) and only changes when sync jobs land new reviews.
+    detail_cache_key = f"outlets:detail:v1:{outlet_id}"
+    cached = await get_cached(detail_cache_key)
+    if cached:
+        return OutletWithStats(**json.loads(cached))
+
     outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
@@ -367,7 +375,7 @@ async def get_outlet(
         else calculated_avg_disparity_combined
     )
 
-    return OutletWithStats(
+    response = OutletWithStats(
         id=outlet.id,
         public_id=outlet.public_id or str(outlet.id),
         name=outlet.name,
@@ -389,6 +397,14 @@ async def get_outlet(
         max_score_given=Decimal(str(round(metrics_row.max_score, 2))) if metrics_row.max_score else None,
         score_std_deviation=outlet.score_std_dev,
     )
+
+    await set_cached(
+        detail_cache_key,
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+
+    return response
 
 
 @router.get("/{outlet_id}/journalists", response_model=PaginatedResponse[JournalistSummary])
@@ -475,6 +491,20 @@ async def get_outlet_reviews(
     db: AsyncSession = Depends(get_db),
 ):
     """Get all reviews from this outlet."""
+    # Short-TTL response cache: big outlets span 20+ pages of 500 rows and every
+    # visitor's browser fetches all of them for the charts — the heaviest read
+    # path on the service.
+    reviews_cache_hash = cache_key(
+        "outlets:reviews:v1",
+        outlet_id=str(outlet_id),
+        page=page,
+        per_page=per_page,
+    )
+    reviews_cache_key = f"outlets:reviews:{reviews_cache_hash}"
+    cached = await get_cached(reviews_cache_key)
+    if cached:
+        return PaginatedResponse[ReviewWithJournalist](**json.loads(cached))
+
     outlet = await resolve_entity_by_identifier(db, Outlet, str(outlet_id))
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
@@ -560,13 +590,21 @@ async def get_outlet_reviews(
             f"{corrected_count}/{len(rows)}"
         )
 
-    return PaginatedResponse(
+    response = PaginatedResponse(
         items=items,
         total=total,
         page=page,
         per_page=per_page,
         total_pages=(total + per_page - 1) // per_page if total > 0 else 0,
     )
+
+    await set_cached(
+        reviews_cache_key,
+        json.dumps(response.model_dump(mode="json")),
+        CACHE_TTL_MEDIUM,
+    )
+
+    return response
 
 
 @router.get("/{outlet_id}/history", response_model=list[DisparitySnapshotSchema])

@@ -74,6 +74,9 @@ export async function proxy(request: NextRequest) {
       headers: {
         Accept: "application/json",
       },
+      // A slow backend must not stall every legacy-URL request in middleware;
+      // on timeout we fall through and let the page resolve the entity itself.
+      signal: AbortSignal.timeout(5_000),
     });
 
     if (!response.ok) {
