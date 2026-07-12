@@ -8,6 +8,7 @@
 - [Journalists](https://reviewdisparity.com/journalists): Individual game critics ranked by how closely their scores track real players, with full scoring history.
 - [Outlets](https://reviewdisparity.com/outlets): Publications/outlets and their aggregate disparity from player scores.
 - [Leaderboards](https://reviewdisparity.com/leaderboards): Games, journalists, and outlets ranked by disparity and recency.
+- [News](https://reviewdisparity.com/news): Gaming news articles from tracked publications, linked to the games they cover.
 - [Compare](https://reviewdisparity.com/compare): Compare up to four games, journalists, or outlets side by side.
 - [Search](https://reviewdisparity.com/search): Search across games, journalists, and outlets.
 
@@ -15,6 +16,13 @@
 
 - [How it works](https://reviewdisparity.com/about): Methodology for calculating disparity, data sources (Steam, Metacritic, OpenCritic), and the scoring system. Note: games need at least 50 Steam user reviews before Steam counts toward disparity.
 - [FAQ](https://reviewdisparity.com/faq): Plain-language answers to common questions about disparity, scoring, data sources, and leaderboard thresholds.
+
+## For AI agents
+
+- Game, journalist, and outlet detail pages are the public sources of per-entity information. Their canonical URLs use the stable format `/games/<slug>--<id>` (same for `/journalists/` and `/outlets/`).
+- The homepage and all game/journalist/outlet detail pages are also available as Markdown: request the canonical URL with an `Accept: text/markdown` header.
+- The `/api/` path is private and must not be accessed. Use the public HTML or Markdown pages instead.
+- Content signals for this site (see robots.txt): ai-train=no, search=yes, ai-input=yes.
 
 ## Notes
 
