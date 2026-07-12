@@ -10,18 +10,27 @@ import { SearchInput } from "@/components/SearchInput";
 import { PaginationControls } from "@/components/PaginationControls";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
+import { getIndexablePaginationPage } from "@/lib/pagination-metadata";
 
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { page: pageParam, sort, order, year, search } = await searchParams;
-  const hasFacetedState = Boolean(pageParam || sort || order || year || search?.trim());
+  const hasNonPageFacets = Boolean(sort || order || year || search?.trim());
+  // Plain pagination of the default listing stays indexable with a
+  // self-referencing canonical: long-term-noindexed pages stop passing link
+  // equity, and these pages are the only followed internal links to most
+  // game detail pages. Sorted/filtered/search variants remain noindex.
+  const paginationPage = getIndexablePaginationPage(pageParam, hasNonPageFacets);
+  const hasFacetedState = Boolean(pageParam || hasNonPageFacets) && paginationPage == null;
 
   return {
-    title: "Browse Games",
+    title: paginationPage != null ? `Browse Games - Page ${paginationPage}` : "Browse Games",
     description:
       "Browse video games and compare critic review scores vs player scores from Steam and Metacritic. Find the biggest review disparities.",
-    alternates: { canonical: "/games" },
+    alternates: {
+      canonical: paginationPage != null ? `/games?page=${paginationPage}` : "/games",
+    },
     ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Browse Games - ReviewDisparity",

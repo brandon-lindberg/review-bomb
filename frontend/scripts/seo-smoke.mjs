@@ -19,16 +19,23 @@ const INDEXABLE_PAGES = [
 
 const NOINDEX_PAGES = [
   "/search",
-  "/games?page=2",
   "/games?search=halo",
+  "/games?page=2&sort=title&order=asc",
   "/news?page=2",
   "/news?source=IGN",
-  "/journalists?page=2",
   "/journalists?search=smith",
-  "/outlets?page=2",
+  "/journalists?page=2&search=smith",
   "/outlets?sort=name&order=asc",
   "/compare?type=games&ids=1,2",
   "/search?q=halo",
+];
+
+// Plain default-view pagination is indexable with self-referencing canonicals
+// so entity detail pages keep followed internal links.
+const PAGINATED_INDEXABLE_PAGES = [
+  "/games?page=2",
+  "/journalists?page=2",
+  "/outlets?page=2",
 ];
 
 const DETAIL_SAMPLES_PER_TYPE = Math.max(
@@ -178,12 +185,99 @@ function assertBreadcrumbContent(path, text) {
 async function assertRobotsTxt() {
   const { response, text } = await fetchText("/robots.txt", { redirect: "follow" });
   ok(response.ok, `/robots.txt: expected 200, got ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+  ok(
+    contentType.startsWith("text/plain"),
+    `/robots.txt: expected text/plain content-type, got ${contentType}`,
+  );
   ok(
     text.includes(`Sitemap: ${EXPECTED_CANONICAL_ORIGIN}/sitemap.xml`),
     "/robots.txt: missing canonical sitemap URL",
   );
+  ok(text.includes("Disallow: /api/"), "/robots.txt: missing Disallow: /api/");
+  ok(
+    text.includes("Content-Signal: ai-train=no, search=yes, ai-input=yes"),
+    "/robots.txt: missing Content-Signal directive",
+  );
   ok(!text.includes("http://reviewdisparity.com"), "/robots.txt: should not reference http://reviewdisparity.com");
   ok(!text.includes("https://www.reviewdisparity.com"), "/robots.txt: should not reference https://www.reviewdisparity.com");
+}
+
+async function assertLlmsTxt() {
+  const { response, text } = await fetchText("/llms.txt", { redirect: "follow" });
+  ok(response.ok, `/llms.txt: expected 200, got ${response.status}`);
+  const contentType = response.headers.get("content-type") || "";
+  ok(
+    contentType.startsWith("text/plain"),
+    `/llms.txt: expected text/plain content-type, got ${contentType}`,
+  );
+  ok(text.startsWith("# ReviewDisparity"), "/llms.txt: unexpected leading content");
+  ok(
+    text.includes("`/api/` path is private"),
+    "/llms.txt: must state that /api/ is private",
+  );
+  ok(text.includes("/sitemap.xml"), "/llms.txt: missing sitemap link");
+}
+
+async function assertLlmsLinkHeader(path) {
+  const { response } = await fetchText(path, { redirect: "follow" });
+  const linkHeader = response.headers.get("link") || "";
+  ok(
+    linkHeader.includes("</llms.txt>") && linkHeader.includes('rel="describedby"'),
+    `${path}: missing Link: </llms.txt>; rel="describedby" header (got: ${linkHeader || "none"})`,
+  );
+}
+
+async function assertPaginatedIndexablePage(path) {
+  const { response, text, url } = await fetchText(path, { redirect: "follow" });
+  ok(response.ok, `${path}: expected 200, got ${response.status} (${url})`);
+
+  const canonical = getCanonicalHref(text);
+  const expectedCanonical = new URL(path, EXPECTED_CANONICAL_ORIGIN).toString();
+  ok(canonical, `${path}: missing canonical link`);
+  ok(
+    normalizeCanonicalUrl(canonical) === normalizeCanonicalUrl(expectedCanonical),
+    `${path}: canonical mismatch (expected ${expectedCanonical}, got ${canonical})`,
+  );
+
+  const robots = normalizeRobotsContent(getMetaContent(text, "robots"));
+  ok(robots.includes("index"), `${path}: expected robots meta to include index`);
+  ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
+  ok(!robots.includes("noindex"), `${path}: paginated default view should not be noindex`);
+}
+
+async function assertMarkdownNegotiation(path) {
+  // Default request keeps returning HTML.
+  const htmlResult = await fetchText(path, { redirect: "follow" });
+  ok(htmlResult.response.ok, `${path}: expected 200 for HTML request, got ${htmlResult.response.status}`);
+  const htmlType = htmlResult.response.headers.get("content-type") || "";
+  ok(htmlType.includes("text/html"), `${path}: default request should return text/html, got ${htmlType}`);
+
+  // Explicit Accept: text/markdown returns the Markdown variant.
+  const mdResult = await fetchText(path, {
+    redirect: "follow",
+    headers: { Accept: "text/markdown" },
+  });
+  ok(mdResult.response.ok, `${path}: expected 200 for markdown request, got ${mdResult.response.status}`);
+  const mdType = mdResult.response.headers.get("content-type") || "";
+  ok(
+    mdType.startsWith("text/markdown"),
+    `${path}: Accept: text/markdown should return text/markdown, got ${mdType}`,
+  );
+  const varyHeader = (mdResult.response.headers.get("vary") || "").toLowerCase();
+  ok(
+    varyHeader.split(",").map((v) => v.trim()).includes("accept"),
+    `${path}: markdown response must include Vary: Accept (got: ${varyHeader || "none"})`,
+  );
+  ok(mdResult.text.startsWith("# "), `${path}: markdown body should start with an H1`);
+  ok(
+    mdResult.text.includes(`Canonical URL: ${EXPECTED_CANONICAL_ORIGIN}`),
+    `${path}: markdown body should state its canonical URL`,
+  );
+  ok(
+    !mdResult.text.includes("onrender.com") && !/\/api\/v1/.test(mdResult.text),
+    `${path}: markdown body must not leak private API endpoints`,
+  );
 }
 
 async function assertSitemapXml() {
@@ -475,8 +569,22 @@ async function run() {
     console.log(`PASS noindex ${path}`);
   }
 
+  for (const path of PAGINATED_INDEXABLE_PAGES) {
+    await assertPaginatedIndexablePage(path);
+    console.log(`PASS paginated-indexable ${path}`);
+  }
+
   await assertRobotsTxt();
   console.log("PASS /robots.txt");
+
+  await assertLlmsTxt();
+  console.log("PASS /llms.txt");
+
+  await assertLlmsLinkHeader("/");
+  console.log("PASS llms.txt Link header /");
+
+  await assertMarkdownNegotiation("/");
+  console.log("PASS markdown negotiation /");
 
   const sitemapLocs = await assertSitemapXml();
   console.log("PASS /sitemap.xml");
@@ -512,6 +620,7 @@ async function run() {
       assertServerRenderedDetailContent(path, text);
       assertBreadcrumbContent(path, text);
       await assertLegacyDetailRedirect(path);
+      await assertMarkdownNegotiation(path);
       console.log(`PASS detail ${path}`);
     }
   }

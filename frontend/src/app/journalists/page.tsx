@@ -7,18 +7,26 @@ import { SortSelect } from "@/components/SortSelect";
 import { SearchInput } from "@/components/SearchInput";
 import { PaginationControls } from "@/components/PaginationControls";
 import { buildEntityPath } from "@/lib/entity-paths";
+import { getIndexablePaginationPage } from "@/lib/pagination-metadata";
 
 export const revalidate = 60;
 
 export async function generateMetadata({ searchParams }: PageProps): Promise<Metadata> {
   const { page: pageParam, sort, order, search } = await searchParams;
-  const hasFacetedState = Boolean(pageParam || sort || order || search?.trim());
+  const hasNonPageFacets = Boolean(sort || order || search?.trim());
+  // Plain default-view pagination stays indexable with a self-referencing
+  // canonical so journalist detail pages keep followed internal links; see
+  // games/page.tsx for the rationale.
+  const paginationPage = getIndexablePaginationPage(pageParam, hasNonPageFacets);
+  const hasFacetedState = Boolean(pageParam || hasNonPageFacets) && paginationPage == null;
 
   return {
-    title: "Game Journalists",
+    title: paginationPage != null ? `Game Journalists - Page ${paginationPage}` : "Game Journalists",
     description:
       "Browse game journalists and see how their review scores compare to player opinions. Track critic-to-user score disparity.",
-    alternates: { canonical: "/journalists" },
+    alternates: {
+      canonical: paginationPage != null ? `/journalists?page=${paginationPage}` : "/journalists",
+    },
     ...(hasFacetedState && { robots: { index: false, follow: true } }),
     openGraph: {
       title: "Game Journalists - ReviewDisparity",

@@ -24,6 +24,22 @@ const nextConfig: NextConfig = {
     // make the server download and re-encode arbitrary images (CPU/memory spikes).
     unoptimized: true,
   },
+  async headers() {
+    return [
+      {
+        // All public HTML pages (skip _next assets, API-ish paths, and files
+        // with extensions like robots.txt/llms.txt/sw.js). Next appends this
+        // alongside any framework-set Link headers rather than replacing them.
+        source: "/((?!api/|_next/|.*\\..*).*)",
+        headers: [
+          {
+            key: "Link",
+            value: '</llms.txt>; rel="describedby"; type="text/plain"',
+          },
+        ],
+      },
+    ];
+  },
   async redirects() {
     return [
       {
