@@ -12,6 +12,7 @@ import dramatiq
 
 from app.database import async_session_maker
 from app.services.disparity import DisparityCalculator
+from app.services.site_stats import refresh_site_stats_snapshot
 from app.tasks.runtime import LOCK_DB_HEAVY_BULK, QUEUE_DISPARITY, run_async_task
 
 
@@ -44,11 +45,16 @@ async def _calculate_daily_snapshots(snapshot_date_str: Optional[str] = None):
         print(f"Calculating disparity snapshots for {snapshot_date}...")
 
         results = await calculator.generate_all_snapshots(snapshot_date)
+        site_stats = await refresh_site_stats_snapshot(db)
 
         print(f"Snapshot generation complete:")
         print(f"  - Journalists: {results['journalists']}")
         print(f"  - Outlets: {results['outlets']}")
         print(f"  - Games: {results['games']}")
+        print(
+            "  - Published site stats: "
+            f"{site_stats.total_games} games, {site_stats.total_reviews} reviews"
+        )
 
 
 @dramatiq.actor(queue_name=QUEUE_DISPARITY, max_retries=3, time_limit=600000)  # 10 min time limit

@@ -1,18 +1,160 @@
+"use client";
+
 import { GameAvatar } from "@/components/GameAvatar";
 import Link from "next/link";
 import { getStats, getRecentReviews, getGames, getNews, getTrendingGames } from "@/lib/api";
 import { DisparityBadge } from "@/components/DisparityBadge";
 import { JsonLd } from "@/components/JsonLd";
 import { NewsCard } from "@/components/NewsCard";
+import { SkeletonBlock } from "@/components/RouteLoading";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
-
-// Keep the home page fresh without forcing near-continuous server regeneration.
-// Hot sub-sections already use shorter API/fetch caches where needed.
-export const revalidate = 15;
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const siteUrl = getSiteUrl();
+const LIVE_FETCH_OPTIONS = { cache: "no-store" as const };
+const LIVE_REFRESH_MIN_INTERVAL_MS = 15_000;
+
+function loadLiveStats() {
+  return getStats(LIVE_FETCH_OPTIONS);
+}
+
+function loadLiveRecentReviews() {
+  return getRecentReviews(5, LIVE_FETCH_OPTIONS);
+}
+
+function loadLiveRecentGames() {
+  return getGames(
+    1,
+    5,
+    "release_date",
+    "desc",
+    undefined,
+    undefined,
+    LIVE_FETCH_OPTIONS,
+  );
+}
+
+function loadLiveNews() {
+  return getNews(1, 5, undefined, LIVE_FETCH_OPTIONS);
+}
+
+function loadLiveTrendingGames() {
+  return getTrendingGames(8, 48, LIVE_FETCH_OPTIONS);
+}
+
+function useLiveResource<T>(
+  load: () => Promise<T>,
+  delayMs: number,
+) {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const mountedRef = useRef(false);
+  const inFlightRef = useRef(false);
+  const lastStartedAtRef = useRef(0);
+
+  const refresh = useCallback(async (force = false) => {
+    const now = Date.now();
+    if (inFlightRef.current) return;
+    if (
+      !force
+      && now - lastStartedAtRef.current < LIVE_REFRESH_MIN_INTERVAL_MS
+    ) {
+      return;
+    }
+
+    inFlightRef.current = true;
+    lastStartedAtRef.current = now;
+    setLoading(true);
+
+    try {
+      const nextData = await load();
+      if (!mountedRef.current) return;
+      setData(nextData);
+      setError(false);
+    } catch {
+      if (!mountedRef.current) return;
+      setError(true);
+    } finally {
+      inFlightRef.current = false;
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, [load]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const initialTimer = window.setTimeout(() => {
+      void refresh(true);
+    }, delayMs);
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void refresh();
+      }
+    };
+    const refreshIfOnline = () => {
+      void refresh();
+    };
+
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    window.addEventListener("focus", refreshIfVisible);
+    window.addEventListener("online", refreshIfOnline);
+
+    return () => {
+      mountedRef.current = false;
+      window.clearTimeout(initialTimer);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+      window.removeEventListener("focus", refreshIfVisible);
+      window.removeEventListener("online", refreshIfOnline);
+    };
+  }, [delayMs, refresh]);
+
+  return { data, loading, error, refresh };
+}
+
+function HomePanelSkeleton({ label }: { label: string }) {
+  return (
+    <section
+      className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-6"
+      aria-label={`Loading ${label}`}
+      aria-busy="true"
+    >
+      <SkeletonBlock className="mb-5 h-7 w-40" />
+      <div className="space-y-3">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <SkeletonBlock key={index} className="h-16 w-full rounded-2xl" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function HomeSectionError({
+  label,
+  onRetry,
+}: {
+  label: string;
+  onRetry: () => void;
+}) {
+  return (
+    <section className="site-empty">
+      <p style={{ color: "var(--foreground-muted)" }}>
+        We couldn&apos;t refresh {label} right now.
+      </p>
+      <button
+        type="button"
+        className="site-button site-button-secondary mt-4"
+        onClick={onRetry}
+      >
+        Try again
+      </button>
+    </section>
+  );
+}
 
 function isUnreleasedNow(gameReleaseDate: string | null): boolean {
   if (!gameReleaseDate) return false;
@@ -136,24 +278,18 @@ function MiniSteamSparkline({
   );
 }
 
-export default async function Home() {
-  let stats = null;
-  let recentReviews = null;
-  let recentGames = null;
-  let recentNews = null;
-  let trendingGames = null;
+export default function Home() {
+  const statsResource = useLiveResource(loadLiveStats, 0);
+  const recentReviewsResource = useLiveResource(loadLiveRecentReviews, 100);
+  const recentGamesResource = useLiveResource(loadLiveRecentGames, 250);
+  const trendingGamesResource = useLiveResource(loadLiveTrendingGames, 500);
+  const recentNewsResource = useLiveResource(loadLiveNews, 750);
 
-  try {
-    [stats, recentReviews, recentGames, recentNews, trendingGames] = await Promise.all([
-      getStats(),
-      getRecentReviews(5),
-      getGames(1, 5, "release_date", "desc"),
-      getNews(1, 5).catch(() => null),
-      getTrendingGames(8, 48).catch(() => null),
-    ]);
-  } catch (error) {
-    console.error("Error fetching data:", error);
-  }
+  const stats = statsResource.data;
+  const recentReviews = recentReviewsResource.data;
+  const recentGames = recentGamesResource.data;
+  const recentNews = recentNewsResource.data;
+  const trendingGames = trendingGamesResource.data;
 
   const sortedRecentReviews = recentReviews
     ? [...recentReviews].sort((a, b) => {
@@ -283,9 +419,56 @@ export default async function Home() {
             )}
           </div>
         )}
+        {!stats && statsResource.loading && (
+          <div
+            className="route-kpis justify-center"
+            aria-label="Loading site statistics"
+            aria-busy="true"
+          >
+            {Array.from({ length: 4 }).map((_, index) => (
+              <span key={index} className="route-kpi min-w-32">
+                <SkeletonBlock className="mx-auto h-7 w-20" />
+                <SkeletonBlock className="mx-auto mt-2 h-3 w-16" />
+              </span>
+            ))}
+          </div>
+        )}
+        {!stats && statsResource.error && !statsResource.loading && (
+          <div className="site-empty">
+            <p style={{ color: "var(--foreground-muted)" }}>
+              We couldn&apos;t refresh the homepage statistics right now. You can
+              still browse{" "}
+              <Link className="underline" href="/games">games</Link>,{" "}
+              <Link className="underline" href="/journalists">journalists</Link>, and{" "}
+              <Link className="underline" href="/outlets">outlets</Link>.
+            </p>
+            <button
+              type="button"
+              className="site-button site-button-secondary mt-4"
+              onClick={() => void statsResource.refresh(true)}
+            >
+              Try again
+            </button>
+          </div>
+        )}
       </section>
 
       {/* Trending Games */}
+      {!trendingGames && trendingGamesResource.loading && (
+        <section
+          className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-4"
+          aria-label="Loading trending games"
+          aria-busy="true"
+        >
+          <SkeletonBlock className="h-6 w-full rounded-lg" />
+        </section>
+      )}
+      {!trendingGames && trendingGamesResource.error && !trendingGamesResource.loading && (
+        <HomeSectionError
+          label="trending games"
+          onRetry={() => void trendingGamesResource.refresh(true)}
+        />
+      )}
       {trendingGames && trendingGames.items.length > 0 && (
         <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem]">
           <div className="flex items-center min-w-0">
@@ -367,6 +550,15 @@ export default async function Home() {
       {/* Recent Content */}
       <div className="grid md:grid-cols-2 gap-8">
         {/* Recent Reviews */}
+        {!recentReviews && recentReviewsResource.loading && (
+          <HomePanelSkeleton label="recent reviews" />
+        )}
+        {!recentReviews && recentReviewsResource.error && !recentReviewsResource.loading && (
+          <HomeSectionError
+            label="recent reviews"
+            onRetry={() => void recentReviewsResource.refresh(true)}
+          />
+        )}
         {sortedRecentReviews.length > 0 && (
           <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
@@ -462,6 +654,15 @@ export default async function Home() {
         )}
 
         {/* Recent Games */}
+        {!recentGames && recentGamesResource.loading && (
+          <HomePanelSkeleton label="recent games" />
+        )}
+        {!recentGames && recentGamesResource.error && !recentGamesResource.loading && (
+          <HomeSectionError
+            label="recent games"
+            onRetry={() => void recentGamesResource.refresh(true)}
+          />
+        )}
         {sortedRecentGames.length > 0 && (
           <section className="site-panel min-w-0 overflow-hidden rounded-[1.5rem] p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
@@ -550,6 +751,15 @@ export default async function Home() {
       </div>
 
       {/* Latest News */}
+      {!recentNews && recentNewsResource.loading && (
+        <HomePanelSkeleton label="latest news" />
+      )}
+      {!recentNews && recentNewsResource.error && !recentNewsResource.loading && (
+        <HomeSectionError
+          label="latest news"
+          onRetry={() => void recentNewsResource.refresh(true)}
+        />
+      )}
       {recentNews && recentNews.items.length > 0 && (
         <section className="site-panel rounded-[1.5rem] p-6">
           <div className="mb-5 flex items-center justify-between gap-3">
@@ -575,14 +785,6 @@ export default async function Home() {
         </section>
       )}
 
-      {/* Empty state if no data */}
-      {!stats && (
-        <div className="site-empty">
-          <p style={{ color: "var(--foreground-muted)" }}>
-            Unable to load data. Make sure the backend API is running.
-          </p>
-        </div>
-      )}
     </div>
   );
 }

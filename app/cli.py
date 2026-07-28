@@ -2905,6 +2905,7 @@ async def cmd_disparity(args):
     """Handle disparity calculation command."""
     import time
     from app.services.disparity import DisparityCalculator
+    from app.services.site_stats import refresh_site_stats_snapshot
 
     async with async_session_maker() as db:
         calculator = DisparityCalculator(db)
@@ -2931,6 +2932,17 @@ async def cmd_disparity(args):
             results = await calculator.generate_all_snapshots()
             print(f"\n{'='*50}")
             print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
+
+        # The review-data workflow finishes with the game disparity stage. Publish
+        # exact counts only after that final stage so readers see one consistent,
+        # current dataset without running full-table counts on every request.
+        if args.games or not (args.journalists or args.outlets or args.games):
+            site_stats = await refresh_site_stats_snapshot(db)
+            print(
+                "Published site stats: "
+                f"{site_stats.total_games:,} games, "
+                f"{site_stats.total_reviews:,} reviews"
+            )
 
         elapsed = time.time() - start
         print(f"Completed in {elapsed:.1f}s")

@@ -6,6 +6,7 @@ import { Footer } from "@/components/Footer";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { NavigationProgress } from "@/components/NavigationProgress";
+import { ServiceWorkerRefresh } from "@/components/ServiceWorkerRefresh";
 import { getSiteUrl } from "@/lib/site-url";
 
 const siteUrl = getSiteUrl();
@@ -103,6 +104,7 @@ export default function RootLayout({
         <Suspense fallback={null}>
           <NavigationProgress />
         </Suspense>
+        <ServiceWorkerRefresh />
         <GoogleAnalytics />
         <ThemeProvider>
           <Header />

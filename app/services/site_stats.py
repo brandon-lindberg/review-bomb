@@ -70,6 +70,22 @@ async def get_stored_site_stats_snapshot(db: AsyncSession) -> Optional[SiteStats
     return snapshot
 
 
+async def get_current_site_stats_snapshot(db: AsyncSession) -> SiteStats:
+    """Return the latest published exact stats, computing only on first boot.
+
+    Review-data pipelines publish a new snapshot after their final write stage.
+    Keeping the public request path to a single Redis/SyncState lookup avoids an
+    exact ``count(*)`` scan of the reviews table on every homepage visit.
+    """
+    snapshot = await get_stored_site_stats_snapshot(db)
+    if snapshot is not None:
+        return snapshot
+
+    # Controlled fallback for a new/empty environment. Once persisted, normal
+    # requests use the durable snapshot until the next data pipeline publishes.
+    return await refresh_site_stats_snapshot(db)
+
+
 async def store_site_stats_snapshot(
     db: AsyncSession,
     snapshot: SiteStats,
