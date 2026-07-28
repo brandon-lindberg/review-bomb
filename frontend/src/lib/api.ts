@@ -120,12 +120,15 @@ async function fetchAllPaginatedReviews<T>(
 }
 
 // Stats
-export async function getStats(): Promise<SiteStats> {
-  return fetchAPI<SiteStats>("/stats");
+export async function getStats(options?: NextFetchOptions): Promise<SiteStats> {
+  return fetchAPI<SiteStats>("/stats", options);
 }
 
-export async function getRecentReviews(limit = 10): Promise<ReviewWithJournalist[]> {
-  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`);
+export async function getRecentReviews(
+  limit = 10,
+  options?: NextFetchOptions,
+): Promise<ReviewWithJournalist[]> {
+  return fetchAPI<ReviewWithJournalist[]>(`/stats/recent-reviews?limit=${limit}`, options);
 }
 
 // Journalists
@@ -189,12 +192,13 @@ export async function getGames(
   sortBy = "release_date",
   sortOrder = "desc",
   year?: number,
-  search?: string
+  search?: string,
+  options?: NextFetchOptions,
 ): Promise<PaginatedResponse<GameWithScores>> {
   let url = `/games?page=${page}&per_page=${perPage}&sort_by=${sortBy}&sort_order=${sortOrder}`;
   if (year) url += `&year=${year}`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
-  return fetchAPI<PaginatedResponse<GameWithScores>>(url);
+  return fetchAPI<PaginatedResponse<GameWithScores>>(url, options);
 }
 
 export async function getGame(id: string | number): Promise<GameWithScores> {
@@ -385,11 +389,12 @@ export async function getGameAllReviews(
 export async function getNews(
   page = 1,
   perPage = 20,
-  source?: string
+  source?: string,
+  options?: NextFetchOptions,
 ): Promise<PaginatedResponse<NewsArticle>> {
   let url = `/news?page=${page}&per_page=${perPage}`;
   if (source) url += `&source=${encodeURIComponent(source)}`;
-  return fetchAPI<PaginatedResponse<NewsArticle>>(url);
+  return fetchAPI<PaginatedResponse<NewsArticle>>(url, options);
 }
 
 export async function getNewsSources(): Promise<string[]> {
@@ -409,8 +414,10 @@ export async function getGameNews(
 export async function getTrendingGames(
   limit = 8,
   windowHours = 48,
+  options?: NextFetchOptions,
 ): Promise<TrendingGamesResponse> {
   return fetchAPI<TrendingGamesResponse>(
-    `/stats/trending-games?limit=${limit}&window_hours=${windowHours}`
+    `/stats/trending-games?limit=${limit}&window_hours=${windowHours}`,
+    options,
   );
 }

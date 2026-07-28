@@ -72,6 +72,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
         if path.startswith("/api/v1/stats/sitemap-data"):
             return "public, max-age=3600, stale-while-revalidate=86400"
+        if path == "/api/v1/stats":
+            # The payload is already an O(1) read of the latest published exact
+            # snapshot. Let live clients revalidate on every app open/resume.
+            return "no-store, no-cache, must-revalidate"
         if path == "/api/v1/news/sources":
             return "public, max-age=300, stale-while-revalidate=3600"
         if path.startswith("/api/v1/search"):
