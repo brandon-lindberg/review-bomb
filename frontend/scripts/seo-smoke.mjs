@@ -194,6 +194,17 @@ function assertServerRenderedDetailContent(path, text) {
       text.includes("#recent-review-evidence"),
     `${path}: expected recent-review evidence structured data`,
   );
+  ok(
+    text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#organization`) &&
+      text.includes(`${EXPECTED_CANONICAL_ORIGIN}/about#dataset`),
+    `${path}: expected publisher and dataset knowledge-graph references`,
+  );
+  ok(
+    text.includes("#entity") &&
+      text.includes("#webpage") &&
+      text.includes('"mainEntityOfPage"'),
+    `${path}: expected connected entity and WebPage identifiers`,
+  );
 }
 
 function assertBreadcrumbContent(path, text) {
@@ -236,6 +247,55 @@ async function assertLlmsTxt() {
     "/llms.txt: must state that /api/ is private",
   );
   ok(text.includes("/sitemap.xml"), "/llms.txt: missing sitemap link");
+  ok(
+    text.includes("Disparity measures score disagreement") &&
+      text.includes("does not by itself establish motive"),
+    "/llms.txt: missing interpretation limits",
+  );
+  ok(
+    text.includes("/about#dataset") &&
+      text.includes("/about#editorial-principles"),
+    "/llms.txt: missing dataset and publishing-principles links",
+  );
+}
+
+async function assertGeoKnowledgePages() {
+  const [home, about, faq] = await Promise.all([
+    fetchText("/", { redirect: "follow" }),
+    fetchText("/about", { redirect: "follow" }),
+    fetchText("/faq", { redirect: "follow" }),
+  ]);
+
+  for (const [path, result] of [["/", home], ["/about", about], ["/faq", faq]]) {
+    ok(result.response.ok, `${path}: expected 200 for GEO knowledge check`);
+    ok(
+      result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#organization`) &&
+        result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#website`),
+      `${path}: missing stable publisher or website identifier`,
+    );
+  }
+
+  ok(
+    home.text.includes("What ReviewDisparity measures") &&
+      home.text.includes("It measures disagreement"),
+    "/: missing answer-first definition and limitation",
+  );
+  ok(
+    about.text.includes('"@type":"Dataset"') &&
+      about.text.includes('"isBasedOn"') &&
+      about.text.includes('"variableMeasured"'),
+    "/about: missing Dataset provenance or measured variables",
+  );
+  ok(
+    about.text.includes("Dataset Scope and Provenance") &&
+      about.text.includes("Publisher and creator") &&
+      about.text.includes("Publishing Principles and Limitations"),
+    "/about: structured dataset claims must have matching visible content",
+  );
+  ok(
+    faq.text.includes("Disparity alone does not establish motive"),
+    "/faq: missing neutral interpretation limit",
+  );
 }
 
 async function assertLlmsLinkHeader(path) {
@@ -655,6 +715,9 @@ async function run() {
 
   await assertLlmsTxt();
   console.log("PASS /llms.txt");
+
+  await assertGeoKnowledgePages();
+  console.log("PASS GEO knowledge graph and visible authority content");
 
   await assertLlmsLinkHeader("/");
   console.log("PASS llms.txt Link header /");

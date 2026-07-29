@@ -21,6 +21,7 @@
     "src/lib/sitemap-xml.ts",
     "src/lib/share-snapshot.ts",
     "src/lib/share-url.ts",
+    "src/lib/site-knowledge.ts",
     "tests/**/*.test.ts"
   ]
 }

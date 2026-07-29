@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { JsonLd } from "@/components/JsonLd";
+import { getStats } from "@/lib/api";
+import { getSiteUrl } from "@/lib/site-url";
+import {
+  buildAboutKnowledgeGraph,
+  REVIEW_DATA_SOURCES,
+} from "@/lib/site-knowledge";
 
 export const metadata: Metadata = {
   title: "How It Works",
@@ -223,24 +229,6 @@ const chartSections = [
   },
 ] as const;
 
-const dataSources = [
-  {
-    title: "OpenCritic",
-    copy:
-      "Professional critic reviews, scores, outlets, and journalist profiles. This is the core review history behind the site.",
-  },
-  {
-    title: "Steam",
-    copy:
-      "Player review sentiment from Steam, normalized to the same 0-100 scale as critic scores.",
-  },
-  {
-    title: "Metacritic",
-    copy:
-      "Player ratings from Metacritic, converted from the 0-10 scale into 0-100 for direct comparison.",
-  },
-] as const;
-
 function Section({
   id,
   title,
@@ -364,19 +352,23 @@ function LineSwatch({ kind }: { kind: (typeof chartGuide)[number]["kind"] }) {
   );
 }
 
-export default function AboutPage() {
-  const jsonLdData = {
-    "@context": "https://schema.org",
-    "@type": "AboutPage",
-    name: "How ReviewDisparity Works",
-    description:
-      "Learn how ReviewDisparity calculates score disparities between critics and players.",
-    url: "/about",
-  };
+export default async function AboutPage() {
+  const siteUrl = getSiteUrl();
+  const stats = await getStats().catch(() => null);
+  const lastUpdated = stats?.last_updated ? new Date(stats.last_updated) : null;
+  const lastUpdatedLabel =
+    lastUpdated && !Number.isNaN(lastUpdated.getTime())
+      ? new Intl.DateTimeFormat("en-US", {
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+          timeZone: "UTC",
+        }).format(lastUpdated)
+      : null;
 
   return (
     <div className="max-w-5xl mx-auto space-y-8">
-      <JsonLd data={jsonLdData} />
+      <JsonLd data={buildAboutKnowledgeGraph(siteUrl, stats)} />
 
       <section className="site-panel text-center px-6 py-8 sm:px-8 sm:py-10">
         <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>
@@ -386,6 +378,92 @@ export default function AboutPage() {
           Understanding our methodology, data sources, and chart views
         </p>
       </section>
+
+      <Section
+        id="dataset"
+        title="Dataset Scope and Provenance"
+        subtitle="The public pages form a continuously updated collection of normalized review evidence, organized by game, journalist, and outlet."
+      >
+        <p className="leading-7" style={{ color: "var(--foreground-muted)" }}>
+          ReviewDisparity publishes source-linked comparisons between professional video game
+          review scores and Steam and Metacritic user scores. The dataset is free to browse
+          without an account. It includes normalized scores, source-specific disparities,
+          review timing, sample context when available, and the underlying review records
+          shown on eligible detail pages.
+        </p>
+
+        {stats && (
+          <dl className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[
+              ["Games", stats.total_games],
+              ["Journalists", stats.total_journalists],
+              ["Outlets", stats.total_outlets],
+              ["Reviews", stats.total_reviews],
+            ].map(([label, value]) => (
+              <div
+                key={String(label)}
+                className="rounded-xl border p-4"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <dt className="text-xs" style={{ color: "var(--foreground-muted)" }}>
+                  {label}
+                </dt>
+                <dd className="mt-1 text-xl font-bold" style={{ color: "var(--foreground)" }}>
+                  {Number(value).toLocaleString("en-US")}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )}
+
+        <dl className="mt-6 grid gap-4 md:grid-cols-2">
+          <div>
+            <dt className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Publisher and creator
+            </dt>
+            <dd className="mt-1 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              ReviewDisparity, an independent data publisher not affiliated with the source
+              services or represented publications and journalists.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Access and terms
+            </dt>
+            <dd className="mt-1 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              Publicly accessible without payment. Use is governed by the{" "}
+              <Link href="/terms" className="underline hover:text-rust">
+                site terms
+              </Link>
+              .
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Update status
+            </dt>
+            <dd className="mt-1 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              Source records are synchronized regularly.
+              {lastUpdatedLabel && (
+                <>
+                  {" "}The site statistics report a latest update of{" "}
+                  <time dateTime={stats?.last_updated}>{lastUpdatedLabel}</time>.
+                </>
+              )}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Canonical evidence
+            </dt>
+            <dd className="mt-1 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              Canonical game, journalist, and outlet pages are the authoritative site
+              records. Each eligible page exposes recent evidence in HTML and links to
+              original review publishers where available.
+            </dd>
+          </div>
+        </dl>
+      </Section>
 
       <Section
         id="coverage"
@@ -424,8 +502,9 @@ export default function AboutPage() {
               <span className="font-medium" style={{ color: "var(--foreground)" }}>Positive Disparity</span>
             </div>
             <p className="text-sm" style={{ color: "var(--foreground-muted)" }}>
-              Critics rated the game 15 points higher than players on average.
-              This could indicate critic bias, marketing influence, or different evaluation criteria.
+              Critics rated the game 15 points higher than players on average. The number
+              establishes disagreement, but does not by itself explain the cause or establish
+              bias.
             </p>
           </div>
           <div className="p-4 rounded-lg" style={{ backgroundColor: "var(--background-card)", border: "1px solid var(--border)" }}>
@@ -723,20 +802,28 @@ export default function AboutPage() {
 
       <Section id="sources" title="Data Sources">
         <div className="space-y-6">
-          {dataSources.map((source) => (
-            <div key={source.title} className="flex gap-4">
+          {REVIEW_DATA_SOURCES.map((source) => (
+            <div key={source.name} className="flex gap-4">
               <div
                 className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0 font-bold"
                 style={{ backgroundColor: "var(--color-rust)", color: "white" }}
               >
-                {source.title.slice(0, 1)}
+                {source.name.slice(0, 1)}
               </div>
               <div>
-                <h3 className="font-semibold text-lg" style={{ color: "var(--foreground)" }}>
-                  {source.title}
+                <h3 className="font-semibold text-lg">
+                  <a
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-rust"
+                    style={{ color: "var(--foreground)" }}
+                  >
+                    {source.name}
+                  </a>
                 </h3>
                 <p style={{ color: "var(--foreground-muted)" }}>
-                  {source.copy}
+                  {source.role}
                 </p>
               </div>
             </div>
@@ -900,6 +987,55 @@ export default function AboutPage() {
             <strong style={{ color: "var(--foreground)" }}>Compare sources:</strong> a journalist might be
             aligned with Steam users but divergent from Metacritic users, or vice versa.
           </p>
+        </div>
+      </Section>
+
+      <Section
+        id="editorial-principles"
+        title="Publishing Principles and Limitations"
+        subtitle="How the site separates source facts, calculations, and interpretation."
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <div>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Deterministic calculations
+            </h3>
+            <p className="mt-2 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+              Source scores are normalized and compared using the formulas documented on this
+              page. ReviewDisparity does not rewrite a publisher&apos;s score to make a result
+              more or less favorable.
+            </p>
+          </div>
+          <div>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Attribution and corrections
+            </h3>
+            <p className="mt-2 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+              Recent evidence links to original review publishers where a source URL is
+              available. When upstream records or parsing corrections change, the public
+              calculations and freshness dates update with the synchronized data.
+            </p>
+          </div>
+          <div>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              What disparity can say
+            </h3>
+            <p className="mt-2 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+              Disparity measures the direction and size of score disagreement. It does not
+              prove motive, bias, credibility, review quality, or whether either audience is
+              correct.
+            </p>
+          </div>
+          <div>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Audience and timing limits
+            </h3>
+            <p className="mt-2 text-sm leading-7" style={{ color: "var(--foreground-muted)" }}>
+              Steam and Metacritic represent different player populations, platforms, and
+              rating systems. User sentiment and sample sizes can change after a critic review,
+              so source-specific values and dates should be read together.
+            </p>
+          </div>
         </div>
       </Section>
 

@@ -1,5 +1,6 @@
 import { buildEntityPath } from "./entity-paths";
 import { freshestDate } from "./freshest-date";
+import { siteKnowledgeIds } from "./site-knowledge";
 import type {
   GameWithScores,
   JournalistDetail,
@@ -437,5 +438,37 @@ export function buildEvidenceItemListJsonLd(
         ...(review.publishedAt && { datePublished: review.publishedAt }),
       },
     })),
+  };
+}
+
+export function buildEntityEvidenceGraphJsonLd(
+  canonicalUrl: string,
+  evidence: EntityEvidence,
+): Record<string, unknown> {
+  const ids = siteKnowledgeIds(new URL(canonicalUrl).origin);
+  const itemList = buildEvidenceItemListJsonLd(canonicalUrl, evidence);
+  const itemListNode = { ...itemList };
+  delete itemListNode["@context"];
+  return {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": `${canonicalUrl}#webpage`,
+        url: canonicalUrl,
+        name: evidence.heading,
+        isPartOf: { "@id": ids.website },
+        about: [
+          { "@id": `${canonicalUrl}#entity` },
+          { "@id": ids.dataset },
+        ],
+        mainEntity: { "@id": `${canonicalUrl}#entity` },
+        publisher: { "@id": ids.organization },
+        mentions: { "@id": `${canonicalUrl}#recent-review-evidence` },
+        ...(evidence.updatedAt && { dateModified: evidence.updatedAt }),
+        ...(evidence.sourceUrls.length > 0 && { isBasedOn: evidence.sourceUrls }),
+      },
+      itemListNode,
+    ],
   };
 }

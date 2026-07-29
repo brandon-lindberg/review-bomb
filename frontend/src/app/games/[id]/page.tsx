@@ -328,8 +328,10 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "VideoGame",
+    "@id": `${siteUrl}${canonicalPath}#entity`,
     name: game.title,
     url: `${siteUrl}${canonicalPath}`,
+    mainEntityOfPage: { "@id": `${siteUrl}${canonicalPath}#webpage` },
     ...(game.release_date && { datePublished: game.release_date }),
     ...(() => {
       const dateModified = freshestDate(

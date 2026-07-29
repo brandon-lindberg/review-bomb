@@ -48,7 +48,10 @@ function footerLines(siteUrl: string): string[] {
   return [
     "---",
     "",
-    `Source: ReviewDisparity (${siteUrl}). ${DISPARITY_NOTE}`,
+    `Publisher: ReviewDisparity (${siteUrl}), an independent data publisher.`,
+    `Methodology and provenance: ${siteUrl}/about#dataset`,
+    `Interpretation limit: disparity measures score disagreement; it does not by itself establish motive, bias, credibility, or review quality.`,
+    DISPARITY_NOTE,
     `More: [Games](${siteUrl}/games) | [Journalists](${siteUrl}/journalists) | [Outlets](${siteUrl}/outlets) | [Leaderboards](${siteUrl}/leaderboards) | [About](${siteUrl}/about) | [FAQ](${siteUrl}/faq)`,
     "",
   ];

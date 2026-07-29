@@ -8,7 +8,8 @@ const footerLinks = [
 ];
 
 const legalLinks = [
-  { href: "/about", label: "About" },
+  { href: "/about#dataset", label: "Dataset & methodology" },
+  { href: "/about#editorial-principles", label: "Publishing principles" },
   { href: "/faq", label: "FAQ" },
   { href: "/terms", label: "Terms of Service" },
   { href: "/privacy", label: "Privacy Policy" },

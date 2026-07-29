@@ -10,6 +10,7 @@ import { SkeletonBlock } from "@/components/RouteLoading";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
+import { buildHomePageJsonLd } from "@/lib/site-knowledge";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const siteUrl = getSiteUrl();
@@ -325,23 +326,6 @@ export default function Home() {
       })
     : [];
 
-  const websiteJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: "ReviewDisparity",
-    url: `${siteUrl}/`,
-    description:
-      "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
-    potentialAction: {
-      "@type": "SearchAction",
-      target: {
-        "@type": "EntryPoint",
-        urlTemplate: `${siteUrl}/search?q={search_term_string}`,
-      },
-      "query-input": "required name=search_term_string",
-    },
-  };
-
   const trendingTickerItems = trendingGames?.items
     ? [...trendingGames.items, ...trendingGames.items]
     : [];
@@ -356,7 +340,7 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <JsonLd data={websiteJsonLd} />
+      <JsonLd data={buildHomePageJsonLd(siteUrl)} />
       <section className="space-y-5 py-2 text-center">
         <div className="mx-auto max-w-4xl space-y-4">
           <h1
@@ -451,6 +435,76 @@ export default function Home() {
             </button>
           </div>
         )}
+      </section>
+
+      <section
+        className="site-panel rounded-[1.5rem] p-6 sm:p-8"
+        aria-labelledby="answer-first-heading"
+      >
+        <div className="max-w-3xl">
+          <span className="site-data-label">At a glance</span>
+          <h2
+            id="answer-first-heading"
+            className="mt-2 text-2xl font-bold"
+            style={{ color: "var(--foreground)" }}
+          >
+            What ReviewDisparity measures
+          </h2>
+          <p className="mt-3 leading-7" style={{ color: "var(--foreground-muted)" }}>
+            Review disparity is the professional critic score minus the player score after
+            both are normalized to 0–100. Positive values mean critics scored higher;
+            negative values mean players scored higher. It measures disagreement—not review
+            quality, intent, or bias.
+          </p>
+        </div>
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Two player comparisons
+            </h3>
+            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              Steam and Metacritic disparities stay separate because their audiences and
+              rating systems differ.
+            </p>
+          </div>
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Source-linked evidence
+            </h3>
+            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              Detail pages show review dates, normalized scores, timing, sample context, and
+              original publisher links where available.
+            </p>
+          </div>
+          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
+              Independent analysis
+            </h3>
+            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
+              ReviewDisparity is not affiliated with OpenCritic, Steam, Metacritic, their
+              outlets, or the journalists represented.
+            </p>
+          </div>
+        </div>
+        <p className="mt-5 text-sm" style={{ color: "var(--foreground-muted)" }}>
+          Read the{" "}
+          <Link
+            href="/about#dataset"
+            className="font-medium hover:text-rust"
+            style={{ color: "var(--color-rust)" }}
+          >
+            dataset scope and methodology
+          </Link>{" "}
+          or the{" "}
+          <Link
+            href="/faq"
+            className="font-medium hover:text-rust"
+            style={{ color: "var(--color-rust)" }}
+          >
+            plain-language FAQ
+          </Link>
+          .
+        </p>
       </section>
 
       {/* Trending Games */}

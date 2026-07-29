@@ -368,8 +368,10 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": `${siteUrl}${canonicalPath}#entity`,
     name: outlet.name,
     url: `${siteUrl}${canonicalPath}`,
+    mainEntityOfPage: { "@id": `${siteUrl}${canonicalPath}#webpage` },
     ...(outlet.logo_url && { logo: outlet.logo_url }),
     ...(outlet.website_url && { sameAs: [outlet.website_url] }),
     ...(() => {

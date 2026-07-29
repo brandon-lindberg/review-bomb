@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { JsonLd } from "@/components/JsonLd";
 import {
-  buildEvidenceItemListJsonLd,
+  buildEntityEvidenceGraphJsonLd,
   type EntityEvidence,
   type EvidenceReview,
 } from "@/lib/entity-evidence";
@@ -118,7 +118,7 @@ export function ServerEvidenceSnapshot({
       className="bg-white rounded-lg shadow p-6"
       aria-labelledby="evidence-heading"
     >
-      <JsonLd data={buildEvidenceItemListJsonLd(canonicalUrl, evidence)} />
+      <JsonLd data={buildEntityEvidenceGraphJsonLd(canonicalUrl, evidence)} />
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2

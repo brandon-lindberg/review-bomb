@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildEntityEvidenceGraphJsonLd,
   buildEvidenceItemListJsonLd,
   buildGameEvidence,
   buildJournalistEvidence,
@@ -155,4 +156,28 @@ test("outlet evidence links both games and journalists and emits source ItemList
   assert.match(serialized, /"@type":"ItemList"/);
   assert.match(serialized, /https:\/\/publisher\.example\/reviews\/example/);
   assert.match(serialized, /"dateModified":"2026-07-20T12:00:00\.000Z"/);
+});
+
+test("entity evidence graph connects the page, entity, publisher, dataset, and sources", () => {
+  const evidence = buildGameEvidence(
+    {
+      title: "Example Game",
+      avg_critic_score: 80,
+      disparity_steam: 5,
+      disparity_metacritic: 10,
+    } as GameWithScores,
+    [gameReview],
+    1,
+  );
+  const canonicalUrl =
+    "https://reviewdisparity.com/games/example-game--game-public-id";
+  const graph = buildEntityEvidenceGraphJsonLd(canonicalUrl, evidence);
+  const serialized = JSON.stringify(graph);
+
+  assert.match(serialized, /"@type":"WebPage"/);
+  assert.match(serialized, /example-game--game-public-id#entity/);
+  assert.match(serialized, /example-game--game-public-id#recent-review-evidence/);
+  assert.match(serialized, /https:\/\/reviewdisparity\.com\/#organization/);
+  assert.match(serialized, /https:\/\/reviewdisparity\.com\/about#dataset/);
+  assert.match(serialized, /"isBasedOn":\["https:\/\/publisher\.example\/reviews\/example"\]/);
 });

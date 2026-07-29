@@ -390,8 +390,10 @@ export default async function JournalistDetailPage({
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Person",
+    "@id": `${siteUrl}${canonicalPath}#entity`,
     name: journalist.name,
     url: `${siteUrl}${canonicalPath}`,
+    mainEntityOfPage: { "@id": `${siteUrl}${canonicalPath}#webpage` },
     ...(journalist.image_url && { image: journalist.image_url }),
     ...(journalist.bio && { description: journalist.bio }),
     jobTitle: "Game Journalist",
