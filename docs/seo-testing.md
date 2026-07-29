@@ -32,6 +32,8 @@ Quick manual verification against production:
 ```bash
 curl -I https://reviewdisparity.com/
 curl https://reviewdisparity.com/robots.txt
+curl https://reviewdisparity.com/sitemap.xml
+curl -I https://reviewdisparity.com/sitemaps/games.xml
 curl -I https://reviewdisparity.com/llms.txt
 curl -H "Accept: text/markdown" https://reviewdisparity.com/
 curl -I -H "Accept: text/markdown" https://reviewdisparity.com/
@@ -43,6 +45,9 @@ curl -I -H "Accept: text/markdown" https://reviewdisparity.com/
   - CI workflow that builds the frontend, starts `next start`, and checks canonical tags, robots meta, `robots.txt`, `sitemap.xml`, redirects, and sampled detail pages (when available).
 - `SEO Smoke Tests (Live)`
   - Scheduled/manual workflow that runs the same checks directly against `https://reviewdisparity.com` and requires detail-page coverage.
+- `Production Sitemap Monitor`
+  - Daily/manual production check for the sitemap index, segmented URL counts,
+    canonical URL integrity, file limits, and complete `lastmod` coverage.
 - `Lighthouse SEO`
   - CI workflow that runs Lighthouse SEO audits on key pages against a production build.
 
@@ -124,4 +129,3 @@ Note: branch protection is configured in GitHub repository settings (not in this
 
 - GitHub UI: `Settings` -> `Branches` -> `Add branch protection rule` -> branch pattern `master`
 - Required status checks: add the workflow names above
-

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
 
 from app.models.models import Game
 from app.public_ids import parse_legacy_numeric_id, resolve_entity_by_identifier
-from app.routers.stats import get_sitemap_data
+from app.routers.stats import _paginate_sitemap_entries, get_sitemap_data
 
 
 _UNSET = object()
@@ -47,6 +48,15 @@ def test_parse_legacy_numeric_id_accepts_positive_integers_only():
     assert parse_legacy_numeric_id("abc123") is None
 
 
+def test_paginate_sitemap_entries_returns_stable_chunks_and_page_count():
+    entries = [{"id": item} for item in range(12)]
+
+    page_entries, total_pages = _paginate_sitemap_entries(entries, page=2, per_page=5)
+
+    assert page_entries == [{"id": item} for item in range(5, 10)]
+    assert total_pages == 3
+
+
 @pytest.mark.asyncio
 async def test_resolve_entity_by_identifier_keeps_bare_public_id_lookup():
     entity = SimpleNamespace(id=7, public_id="abc123")
@@ -76,11 +86,17 @@ async def test_resolve_entity_by_identifier_supports_numeric_legacy_lookup():
 
 @pytest.mark.asyncio
 async def test_get_sitemap_data_returns_entry_objects_and_legacy_arrays():
+    updated_at = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+    last_review_at = datetime(2026, 7, 21, 8, 30, tzinfo=timezone.utc)
     db = FakeAsyncSession(
         [
-            FakeResult(all_rows=[(1, "journa1", "Joe Terrible")]),
-            FakeResult(all_rows=[(2, "outlet2", "Kotaku")]),
-            FakeResult(all_rows=[(3, "game3", "High Guard")]),
+            FakeResult(
+                all_rows=[(1, "journa1", "Joe Terrible", updated_at, last_review_at)]
+            ),
+            FakeResult(all_rows=[(2, "outlet2", "Kotaku", updated_at, None)]),
+            FakeResult(
+                all_rows=[(3, "game3", "High Guard", updated_at, last_review_at)]
+            ),
         ]
     )
 
@@ -91,11 +107,23 @@ async def test_get_sitemap_data_returns_entry_objects_and_legacy_arrays():
     assert payload["game_public_ids"] == ["game3"]
 
     assert payload["journalist_entries"] == [
-        {"public_id": "journa1", "name": "Joe Terrible"}
+        {
+            "public_id": "journa1",
+            "name": "Joe Terrible",
+            "last_modified": "2026-07-21T08:30:00+00:00",
+        }
     ]
     assert payload["outlet_entries"] == [
-        {"public_id": "outlet2", "name": "Kotaku"}
+        {
+            "public_id": "outlet2",
+            "name": "Kotaku",
+            "last_modified": "2026-07-20T12:00:00+00:00",
+        }
     ]
     assert payload["game_entries"] == [
-        {"public_id": "game3", "title": "High Guard"}
+        {
+            "public_id": "game3",
+            "title": "High Guard",
+            "last_modified": "2026-07-21T08:30:00+00:00",
+        }
     ]

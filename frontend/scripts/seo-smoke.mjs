@@ -43,6 +43,12 @@ const DETAIL_SAMPLES_PER_TYPE = Math.max(
   Number.parseInt(process.env.SEO_DETAIL_SAMPLES_PER_TYPE || "1", 10) || 1,
 );
 const REQUIRE_DETAIL_PAGES = process.env.SEO_REQUIRE_DETAIL_PAGES === "1";
+const SITEMAP_ONLY = process.env.SEO_SITEMAP_ONLY === "1";
+const SITEMAP_MIN_COUNTS = {
+  games: Number.parseInt(process.env.SITEMAP_MIN_GAMES || "15000", 10),
+  journalists: Number.parseInt(process.env.SITEMAP_MIN_JOURNALISTS || "8000", 10),
+  outlets: Number.parseInt(process.env.SITEMAP_MIN_OUTLETS || "500", 10),
+};
 
 function fail(message) {
   throw new Error(message);
@@ -297,39 +303,74 @@ async function assertUnknownEntity404() {
 }
 
 async function assertSitemapXml() {
-  const { response, text } = await fetchText("/sitemap.xml", { redirect: "follow" });
-  ok(response.ok, `/sitemap.xml: expected 200, got ${response.status}`);
+  const indexResult = await fetchText("/sitemap.xml", { redirect: "follow" });
+  ok(indexResult.response.ok, `/sitemap.xml: expected 200, got ${indexResult.response.status}`);
+  ok(indexResult.text.includes("<sitemapindex"), "/sitemap.xml: expected a sitemap index");
 
-  const locs = [...text.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((m) => m[1].trim());
-  ok(locs.length > 0, "/sitemap.xml: no <loc> entries found");
-  let detailLocCount = 0;
+  const expectedChildren = [
+    "/sitemaps/static.xml",
+    "/sitemaps/games.xml",
+    "/sitemaps/journalists.xml",
+    "/sitemaps/outlets.xml",
+  ];
+  const indexLocs = [...indexResult.text.matchAll(/<loc>([^<]+)<\/loc>/gi)]
+    .map((match) => match[1].trim());
+  ok(indexLocs.length === expectedChildren.length, `/sitemap.xml: expected ${expectedChildren.length} child sitemaps, got ${indexLocs.length}`);
 
-  for (const loc of locs) {
-    ok(
-      loc.startsWith(`${EXPECTED_CANONICAL_ORIGIN}/`) || loc === `${EXPECTED_CANONICAL_ORIGIN}/`,
-      `/sitemap.xml: non-canonical URL found (${loc})`,
-    );
-    ok(!loc.startsWith("http://"), `/sitemap.xml: found http URL (${loc})`);
-    ok(!loc.startsWith("https://www."), `/sitemap.xml: found www URL (${loc})`);
-    ok(!loc.includes("?page="), `/sitemap.xml: paginated URL should not be listed (${loc})`);
-
-    const pathname = new URL(loc).pathname;
-    const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
-    if (detailMatch) {
-      detailLocCount += 1;
-      ok(
-        detailMatch[2].includes("--"),
-        `/sitemap.xml: detail URL should use slug--id canonical format (${loc})`,
-      );
-    }
+  for (const childPath of expectedChildren) {
+    const expectedUrl = new URL(childPath, EXPECTED_CANONICAL_ORIGIN).toString();
+    ok(indexLocs.includes(expectedUrl), `/sitemap.xml: missing ${expectedUrl}`);
   }
 
-  ok(
-    detailLocCount > 0,
-    "/sitemap.xml: no detail URLs found; sitemap appears to have collapsed to static pages only",
-  );
+  const allPageLocs = [];
+  const seenPageLocs = new Set();
+  for (const childPath of expectedChildren) {
+    const { response, text } = await fetchText(childPath, { redirect: "follow" });
+    ok(response.ok, `${childPath}: expected 200, got ${response.status}`);
+    ok(text.includes("<urlset"), `${childPath}: expected a URL set`);
+    ok(Buffer.byteLength(text, "utf8") < 50_000_000, `${childPath}: exceeds 50 MB sitemap limit`);
 
-  return locs;
+    const locs = [...text.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((match) => match[1].trim());
+    const headerCount = Number.parseInt(response.headers.get("x-sitemap-url-count") || "", 10);
+    ok(headerCount === locs.length, `${childPath}: X-Sitemap-Url-Count ${headerCount} does not match ${locs.length} URLs`);
+    ok(locs.length <= 50_000, `${childPath}: exceeds 50,000 URL sitemap limit`);
+
+    const typeMatch = childPath.match(/^\/sitemaps\/(games|journalists|outlets)\.xml$/);
+    if (typeMatch) {
+      const type = typeMatch[1];
+      ok(locs.length >= SITEMAP_MIN_COUNTS[type], `${childPath}: ${locs.length} URLs is below safety floor ${SITEMAP_MIN_COUNTS[type]}`);
+      const lastmods = [...text.matchAll(/<lastmod>([^<]+)<\/lastmod>/gi)]
+        .map((match) => match[1].trim());
+      ok(lastmods.length === locs.length, `${childPath}: expected lastmod for every entity URL`);
+      ok(lastmods.every((value) => !Number.isNaN(new Date(value).getTime())), `${childPath}: contains invalid lastmod values`);
+    }
+
+    for (const loc of locs) {
+      ok(
+        loc.startsWith(`${EXPECTED_CANONICAL_ORIGIN}/`) || loc === `${EXPECTED_CANONICAL_ORIGIN}/`,
+        `${childPath}: non-canonical URL found (${loc})`,
+      );
+      ok(!loc.startsWith("http://"), `${childPath}: found http URL (${loc})`);
+      ok(!loc.startsWith("https://www."), `${childPath}: found www URL (${loc})`);
+      ok(!loc.includes("?page="), `${childPath}: paginated URL should not be listed (${loc})`);
+      ok(!seenPageLocs.has(loc), `${childPath}: duplicate URL across sitemap files (${loc})`);
+      seenPageLocs.add(loc);
+
+      const pathname = new URL(loc).pathname;
+      const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
+      if (detailMatch) {
+        ok(
+          detailMatch[2].includes("--"),
+          `${childPath}: detail URL should use slug--id canonical format (${loc})`,
+        );
+      }
+    }
+    allPageLocs.push(...locs);
+  }
+
+  ok(allPageLocs.includes(`${EXPECTED_CANONICAL_ORIGIN}/news`), "static sitemap must include /news");
+  ok(!allPageLocs.includes(`${EXPECTED_CANONICAL_ORIGIN}/search`), "sitemaps must exclude noindex /search");
+  return allPageLocs;
 }
 
 function requestWithHostHeader(path, { host, xForwardedProto } = {}) {
@@ -574,6 +615,12 @@ async function assertLegacyDetailRedirect(path) {
 async function run() {
   console.log(`SEO smoke checks against ${BASE_URL}`);
   console.log(`Expected canonical origin: ${EXPECTED_CANONICAL_ORIGIN}`);
+
+  if (SITEMAP_ONLY) {
+    const sitemapLocs = await assertSitemapXml();
+    console.log(`PASS sitemap inventory (${sitemapLocs.length} URLs)`);
+    return;
+  }
 
   for (const path of INDEXABLE_PAGES) {
     await assertIndexablePage(path);

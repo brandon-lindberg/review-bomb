@@ -28,15 +28,21 @@ router = APIRouter()
 async def _get_sitemap_entries(
     db: AsyncSession,
     entity_type: str,
-) -> list[dict[str, str | int]]:
-    cache_key = f"stats:sitemap-data:{entity_type}:v1"
+) -> list[dict[str, str | int | None]]:
+    cache_key = f"stats:sitemap-data:{entity_type}:v2"
     cached = await get_cached(cache_key)
     if cached:
         return json.loads(cached)
 
     if entity_type == "journalists":
         query = (
-            select(Journalist.id, Journalist.public_id, Journalist.name)
+            select(
+                Journalist.id,
+                Journalist.public_id,
+                Journalist.name,
+                Journalist.updated_at,
+                Journalist.last_review_at,
+            )
             .where(
                 Journalist.id.in_(
                     select(Review.journalist_id)
@@ -44,10 +50,17 @@ async def _get_sitemap_entries(
                     .distinct()
                 )
             )
+            .order_by(Journalist.id)
         )
     elif entity_type == "outlets":
         query = (
-            select(Outlet.id, Outlet.public_id, Outlet.name)
+            select(
+                Outlet.id,
+                Outlet.public_id,
+                Outlet.name,
+                Outlet.updated_at,
+                Outlet.last_review_at,
+            )
             .where(
                 Outlet.id.in_(
                     select(Review.outlet_id)
@@ -58,10 +71,17 @@ async def _get_sitemap_entries(
                     .distinct()
                 )
             )
+            .order_by(Outlet.id)
         )
     elif entity_type == "games":
         query = (
-            select(Game.id, Game.public_id, Game.title)
+            select(
+                Game.id,
+                Game.public_id,
+                Game.title,
+                Game.updated_at,
+                Game.last_review_sync_at,
+            )
             .where(
                 Game.id.in_(
                     select(Review.game_id)
@@ -69,6 +89,7 @@ async def _get_sitemap_entries(
                     .distinct()
                 )
             )
+            .order_by(Game.id)
         )
     else:
         raise ValueError(f"Unsupported sitemap entity type: {entity_type}")
@@ -77,17 +98,33 @@ async def _get_sitemap_entries(
     rows = result.all()
 
     label_key = "title" if entity_type == "games" else "name"
-    entries = [
-        {
-            "id": row[0],
-            "public_id": row[1] or str(row[0]),
-            label_key: row[2],
-        }
-        for row in rows
-    ]
+    entries = []
+    for row in rows:
+        timestamps = [value for value in row[3:5] if value is not None]
+        last_modified = max(timestamps).isoformat() if timestamps else None
+        entries.append(
+            {
+                "id": row[0],
+                "public_id": row[1] or str(row[0]),
+                label_key: row[2],
+                "last_modified": last_modified,
+            }
+        )
 
     await set_cached(cache_key, json.dumps(entries), CACHE_TTL_LONG)
     return entries
+
+
+def _paginate_sitemap_entries(
+    entries: list[dict[str, str | int | None]],
+    page: int,
+    per_page: int,
+) -> tuple[list[dict[str, str | int | None]], int]:
+    total = len(entries)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    start = (page - 1) * per_page
+    return entries[start : start + per_page], total_pages
+
 
 @router.get("", response_model=SiteStats)
 async def get_stats(
@@ -266,6 +303,7 @@ async def get_sitemap_data(
             {
                 "public_id": entry["public_id"],
                 "name": entry["name"],
+                "last_modified": entry["last_modified"],
             }
             for entry in journalist_entries
         ],
@@ -275,6 +313,7 @@ async def get_sitemap_data(
             {
                 "public_id": entry["public_id"],
                 "name": entry["name"],
+                "last_modified": entry["last_modified"],
             }
             for entry in outlet_entries
         ],
@@ -284,6 +323,7 @@ async def get_sitemap_data(
             {
                 "public_id": entry["public_id"],
                 "title": entry["title"],
+                "last_modified": entry["last_modified"],
             }
             for entry in game_entries
         ],
@@ -292,50 +332,71 @@ async def get_sitemap_data(
 
 @router.get("/sitemap-data/journalists")
 async def get_sitemap_journalist_data(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(5000, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
 ):
     """Get journalist sitemap entries."""
     entries = await _get_sitemap_entries(db, "journalists")
+    page_entries, total_pages = _paginate_sitemap_entries(entries, page, per_page)
     return {
         "entries": [
             {
                 "public_id": entry["public_id"],
                 "name": entry["name"],
+                "last_modified": entry["last_modified"],
             }
-            for entry in entries
-        ]
+            for entry in page_entries
+        ],
+        "total": len(entries),
+        "page": page,
+        "total_pages": total_pages,
     }
 
 
 @router.get("/sitemap-data/outlets")
 async def get_sitemap_outlet_data(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(5000, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
 ):
     """Get outlet sitemap entries."""
     entries = await _get_sitemap_entries(db, "outlets")
+    page_entries, total_pages = _paginate_sitemap_entries(entries, page, per_page)
     return {
         "entries": [
             {
                 "public_id": entry["public_id"],
                 "name": entry["name"],
+                "last_modified": entry["last_modified"],
             }
-            for entry in entries
-        ]
+            for entry in page_entries
+        ],
+        "total": len(entries),
+        "page": page,
+        "total_pages": total_pages,
     }
 
 
 @router.get("/sitemap-data/games")
 async def get_sitemap_game_data(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(5000, ge=1, le=5000),
     db: AsyncSession = Depends(get_db),
 ):
     """Get game sitemap entries."""
     entries = await _get_sitemap_entries(db, "games")
+    page_entries, total_pages = _paginate_sitemap_entries(entries, page, per_page)
     return {
         "entries": [
             {
                 "public_id": entry["public_id"],
                 "title": entry["title"],
+                "last_modified": entry["last_modified"],
             }
-            for entry in entries
-        ]
+            for entry in page_entries
+        ],
+        "total": len(entries),
+        "page": page,
+        "total_pages": total_pages,
     }
