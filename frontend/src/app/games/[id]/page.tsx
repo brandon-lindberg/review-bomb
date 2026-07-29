@@ -8,6 +8,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ExpandableText } from "@/components/ExpandableText";
+import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
@@ -35,10 +36,15 @@ import {
   getCachedGame,
   getCachedGameHistory,
   getCachedGameNews,
+  getCachedGameReviews,
   getCachedGameSimilarGames,
 } from "@/lib/server-entity-loaders";
 import { isApiNotFoundError } from "@/lib/api";
 import { shouldIndexEntityPage } from "@/lib/index-eligibility";
+import {
+  buildGameEvidence,
+  SERVER_EVIDENCE_REVIEW_LIMIT,
+} from "@/lib/entity-evidence";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -286,7 +292,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const [newsResponse, history, similarGamesResult] = await Promise.all([
+  const [newsResponse, history, similarGamesResult, reviewsResponse] = await Promise.all([
     getCachedGameNews(game.public_id, 1, 5).catch(() => null),
     getCachedGameHistory(game.public_id, 180).catch(() => null),
     getCachedGameSimilarGames(game.public_id, 4)
@@ -295,6 +301,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         items: null,
         error: error instanceof Error ? error : new Error(String(error)),
       })),
+    getCachedGameReviews(game.public_id, 1, SERVER_EVIDENCE_REVIEW_LIMIT).catch(() => null),
   ]);
 
   if (newsResponse) {
@@ -312,6 +319,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     );
   }
   similarGames = similarGamesResult.items ?? [];
+  const evidence = buildGameEvidence(
+    game,
+    reviewsResponse?.items ?? [],
+    reviewsResponse?.total ?? game.critic_review_count ?? 0,
+  );
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
@@ -568,6 +580,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
           );
         })()}
       </div>
+
+      <ServerEvidenceSnapshot
+        canonicalUrl={`${siteUrl}${canonicalPath}`}
+        evidence={evidence}
+      />
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
       <LazyChartSection

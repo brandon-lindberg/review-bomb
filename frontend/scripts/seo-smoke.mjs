@@ -181,6 +181,19 @@ function assertServerRenderedDetailContent(path, text) {
     `${path}: should not stream the detail loading fallback`,
   );
   ok(/<h1\b/i.test(text), `${path}: expected a server-rendered <h1>`);
+  ok(
+    text.includes('data-server-rendered-evidence="true"'),
+    `${path}: expected a server-rendered evidence snapshot`,
+  );
+  ok(
+    text.includes("What the data shows"),
+    `${path}: expected data-derived analysis in initial HTML`,
+  );
+  ok(
+    text.includes('"@type":"ItemList"') &&
+      text.includes("#recent-review-evidence"),
+    `${path}: expected recent-review evidence structured data`,
+  );
 }
 
 function assertBreadcrumbContent(path, text) {

@@ -5,11 +5,14 @@ import {
   getGame,
   getGameHistory,
   getGameNews,
+  getGameReviews,
   getGameSimilarGames,
   getJournalist,
   getJournalistHistory,
+  getJournalistReviews,
   getOutlet,
   getOutletHistory,
+  getOutletReviews,
 } from "@/lib/api";
 
 export const getCachedGame = cache(async (id: string | number) => getGame(id));
@@ -18,6 +21,9 @@ export const getCachedGameHistory = cache(async (id: string | number, limit = 18
 );
 export const getCachedGameNews = cache(async (id: string | number, page = 1, perPage = 5) =>
   getGameNews(id, page, perPage)
+);
+export const getCachedGameReviews = cache(async (id: string | number, page = 1, perPage = 5) =>
+  getGameReviews(id, page, perPage)
 );
 // Uses the default fetch caching (15s revalidate): the backend's similar-games
 // cache is already versioned on taxonomy/similarity state, so the previous
@@ -31,8 +37,16 @@ export const getCachedJournalist = cache(async (id: string | number) => getJourn
 export const getCachedJournalistHistory = cache(async (id: string | number, limit = 180) =>
   getJournalistHistory(id, limit)
 );
+export const getCachedJournalistReviews = cache(
+  async (id: string | number, page = 1, perPage = 5) =>
+    getJournalistReviews(id, page, perPage)
+);
 
 export const getCachedOutlet = cache(async (id: string | number) => getOutlet(id));
 export const getCachedOutletHistory = cache(async (id: string | number, limit = 180) =>
   getOutletHistory(id, limit)
+);
+export const getCachedOutletReviews = cache(
+  async (id: string | number, page = 1, perPage = 5) =>
+    getOutletReviews(id, page, perPage)
 );

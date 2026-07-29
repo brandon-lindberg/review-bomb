@@ -9,6 +9,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
+import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
   buildEntityPath,
@@ -32,9 +33,17 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
-import { getCachedJournalist, getCachedJournalistHistory } from "@/lib/server-entity-loaders";
+import {
+  getCachedJournalist,
+  getCachedJournalistHistory,
+  getCachedJournalistReviews,
+} from "@/lib/server-entity-loaders";
 import { isApiNotFoundError } from "@/lib/api";
 import { shouldIndexEntityPage } from "@/lib/index-eligibility";
+import {
+  buildJournalistEvidence,
+  SERVER_EVIDENCE_REVIEW_LIMIT,
+} from "@/lib/entity-evidence";
 
 export const revalidate = 60;
 const JOURNALIST_CARD_VERSION = "j2";
@@ -291,10 +300,22 @@ export default async function JournalistDetailPage({
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const history = await getCachedJournalistHistory(journalist.public_id, 180).catch(() => null);
+  const [history, reviewsResponse] = await Promise.all([
+    getCachedJournalistHistory(journalist.public_id, 180).catch(() => null),
+    getCachedJournalistReviews(
+      journalist.public_id,
+      1,
+      SERVER_EVIDENCE_REVIEW_LIMIT,
+    ).catch(() => null),
+  ]);
   if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   }
+  const evidence = buildJournalistEvidence(
+    journalist,
+    reviewsResponse?.items ?? [],
+    reviewsResponse?.total ?? journalist.stats.total_reviews ?? journalist.review_count,
+  );
 
   const shareDisparity = journalist.stats?.overall_disparity_combined ?? journalist.avg_disparity ?? journalist.stats?.avg_disparity_combined;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
@@ -642,6 +663,11 @@ export default async function JournalistDetailPage({
             </div>
           )}
       </div>
+
+      <ServerEvidenceSnapshot
+        canonicalUrl={`${siteUrl}${canonicalPath}`}
+        evidence={evidence}
+      />
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection

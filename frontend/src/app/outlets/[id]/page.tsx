@@ -9,6 +9,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
+import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
   buildEntityPath,
@@ -32,9 +33,17 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
-import { getCachedOutlet, getCachedOutletHistory } from "@/lib/server-entity-loaders";
+import {
+  getCachedOutlet,
+  getCachedOutletHistory,
+  getCachedOutletReviews,
+} from "@/lib/server-entity-loaders";
 import { isApiNotFoundError } from "@/lib/api";
 import { shouldIndexEntityPage } from "@/lib/index-eligibility";
+import {
+  buildOutletEvidence,
+  SERVER_EVIDENCE_REVIEW_LIMIT,
+} from "@/lib/entity-evidence";
 
 export const revalidate = 60;
 const OUTLET_CARD_VERSION = "o3";
@@ -277,10 +286,20 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const history = await getCachedOutletHistory(outlet.public_id, 180).catch(() => null);
+  const [history, reviewsResponse] = await Promise.all([
+    getCachedOutletHistory(outlet.public_id, 180).catch(() => null),
+    getCachedOutletReviews(outlet.public_id, 1, SERVER_EVIDENCE_REVIEW_LIMIT).catch(
+      () => null,
+    ),
+  ]);
   if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   }
+  const evidence = buildOutletEvidence(
+    outlet,
+    reviewsResponse?.items ?? [],
+    reviewsResponse?.total ?? outlet.review_count ?? 0,
+  );
 
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
@@ -577,6 +596,11 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
           </div>
         </section>
       )}
+
+      <ServerEvidenceSnapshot
+        canonicalUrl={`${siteUrl}${canonicalPath}`}
+        evidence={evidence}
+      />
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection
