@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   buildEntityPath,
   buildPathWithQuery,
+  encodeEntityPathname,
   normalizeEntityRouteSegment,
   parseEntityRouteSegment,
   slugifyEntityLabel,
@@ -67,6 +68,17 @@ test("normalizeEntityRouteSegment decodes percent-encoded slugs for canonical co
       "pok%C3%A9mon-firered-version-and-pok%C3%A9mon-leafgreen-version--abc123",
     ),
     "pokémon-firered-version-and-pokémon-leafgreen-version--abc123",
+  );
+});
+
+test("encodeEntityPathname matches the pathname representation used by URL requests", () => {
+  assert.equal(
+    encodeEntityPathname("/games/pokémon-pokopia--abc123"),
+    "/games/pok%C3%A9mon-pokopia--abc123",
+  );
+  assert.equal(
+    encodeEntityPathname("/games/high-guard--abc123"),
+    "/games/high-guard--abc123",
   );
 });
 

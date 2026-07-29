@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { getServerApiUrl } from "@/lib/api-base-url";
-import type { EntityRouteType } from "@/lib/entity-paths";
+import {
+  encodeEntityPathname,
+  type EntityRouteType,
+} from "@/lib/entity-paths";
 import { resolveEntityRequest } from "@/lib/entity-request-policy";
 
 const API_URL = getServerApiUrl();
@@ -101,12 +104,13 @@ export async function proxy(request: NextRequest) {
   if (resolution.kind === "unavailable") {
     return entityErrorResponse(request, 503);
   }
-  if (resolution.canonicalPath === pathname) {
+  const canonicalPathname = encodeEntityPathname(resolution.canonicalPath);
+  if (canonicalPathname === pathname) {
     return passThroughWithVary(true);
   }
 
   const redirectUrl = request.nextUrl.clone();
-  redirectUrl.pathname = resolution.canonicalPath;
+  redirectUrl.pathname = canonicalPathname;
   return NextResponse.redirect(redirectUrl, 308);
 }
 

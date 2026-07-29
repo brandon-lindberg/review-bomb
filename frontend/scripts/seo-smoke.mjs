@@ -662,11 +662,29 @@ function getAutoDetailPathsFromSitemap(locs) {
     }
   }
 
-  return [
+  const selectedPaths = [
     ...byType.games.slice(0, DETAIL_SAMPLES_PER_TYPE),
     ...byType.journalists.slice(0, DETAIL_SAMPLES_PER_TYPE),
     ...byType.outlets.slice(0, DETAIL_SAMPLES_PER_TYPE),
   ];
+
+  const unicodePath = [
+    ...byType.games,
+    ...byType.journalists,
+    ...byType.outlets,
+  ].find((pathname) => {
+    try {
+      return /[^\u0000-\u007f]/u.test(decodeURI(pathname));
+    } catch {
+      return false;
+    }
+  });
+
+  if (unicodePath && !selectedPaths.includes(unicodePath)) {
+    selectedPaths.push(unicodePath);
+  }
+
+  return selectedPaths;
 }
 
 function getDetailPathsToTest(sitemapLocs) {

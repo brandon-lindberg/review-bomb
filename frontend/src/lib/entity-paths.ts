@@ -49,6 +49,12 @@ export function buildEntityPath(
   return `/${entityType}/${buildEntitySegment(label, publicId)}`;
 }
 
+export function encodeEntityPathname(pathname: string): string {
+  const url = new URL("https://entity-path.invalid");
+  url.pathname = pathname;
+  return url.pathname;
+}
+
 export function buildEntityUrl(
   siteUrl: string,
   entityType: EntityRouteType,
