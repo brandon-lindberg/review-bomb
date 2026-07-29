@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { JsonLd } from "@/components/JsonLd";
+import { getSiteUrl } from "@/lib/site-url";
+import { buildFaqPageJsonLd } from "@/lib/site-knowledge";
 
 export const metadata: Metadata = {
   title: "FAQ",
@@ -31,7 +33,7 @@ const faqs = [
   {
     question: "What does a positive vs. negative disparity mean?",
     answer:
-      "A positive disparity means critics rated the game higher than players, which can reflect critic priorities, marketing influence, or different evaluation criteria. A negative disparity means critics rated it lower than players. What matters most is the magnitude of the gap, not its direction: a +15 and a -15 both signal a significant disagreement between critics and players.",
+      "A positive disparity means critics rated the game higher than players, while a negative disparity means critics rated it lower. The magnitude shows the size of the disagreement: a +15 and a -15 are equally large gaps in opposite directions. Disparity alone does not establish motive, bias, credibility, or review quality.",
   },
   {
     question: "Where does the data come from?",
@@ -87,22 +89,9 @@ function FaqItem({ question, answer }: { question: string; answer: string }) {
 }
 
 export default function FaqPage() {
-  const faqJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqs.map((faq) => ({
-      "@type": "Question",
-      name: faq.question,
-      acceptedAnswer: {
-        "@type": "Answer",
-        text: faq.answer,
-      },
-    })),
-  };
-
   return (
     <div className="max-w-5xl mx-auto space-y-8">
-      <JsonLd data={faqJsonLd} />
+      <JsonLd data={buildFaqPageJsonLd(getSiteUrl(), faqs)} />
 
       <section className="site-panel text-center px-6 py-8 sm:px-8 sm:py-10">
         <h1 className="text-4xl font-bold mb-4" style={{ color: "var(--foreground)" }}>

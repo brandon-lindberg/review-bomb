@@ -1,5 +1,11 @@
 import http from "node:http";
 
+import {
+  parseJsonLdNodes,
+  validateDatasetFreshness,
+  validateSitemapSource,
+} from "./seo-monitor-policy.mjs";
+
 const BASE_URL = process.env.SEO_BASE_URL || "http://127.0.0.1:3000";
 const EXPECTED_CANONICAL_ORIGIN =
   process.env.SEO_EXPECTED_CANONICAL_ORIGIN || "https://reviewdisparity.com";
@@ -43,6 +49,18 @@ const DETAIL_SAMPLES_PER_TYPE = Math.max(
   Number.parseInt(process.env.SEO_DETAIL_SAMPLES_PER_TYPE || "1", 10) || 1,
 );
 const REQUIRE_DETAIL_PAGES = process.env.SEO_REQUIRE_DETAIL_PAGES === "1";
+const SITEMAP_ONLY = process.env.SEO_SITEMAP_ONLY === "1";
+const REQUIRE_FRESH_SITEMAPS =
+  process.env.SEO_REQUIRE_FRESH_SITEMAPS === "1";
+const MAX_DATA_AGE_HOURS = Math.max(
+  0,
+  Number.parseFloat(process.env.SEO_MAX_DATA_AGE_HOURS || "0") || 0,
+);
+const SITEMAP_MIN_COUNTS = {
+  games: Number.parseInt(process.env.SITEMAP_MIN_GAMES || "3500", 10),
+  journalists: Number.parseInt(process.env.SITEMAP_MIN_JOURNALISTS || "4000", 10),
+  outlets: Number.parseInt(process.env.SITEMAP_MIN_OUTLETS || "600", 10),
+};
 
 function fail(message) {
   throw new Error(message);
@@ -175,6 +193,31 @@ function assertServerRenderedDetailContent(path, text) {
     `${path}: should not stream the detail loading fallback`,
   );
   ok(/<h1\b/i.test(text), `${path}: expected a server-rendered <h1>`);
+  ok(
+    text.includes('data-server-rendered-evidence="true"'),
+    `${path}: expected a server-rendered evidence snapshot`,
+  );
+  ok(
+    text.includes("Review summary") &&
+      text.includes("Sources behind this summary"),
+    `${path}: expected data-derived analysis in initial HTML`,
+  );
+  ok(
+    text.includes('"@type":"ItemList"') &&
+      text.includes("#recent-review-evidence"),
+    `${path}: expected recent-review evidence structured data`,
+  );
+  ok(
+    text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#organization`) &&
+      text.includes(`${EXPECTED_CANONICAL_ORIGIN}/about#dataset`),
+    `${path}: expected publisher and dataset knowledge-graph references`,
+  );
+  ok(
+    text.includes("#entity") &&
+      text.includes("#webpage") &&
+      text.includes('"mainEntityOfPage"'),
+    `${path}: expected connected entity and WebPage identifiers`,
+  );
 }
 
 function assertBreadcrumbContent(path, text) {
@@ -217,6 +260,71 @@ async function assertLlmsTxt() {
     "/llms.txt: must state that /api/ is private",
   );
   ok(text.includes("/sitemap.xml"), "/llms.txt: missing sitemap link");
+  ok(
+    text.includes("Disparity measures score disagreement") &&
+      text.includes("does not by itself establish motive"),
+    "/llms.txt: missing interpretation limits",
+  );
+  ok(
+    text.includes("/about#dataset") &&
+      text.includes("/about#editorial-principles"),
+    "/llms.txt: missing dataset and publishing-principles links",
+  );
+}
+
+async function assertGeoKnowledgePages() {
+  const [home, about, faq] = await Promise.all([
+    fetchText("/", { redirect: "follow" }),
+    fetchText("/about", { redirect: "follow" }),
+    fetchText("/faq", { redirect: "follow" }),
+  ]);
+
+  for (const [path, result] of [["/", home], ["/about", about], ["/faq", faq]]) {
+    ok(result.response.ok, `${path}: expected 200 for GEO knowledge check`);
+    try {
+      result.jsonLdNodes = parseJsonLdNodes(result.text);
+    } catch (error) {
+      fail(
+        `${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    ok(
+      result.jsonLdNodes.length > 0,
+      `${path}: expected at least one valid JSON-LD node`,
+    );
+    ok(
+      result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#organization`) &&
+        result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#website`),
+      `${path}: missing stable publisher or website identifier`,
+    );
+  }
+
+  ok(
+    home.text.includes("How to read review disparity") &&
+      home.text.includes("It shows disagreement"),
+    "/: missing answer-first definition and limitation",
+  );
+  ok(
+    about.text.includes('"@type":"Dataset"') &&
+      about.text.includes('"isBasedOn"') &&
+      about.text.includes('"variableMeasured"'),
+    "/about: missing Dataset provenance or measured variables",
+  );
+  ok(
+    about.text.includes("Dataset Scope and Provenance") &&
+      about.text.includes("Publisher and creator") &&
+      about.text.includes("Publishing Principles and Limitations"),
+    "/about: structured dataset claims must have matching visible content",
+  );
+  const freshnessError = validateDatasetFreshness(
+    about.jsonLdNodes,
+    MAX_DATA_AGE_HOURS,
+  );
+  ok(!freshnessError, freshnessError);
+  ok(
+    faq.text.includes("Disparity alone does not establish motive"),
+    "/faq: missing neutral interpretation limit",
+  );
 }
 
 async function assertLlmsLinkHeader(path) {
@@ -280,40 +388,97 @@ async function assertMarkdownNegotiation(path) {
   );
 }
 
+async function assertUnknownEntity404() {
+  const path = "/games/index-safety-probe--00000000000000000000000000000000";
+  const { response, text } = await fetchText(path, { redirect: "manual" });
+
+  ok(response.status === 404, `${path}: expected a real 404, got ${response.status}`);
+  const xRobots = normalizeRobotsContent(response.headers.get("x-robots-tag"));
+  ok(xRobots.includes("noindex"), `${path}: missing noindex X-Robots-Tag`);
+
+  const robotsTags = text.match(/<meta\b[^>]*name=["']robots["'][^>]*>/gi) || [];
+  ok(robotsTags.length === 1, `${path}: expected one robots meta tag, got ${robotsTags.length}`);
+  const robots = normalizeRobotsContent(getMetaContent(text, "robots"));
+  ok(robots.includes("noindex"), `${path}: robots meta must include noindex`);
+  ok(!robots.includes("index"), `${path}: robots meta must not conflict with index`);
+  ok(!getCanonicalHref(text), `${path}: a missing entity must not inherit the homepage canonical`);
+}
+
 async function assertSitemapXml() {
-  const { response, text } = await fetchText("/sitemap.xml", { redirect: "follow" });
-  ok(response.ok, `/sitemap.xml: expected 200, got ${response.status}`);
+  const indexResult = await fetchText("/sitemap.xml", { redirect: "follow" });
+  ok(indexResult.response.ok, `/sitemap.xml: expected 200, got ${indexResult.response.status}`);
+  ok(indexResult.text.includes("<sitemapindex"), "/sitemap.xml: expected a sitemap index");
 
-  const locs = [...text.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((m) => m[1].trim());
-  ok(locs.length > 0, "/sitemap.xml: no <loc> entries found");
-  let detailLocCount = 0;
+  const expectedChildren = [
+    "/sitemaps/static.xml",
+    "/sitemaps/games.xml",
+    "/sitemaps/journalists.xml",
+    "/sitemaps/outlets.xml",
+  ];
+  const indexLocs = [...indexResult.text.matchAll(/<loc>([^<]+)<\/loc>/gi)]
+    .map((match) => match[1].trim());
+  ok(indexLocs.length === expectedChildren.length, `/sitemap.xml: expected ${expectedChildren.length} child sitemaps, got ${indexLocs.length}`);
 
-  for (const loc of locs) {
-    ok(
-      loc.startsWith(`${EXPECTED_CANONICAL_ORIGIN}/`) || loc === `${EXPECTED_CANONICAL_ORIGIN}/`,
-      `/sitemap.xml: non-canonical URL found (${loc})`,
-    );
-    ok(!loc.startsWith("http://"), `/sitemap.xml: found http URL (${loc})`);
-    ok(!loc.startsWith("https://www."), `/sitemap.xml: found www URL (${loc})`);
-    ok(!loc.includes("?page="), `/sitemap.xml: paginated URL should not be listed (${loc})`);
-
-    const pathname = new URL(loc).pathname;
-    const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
-    if (detailMatch) {
-      detailLocCount += 1;
-      ok(
-        detailMatch[2].includes("--"),
-        `/sitemap.xml: detail URL should use slug--id canonical format (${loc})`,
-      );
-    }
+  for (const childPath of expectedChildren) {
+    const expectedUrl = new URL(childPath, EXPECTED_CANONICAL_ORIGIN).toString();
+    ok(indexLocs.includes(expectedUrl), `/sitemap.xml: missing ${expectedUrl}`);
   }
 
-  ok(
-    detailLocCount > 0,
-    "/sitemap.xml: no detail URLs found; sitemap appears to have collapsed to static pages only",
-  );
+  const allPageLocs = [];
+  const seenPageLocs = new Set();
+  for (const childPath of expectedChildren) {
+    const { response, text } = await fetchText(childPath, { redirect: "follow" });
+    ok(response.ok, `${childPath}: expected 200, got ${response.status}`);
+    const sourceError = validateSitemapSource(
+      childPath,
+      response.headers.get("x-sitemap-source"),
+      REQUIRE_FRESH_SITEMAPS,
+    );
+    ok(!sourceError, sourceError);
+    ok(text.includes("<urlset"), `${childPath}: expected a URL set`);
+    ok(Buffer.byteLength(text, "utf8") < 50_000_000, `${childPath}: exceeds 50 MB sitemap limit`);
 
-  return locs;
+    const locs = [...text.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((match) => match[1].trim());
+    const headerCount = Number.parseInt(response.headers.get("x-sitemap-url-count") || "", 10);
+    ok(headerCount === locs.length, `${childPath}: X-Sitemap-Url-Count ${headerCount} does not match ${locs.length} URLs`);
+    ok(locs.length <= 50_000, `${childPath}: exceeds 50,000 URL sitemap limit`);
+
+    const typeMatch = childPath.match(/^\/sitemaps\/(games|journalists|outlets)\.xml$/);
+    if (typeMatch) {
+      const type = typeMatch[1];
+      ok(locs.length >= SITEMAP_MIN_COUNTS[type], `${childPath}: ${locs.length} URLs is below safety floor ${SITEMAP_MIN_COUNTS[type]}`);
+      const lastmods = [...text.matchAll(/<lastmod>([^<]+)<\/lastmod>/gi)]
+        .map((match) => match[1].trim());
+      ok(lastmods.length === locs.length, `${childPath}: expected lastmod for every entity URL`);
+      ok(lastmods.every((value) => !Number.isNaN(new Date(value).getTime())), `${childPath}: contains invalid lastmod values`);
+    }
+
+    for (const loc of locs) {
+      ok(
+        loc.startsWith(`${EXPECTED_CANONICAL_ORIGIN}/`) || loc === `${EXPECTED_CANONICAL_ORIGIN}/`,
+        `${childPath}: non-canonical URL found (${loc})`,
+      );
+      ok(!loc.startsWith("http://"), `${childPath}: found http URL (${loc})`);
+      ok(!loc.startsWith("https://www."), `${childPath}: found www URL (${loc})`);
+      ok(!loc.includes("?page="), `${childPath}: paginated URL should not be listed (${loc})`);
+      ok(!seenPageLocs.has(loc), `${childPath}: duplicate URL across sitemap files (${loc})`);
+      seenPageLocs.add(loc);
+
+      const pathname = new URL(loc).pathname;
+      const detailMatch = pathname.match(/^\/(games|journalists|outlets)\/([^/]+)\/?$/);
+      if (detailMatch) {
+        ok(
+          detailMatch[2].includes("--"),
+          `${childPath}: detail URL should use slug--id canonical format (${loc})`,
+        );
+      }
+    }
+    allPageLocs.push(...locs);
+  }
+
+  ok(allPageLocs.includes(`${EXPECTED_CANONICAL_ORIGIN}/news`), "static sitemap must include /news");
+  ok(!allPageLocs.includes(`${EXPECTED_CANONICAL_ORIGIN}/search`), "sitemaps must exclude noindex /search");
+  return allPageLocs;
 }
 
 function requestWithHostHeader(path, { host, xForwardedProto } = {}) {
@@ -558,6 +723,15 @@ async function assertLegacyDetailRedirect(path) {
 async function run() {
   console.log(`SEO smoke checks against ${BASE_URL}`);
   console.log(`Expected canonical origin: ${EXPECTED_CANONICAL_ORIGIN}`);
+  console.log(
+    `Production policies: fresh sitemaps=${REQUIRE_FRESH_SITEMAPS ? "required" : "optional"}, dataset age=${MAX_DATA_AGE_HOURS > 0 ? `${MAX_DATA_AGE_HOURS}h max` : "not enforced"}`,
+  );
+
+  if (SITEMAP_ONLY) {
+    const sitemapLocs = await assertSitemapXml();
+    console.log(`PASS sitemap inventory (${sitemapLocs.length} URLs)`);
+    return;
+  }
 
   for (const path of INDEXABLE_PAGES) {
     await assertIndexablePage(path);
@@ -580,11 +754,17 @@ async function run() {
   await assertLlmsTxt();
   console.log("PASS /llms.txt");
 
+  await assertGeoKnowledgePages();
+  console.log("PASS GEO knowledge graph and visible authority content");
+
   await assertLlmsLinkHeader("/");
   console.log("PASS llms.txt Link header /");
 
   await assertMarkdownNegotiation("/");
   console.log("PASS markdown negotiation /");
+
+  await assertUnknownEntity404();
+  console.log("PASS unknown entity 404");
 
   const sitemapLocs = await assertSitemapXml();
   console.log("PASS /sitemap.xml");
@@ -617,6 +797,11 @@ async function run() {
       ok(robots.includes("index"), `${path}: expected robots meta to include index`);
       ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
       ok(!robots.includes("noindex"), `${path}: should not be noindex`);
+      const cacheControl = (response.headers.get("cache-control") || "").toLowerCase();
+      ok(cacheControl.includes("public"), `${path}: canonical HTML should be publicly cacheable`);
+      ok(cacheControl.includes("s-maxage="), `${path}: canonical HTML should set an edge-cache TTL`);
+      ok(!cacheControl.includes("no-store"), `${path}: canonical HTML must not use no-store`);
+      ok(!cacheControl.includes("private"), `${path}: canonical HTML must not use private caching`);
       assertServerRenderedDetailContent(path, text);
       assertBreadcrumbContent(path, text);
       await assertLegacyDetailRedirect(path);

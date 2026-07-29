@@ -72,6 +72,7 @@ export interface OutletBreakdown {
 }
 
 export interface JournalistDetail extends Journalist {
+  index_eligible?: boolean;
   stats: JournalistStats;
   outlet_breakdown: OutletBreakdown[];
   created_at: string;
@@ -93,6 +94,7 @@ export interface Outlet {
 }
 
 export interface OutletWithStats extends Outlet {
+  index_eligible?: boolean;
   journalist_count: number;
   review_count: number;
   avg_disparity: number | null;
@@ -128,6 +130,7 @@ export interface Game {
 }
 
 export interface GameWithScores extends Game {
+  index_eligible?: boolean;
   // From API - these are the actual field names returned
   opencritic_score: number | null;
   steam_user_score: number | null;

@@ -8,6 +8,7 @@ import { GoogleAnalytics } from "@/components/GoogleAnalytics";
 import { NavigationProgress } from "@/components/NavigationProgress";
 import { ServiceWorkerRefresh } from "@/components/ServiceWorkerRefresh";
 import { getSiteUrl } from "@/lib/site-url";
+import { buildSiteKnowledgeGraph } from "@/lib/site-knowledge";
 
 const siteUrl = getSiteUrl();
 
@@ -78,22 +79,7 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              "@context": "https://schema.org",
-              "@type": "WebSite",
-              name: "ReviewDisparity",
-              url: siteUrl,
-              description:
-                "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
-              publisher: {
-                "@type": "Organization",
-                name: "ReviewDisparity",
-                logo: {
-                  "@type": "ImageObject",
-                  url: `${siteUrl}/logo.png`,
-                },
-              },
-            }),
+            __html: JSON.stringify(buildSiteKnowledgeGraph(siteUrl)),
           }}
         />
       </head>

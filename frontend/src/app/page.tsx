@@ -10,6 +10,7 @@ import { SkeletonBlock } from "@/components/RouteLoading";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { buildEntityPath } from "@/lib/entity-paths";
 import { getSiteUrl } from "@/lib/site-url";
+import { buildHomePageJsonLd } from "@/lib/site-knowledge";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const siteUrl = getSiteUrl();
@@ -325,23 +326,6 @@ export default function Home() {
       })
     : [];
 
-  const websiteJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: "ReviewDisparity",
-    url: `${siteUrl}/`,
-    description:
-      "Track the disparity between game journalist review scores and user scores from Steam and Metacritic.",
-    potentialAction: {
-      "@type": "SearchAction",
-      target: {
-        "@type": "EntryPoint",
-        urlTemplate: `${siteUrl}/search?q={search_term_string}`,
-      },
-      "query-input": "required name=search_term_string",
-    },
-  };
-
   const trendingTickerItems = trendingGames?.items
     ? [...trendingGames.items, ...trendingGames.items]
     : [];
@@ -356,7 +340,7 @@ export default function Home() {
 
   return (
     <div className="space-y-8">
-      <JsonLd data={websiteJsonLd} />
+      <JsonLd data={buildHomePageJsonLd(siteUrl)} />
       <section className="space-y-5 py-2 text-center">
         <div className="mx-auto max-w-4xl space-y-4">
           <h1
@@ -784,6 +768,49 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      <section
+        className="border-t pt-8"
+        style={{ borderColor: "var(--border)" }}
+        aria-labelledby="answer-first-heading"
+      >
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="max-w-3xl">
+            <span className="site-data-label">Reading the data</span>
+            <h2
+              id="answer-first-heading"
+              className="mt-2 text-xl font-bold"
+              style={{ color: "var(--foreground)" }}
+            >
+              How to read review disparity
+            </h2>
+            <p
+              className="mt-2 text-sm leading-6 sm:text-base"
+              style={{ color: "var(--foreground-muted)" }}
+            >
+              Review disparity is the critic score minus the player score after both are
+              normalized to 0–100. Positive values mean critics scored higher; negative
+              values mean players scored higher. It shows disagreement—not review quality,
+              intent, or bias.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/about#dataset" className="site-button site-button-secondary">
+              Methodology
+            </Link>
+            <Link href="/faq" className="site-button site-button-secondary">
+              Plain-language FAQ
+            </Link>
+          </div>
+        </div>
+        <p
+          className="mt-4 text-xs leading-5"
+          style={{ color: "var(--foreground-muted)" }}
+        >
+          Steam and Metacritic comparisons remain separate because their audiences and
+          rating systems differ.
+        </p>
+      </section>
 
     </div>
   );

@@ -8,6 +8,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ExpandableText } from "@/components/ExpandableText";
+import { ServerEvidenceSummary } from "@/components/ServerEvidenceSummary";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
@@ -35,8 +36,15 @@ import {
   getCachedGame,
   getCachedGameHistory,
   getCachedGameNews,
+  getCachedGameReviews,
   getCachedGameSimilarGames,
 } from "@/lib/server-entity-loaders";
+import { isApiNotFoundError } from "@/lib/api";
+import { shouldIndexEntityPage } from "@/lib/index-eligibility";
+import {
+  buildGameEvidence,
+  SERVER_EVIDENCE_REVIEW_LIMIT,
+} from "@/lib/entity-evidence";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -137,6 +145,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.launch != null
       || query.late != null
       || query.mode != null;
+    const shouldIndex = shouldIndexEntityPage({
+      indexEligible: game.index_eligible,
+      isShareVariant: isCardShareUrl,
+    });
     const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
@@ -224,7 +236,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       title: modeTitle,
       description,
       alternates: { canonical: canonicalPath },
-      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
+      robots: { index: shouldIndex, follow: true },
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,
@@ -239,8 +251,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         images: [openGraphImage],
       },
     };
-  } catch {
-    return { title: "Game Details" };
+  } catch (error) {
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 }
 
@@ -261,7 +276,10 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     game = await getCachedGame(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching game:", error);
-    notFound();
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 
   if (!game) {
@@ -274,7 +292,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const [newsResponse, history, similarGamesResult] = await Promise.all([
+  const [newsResponse, history, similarGamesResult, reviewsResponse] = await Promise.all([
     getCachedGameNews(game.public_id, 1, 5).catch(() => null),
     getCachedGameHistory(game.public_id, 180).catch(() => null),
     getCachedGameSimilarGames(game.public_id, 4)
@@ -283,6 +301,7 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
         items: null,
         error: error instanceof Error ? error : new Error(String(error)),
       })),
+    getCachedGameReviews(game.public_id, 1, SERVER_EVIDENCE_REVIEW_LIMIT).catch(() => null),
   ]);
 
   if (newsResponse) {
@@ -300,12 +319,19 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     );
   }
   similarGames = similarGamesResult.items ?? [];
+  const evidence = buildGameEvidence(
+    game,
+    reviewsResponse?.items ?? [],
+    reviewsResponse?.total ?? game.critic_review_count ?? 0,
+  );
 
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "VideoGame",
+    "@id": `${siteUrl}${canonicalPath}#entity`,
     name: game.title,
     url: `${siteUrl}${canonicalPath}`,
+    mainEntityOfPage: { "@id": `${siteUrl}${canonicalPath}#webpage` },
     ...(game.release_date && { datePublished: game.release_date }),
     ...(() => {
       const dateModified = freshestDate(
@@ -555,6 +581,11 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             </div>
           );
         })()}
+
+        <ServerEvidenceSummary
+          canonicalUrl={`${siteUrl}${canonicalPath}`}
+          evidence={evidence}
+        />
       </div>
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}

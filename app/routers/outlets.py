@@ -26,6 +26,7 @@ from app.schemas.schemas import (
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
+from app.services.index_eligibility import outlet_is_index_eligible
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -286,7 +287,7 @@ async def get_outlet(
     # Response cache: the score/timing metrics aggregate below scans every
     # review the outlet has ever published (tens of thousands of rows for big
     # outlets) and only changes when sync jobs land new reviews.
-    detail_cache_key = f"outlets:detail:v1:{outlet_id}"
+    detail_cache_key = f"outlets:detail:v2:{outlet_id}"
     cached = await get_cached(detail_cache_key)
     if cached:
         return OutletWithStats(**json.loads(cached))
@@ -396,6 +397,7 @@ async def get_outlet(
         min_score_given=Decimal(str(round(metrics_row.min_score, 2))) if metrics_row.min_score else None,
         max_score_given=Decimal(str(round(metrics_row.max_score, 2))) if metrics_row.max_score else None,
         score_std_deviation=outlet.score_std_dev,
+        index_eligible=outlet_is_index_eligible(outlet),
     )
 
     await set_cached(

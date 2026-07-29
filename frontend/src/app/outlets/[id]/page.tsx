@@ -9,6 +9,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
+import { ServerEvidenceSummary } from "@/components/ServerEvidenceSummary";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
   buildEntityPath,
@@ -32,7 +33,17 @@ import {
   readTrendSnapshot,
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
-import { getCachedOutlet, getCachedOutletHistory } from "@/lib/server-entity-loaders";
+import {
+  getCachedOutlet,
+  getCachedOutletHistory,
+  getCachedOutletReviews,
+} from "@/lib/server-entity-loaders";
+import { isApiNotFoundError } from "@/lib/api";
+import { shouldIndexEntityPage } from "@/lib/index-eligibility";
+import {
+  buildOutletEvidence,
+  SERVER_EVIDENCE_REVIEW_LIMIT,
+} from "@/lib/entity-evidence";
 
 export const revalidate = 60;
 const OUTLET_CARD_VERSION = "o3";
@@ -149,6 +160,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.early != null
       || query.launch != null
       || query.late != null;
+    const shouldIndex = shouldIndexEntityPage({
+      indexEligible: outlet.index_eligible,
+      isShareVariant: isCardShareUrl,
+      page,
+    });
     const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "outlets", outlet.name, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
@@ -217,8 +233,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       title: modeTitle,
       description,
       alternates: { canonical: canonicalPath },
-      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
-      ...(page > 1 && { robots: { index: false, follow: true } }),
+      robots: { index: shouldIndex, follow: true },
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,
@@ -233,8 +248,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         images: [openGraphImage],
       },
     };
-  } catch {
-    return { title: "Outlet Details" };
+  } catch (error) {
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 }
 
@@ -252,7 +270,10 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     outlet = await getCachedOutlet(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching outlet:", error);
-    notFound();
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 
   if (!outlet) {
@@ -265,10 +286,20 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     permanentRedirect(buildPathWithQuery(canonicalPath, query));
   }
 
-  const history = await getCachedOutletHistory(outlet.public_id, 180).catch(() => null);
+  const [history, reviewsResponse] = await Promise.all([
+    getCachedOutletHistory(outlet.public_id, 180).catch(() => null),
+    getCachedOutletReviews(outlet.public_id, 1, SERVER_EVIDENCE_REVIEW_LIMIT).catch(
+      () => null,
+    ),
+  ]);
   if (history) {
     chartTrendEncoded = encodeTrendSnapshot(toTrendSnapshot(history));
   }
+  const evidence = buildOutletEvidence(
+    outlet,
+    reviewsResponse?.items ?? [],
+    reviewsResponse?.total ?? outlet.review_count ?? 0,
+  );
 
   const shareDisparity = outlet.avg_disparity_combined ?? outlet.avg_disparity;
   const shareDisparityStr = shareDisparity != null ? `${Number(shareDisparity) > 0 ? "+" : ""}${Number(shareDisparity).toFixed(1)}` : null;
@@ -337,8 +368,10 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
   const jsonLdData: Record<string, unknown> = {
     "@context": "https://schema.org",
     "@type": "Organization",
+    "@id": `${siteUrl}${canonicalPath}#entity`,
     name: outlet.name,
     url: `${siteUrl}${canonicalPath}`,
+    mainEntityOfPage: { "@id": `${siteUrl}${canonicalPath}#webpage` },
     ...(outlet.logo_url && { logo: outlet.logo_url }),
     ...(outlet.website_url && { sameAs: [outlet.website_url] }),
     ...(() => {
@@ -518,6 +551,11 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
             </div>
           );
         })()}
+
+        <ServerEvidenceSummary
+          canonicalUrl={`${siteUrl}${canonicalPath}`}
+          evidence={evidence}
+        />
       </div>
 
       {/* Journalists at this outlet */}

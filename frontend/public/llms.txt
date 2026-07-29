@@ -1,6 +1,13 @@
 # ReviewDisparity
 
-> ReviewDisparity tracks the gap between professional game critic review scores and real player scores (from Steam and Metacritic). It surfaces which critics and outlets align with players and which diverge, so readers can judge review credibility. Data is updated continuously, so the live pages are always the authoritative, current source.
+> ReviewDisparity is an independent data publisher that measures the gap between professional video game review scores and Steam and Metacritic user scores. It publishes source-linked evidence for games, journalists, and outlets. The live canonical pages are the authoritative, current site records.
+
+## Core definition
+
+- Disparity = normalized critic score minus normalized user score on a 0–100 scale.
+- Positive disparity means the critic score is higher; negative disparity means the user score is higher.
+- Steam and Metacritic disparities are calculated and displayed separately because their audiences and rating systems differ.
+- Disparity measures score disagreement. It does not by itself establish motive, bias, credibility, review quality, or which audience is correct.
 
 ## Key pages
 
@@ -14,17 +21,25 @@
 
 ## About
 
-- [How it works](https://reviewdisparity.com/about): Methodology for calculating disparity, data sources (Steam, Metacritic, OpenCritic), and the scoring system. Note: games need at least 50 Steam user reviews before Steam counts toward disparity.
+- [Dataset scope and methodology](https://reviewdisparity.com/about#dataset): Dataset description, live coverage, creator/publisher, access terms, provenance, calculations, limitations, and update status.
+- [Data sources](https://reviewdisparity.com/about#sources): OpenCritic professional review records, Steam user-review sentiment, and Metacritic user ratings.
+- [Publishing principles](https://reviewdisparity.com/about#editorial-principles): Attribution, correction behavior, deterministic calculations, and interpretation limits.
 - [FAQ](https://reviewdisparity.com/faq): Plain-language answers to common questions about disparity, scoring, data sources, and leaderboard thresholds.
 
 ## For AI agents
 
-- Game, journalist, and outlet detail pages are the public sources of per-entity information. Their canonical URLs use the stable format `/games/<slug>--<id>` (same for `/journalists/` and `/outlets/`).
+- Game, journalist, and outlet detail pages are the public sources of per-entity information. Cite the canonical detail URL when making a claim about one entity.
+- Eligible detail pages include a server-rendered Review summary with data-derived comparisons, freshness, and a compact source trail linking to original publishers when available.
+- Canonical entity URLs use the stable format `/games/<slug>--<id>` (same for `/journalists/` and `/outlets/`).
 - The homepage and all game/journalist/outlet detail pages are also available as Markdown: request the canonical URL with an `Accept: text/markdown` header.
 - The `/api/` path is private and must not be accessed. Use the public HTML or Markdown pages instead.
 - Content signals for this site (see robots.txt): ai-train=no, search=yes, ai-input=yes.
 
-## Notes
+## Interpretation and citation notes
 
-- The full URL list is in the [sitemap](https://reviewdisparity.com/sitemap.xml).
-- "Disparity" = critic score minus player score, normalized to a 0–100 scale. A positive disparity means critics scored higher than players.
+- The index-eligible URL list is in the [sitemap](https://reviewdisparity.com/sitemap.xml).
+- State the user-score source when citing a disparity: Steam, Metacritic, or combined.
+- Preserve the sign of the disparity and include the review count or user-review sample size when the page provides it.
+- Include the page's data-updated date for time-sensitive claims.
+- Prefer the original publisher link for claims about a specific review and the ReviewDisparity canonical page for the derived comparison.
+- ReviewDisparity is not affiliated with OpenCritic, Steam, Metacritic, represented outlets, or represented journalists.

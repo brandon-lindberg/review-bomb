@@ -5,6 +5,7 @@ import {
   getOutletReviews,
   getRecentReviews,
   getStats,
+  isApiNotFoundError,
 } from "@/lib/api";
 import { parseEntityRouteSegment } from "@/lib/entity-paths";
 import {
@@ -45,6 +46,22 @@ function markdownResponse(body: string, status = 200): Response {
 
 function notFound(): Response {
   return markdownResponse("# Not found\n\nNo Markdown representation exists for this page.\n", 404);
+}
+
+function serviceUnavailable(): Response {
+  return new Response(
+    "# Temporarily unavailable\n\nThis page is temporarily unavailable. Please try again shortly.\n",
+    {
+      status: 503,
+      headers: {
+        "Content-Type": "text/markdown; charset=utf-8",
+        Vary: "Accept",
+        "X-Robots-Tag": "noindex",
+        "Cache-Control": "no-store",
+        "Retry-After": "60",
+      },
+    },
+  );
 }
 
 async function renderHome(siteUrl: string): Promise<Response> {
@@ -143,9 +160,7 @@ export async function GET(
     }
 
     return notFound();
-  } catch {
-    // Entity lookups throw on API 404s and upstream failures alike; a missing
-    // entity is by far the common case here.
-    return notFound();
+  } catch (error) {
+    return isApiNotFoundError(error) ? notFound() : serviceUnavailable();
   }
 }

@@ -18,6 +18,7 @@ import type {
   SimilarGame,
 } from "@/types";
 import { getApiUrl } from "@/lib/api-base-url";
+import { INDEX_ELIGIBILITY_POLICY_VERSION } from "@/lib/index-eligibility";
 
 const API_URL = getApiUrl();
 const journalistAllReviewsCache = new Map<string, Promise<ReviewWithDisparity[]>>();
@@ -48,6 +49,22 @@ function getServerRevalidateSeconds(endpoint: string): number {
 // restart, 2026-07-11). Fail the individual render fast instead.
 const SERVER_FETCH_TIMEOUT_MS = 10_000;
 
+export class ApiError extends Error {
+  readonly status: number;
+  readonly endpoint: string;
+
+  constructor(status: number, statusText: string, endpoint: string) {
+    super(`API Error: ${status} ${statusText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.endpoint = endpoint;
+  }
+}
+
+export function isApiNotFoundError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 404;
+}
+
 async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promise<T> {
   const isServer = typeof window === "undefined";
   const hasExplicitRevalidate = options?.next?.revalidate != null;
@@ -77,7 +94,7 @@ async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promis
   });
 
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    throw new ApiError(response.status, response.statusText, endpoint);
   }
 
   return response.json();
@@ -145,7 +162,9 @@ export async function getJournalists(
 }
 
 export async function getJournalist(id: string | number): Promise<JournalistDetail> {
-  return fetchAPI<JournalistDetail>(`/journalists/${id}`);
+  return fetchAPI<JournalistDetail>(
+    `/journalists/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getJournalistReviews(
@@ -172,7 +191,9 @@ export async function getOutlets(
 }
 
 export async function getOutlet(id: string | number): Promise<OutletWithStats> {
-  return fetchAPI<OutletWithStats>(`/outlets/${id}`);
+  return fetchAPI<OutletWithStats>(
+    `/outlets/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getOutletReviews(
@@ -202,7 +223,9 @@ export async function getGames(
 }
 
 export async function getGame(id: string | number): Promise<GameWithScores> {
-  return fetchAPI<GameWithScores>(`/games/${id}`);
+  return fetchAPI<GameWithScores>(
+    `/games/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getGameReviews(
