@@ -45,9 +45,9 @@ const DETAIL_SAMPLES_PER_TYPE = Math.max(
 const REQUIRE_DETAIL_PAGES = process.env.SEO_REQUIRE_DETAIL_PAGES === "1";
 const SITEMAP_ONLY = process.env.SEO_SITEMAP_ONLY === "1";
 const SITEMAP_MIN_COUNTS = {
-  games: Number.parseInt(process.env.SITEMAP_MIN_GAMES || "15000", 10),
-  journalists: Number.parseInt(process.env.SITEMAP_MIN_JOURNALISTS || "8000", 10),
-  outlets: Number.parseInt(process.env.SITEMAP_MIN_OUTLETS || "500", 10),
+  games: Number.parseInt(process.env.SITEMAP_MIN_GAMES || "3500", 10),
+  journalists: Number.parseInt(process.env.SITEMAP_MIN_JOURNALISTS || "4000", 10),
+  outlets: Number.parseInt(process.env.SITEMAP_MIN_OUTLETS || "600", 10),
 };
 
 function fail(message) {

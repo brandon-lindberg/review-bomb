@@ -62,6 +62,7 @@ from app.services.game_similarity_v3 import (
     SIMILARITY_V3_STATUS_HIDDEN,
     SIMILARITY_V3_VERSION,
 )
+from app.services.index_eligibility import game_is_index_eligible
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
@@ -847,7 +848,7 @@ async def get_game(
     """Get game detail (uses denormalized columns - instant!)."""
     # Short-TTL response cache: this endpoint runs a review-timing aggregate per
     # call and is hit on every page render, share-card render, and bot fetch.
-    detail_cache_key = f"games:detail:v1:{game_id}"
+    detail_cache_key = f"games:detail:v2:{game_id}"
     cached = await get_cached(detail_cache_key)
     if cached:
         return GameDetail(**json.loads(cached))
@@ -936,6 +937,7 @@ async def get_game(
 
     response = GameDetail(
         **base_game.model_dump(),
+        index_eligible=game_is_index_eligible(game),
         tier=game.tier,
         percent_recommended=game.percent_recommended,
         early_review_count=early_review_count,

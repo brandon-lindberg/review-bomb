@@ -26,5 +26,5 @@
 
 ## Notes
 
-- The full URL list is in the [sitemap](https://reviewdisparity.com/sitemap.xml).
+- The index-eligible URL list is in the [sitemap](https://reviewdisparity.com/sitemap.xml).
 - "Disparity" = critic score minus player score, normalized to a 0–100 scale. A positive disparity means critics scored higher than players.

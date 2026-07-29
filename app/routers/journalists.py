@@ -35,6 +35,7 @@ from app.public_ids import resolve_entity_by_identifier
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.disparity_timeline import build_disparity_timeline_from_reviews
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
+from app.services.index_eligibility import journalist_is_index_eligible
 
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
@@ -321,7 +322,7 @@ async def get_journalist(
         raise HTTPException(status_code=404, detail="Journalist not found")
 
     journalist_id = journalist.id
-    cached = await get_cached(f"journalists:detail:v3:{journalist_id}")
+    cached = await get_cached(f"journalists:detail:v4:{journalist_id}")
     if cached:
         return JournalistDetail(**json.loads(cached))
 
@@ -527,10 +528,11 @@ async def get_journalist(
         outlet_breakdown=outlet_breakdown,
         created_at=journalist.created_at,
         updated_at=journalist.updated_at,
+        index_eligible=journalist_is_index_eligible(journalist),
     )
 
     await set_cached(
-        f"journalists:detail:v3:{journalist_id}",
+        f"journalists:detail:v4:{journalist_id}",
         json.dumps(response.model_dump(mode="json")),
         CACHE_TTL_MEDIUM,
     )

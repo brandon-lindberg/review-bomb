@@ -64,6 +64,7 @@ class OutletSummary(OutletBase):
 
 class OutletWithStats(OutletSummary):
     """Outlet with aggregated statistics."""
+    index_eligible: bool = False
     journalist_count: int = 0
     review_count: int = 0
     avg_disparity: Optional[Decimal] = None
@@ -174,6 +175,7 @@ class JournalistOutletBreakdown(BaseModel):
 
 class JournalistDetail(JournalistSummary):
     """Full journalist details with stats."""
+    index_eligible: bool = False
     stats: JournalistStats
     outlet_breakdown: List[JournalistOutletBreakdown] = []
     created_at: datetime
@@ -237,6 +239,7 @@ class GameWithScores(GameSummary):
 
 class GameDetail(GameWithScores):
     """Full game details."""
+    index_eligible: bool = False
     tier: Optional[str] = None
     percent_recommended: Optional[Decimal] = None
     early_review_count: int = 0

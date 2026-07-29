@@ -34,6 +34,7 @@ import {
 } from "@/lib/share-snapshot";
 import { getCachedJournalist, getCachedJournalistHistory } from "@/lib/server-entity-loaders";
 import { isApiNotFoundError } from "@/lib/api";
+import { shouldIndexEntityPage } from "@/lib/index-eligibility";
 
 export const revalidate = 60;
 const JOURNALIST_CARD_VERSION = "j2";
@@ -161,6 +162,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.early != null
       || query.launch != null
       || query.late != null;
+    const shouldIndex = shouldIndexEntityPage({
+      indexEligible: journalist.index_eligible,
+      isShareVariant: isCardShareUrl,
+      page,
+    });
     const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "journalists", journalist.name, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
@@ -229,8 +235,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       title: modeTitle,
       description,
       alternates: { canonical: canonicalPath },
-      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
-      ...(page > 1 && { robots: { index: false, follow: true } }),
+      robots: { index: shouldIndex, follow: true },
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,

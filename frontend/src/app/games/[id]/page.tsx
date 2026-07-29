@@ -38,6 +38,7 @@ import {
   getCachedGameSimilarGames,
 } from "@/lib/server-entity-loaders";
 import { isApiNotFoundError } from "@/lib/api";
+import { shouldIndexEntityPage } from "@/lib/index-eligibility";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -138,6 +139,10 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       || query.launch != null
       || query.late != null
       || query.mode != null;
+    const shouldIndex = shouldIndexEntityPage({
+      indexEligible: game.index_eligible,
+      isShareVariant: isCardShareUrl,
+    });
     const sharePageUrl = buildEntitySnapshotShareUrl(siteUrl, "games", game.title, canonicalId, {
       card: requestedCardVersion,
       version: snapshotVersion,
@@ -225,7 +230,7 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
       title: modeTitle,
       description,
       alternates: { canonical: canonicalPath },
-      ...(isCardShareUrl && { robots: { index: false, follow: true } }),
+      robots: { index: shouldIndex, follow: true },
       openGraph: {
         title: `${modeTitle} | ReviewDisparity`,
         description,

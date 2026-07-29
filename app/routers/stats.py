@@ -21,6 +21,11 @@ from app.services.site_stats import get_current_site_stats_snapshot
 from app.services.review_score_correction import corrected_normalized_score
 from app.services.trending import TrendingAggregator
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
+from app.services.index_eligibility import (
+    game_index_eligibility_expression,
+    journalist_index_eligibility_expression,
+    outlet_index_eligibility_expression,
+)
 
 router = APIRouter()
 
@@ -29,7 +34,7 @@ async def _get_sitemap_entries(
     db: AsyncSession,
     entity_type: str,
 ) -> list[dict[str, str | int | None]]:
-    cache_key = f"stats:sitemap-data:{entity_type}:v2"
+    cache_key = f"stats:sitemap-data:{entity_type}:v3"
     cached = await get_cached(cache_key)
     if cached:
         return json.loads(cached)
@@ -43,13 +48,7 @@ async def _get_sitemap_entries(
                 Journalist.updated_at,
                 Journalist.last_review_at,
             )
-            .where(
-                Journalist.id.in_(
-                    select(Review.journalist_id)
-                    .where(Review.score_normalized.isnot(None))
-                    .distinct()
-                )
-            )
+            .where(journalist_index_eligibility_expression())
             .order_by(Journalist.id)
         )
     elif entity_type == "outlets":
@@ -61,16 +60,7 @@ async def _get_sitemap_entries(
                 Outlet.updated_at,
                 Outlet.last_review_at,
             )
-            .where(
-                Outlet.id.in_(
-                    select(Review.outlet_id)
-                    .where(
-                        Review.outlet_id.isnot(None),
-                        Review.score_normalized.isnot(None),
-                    )
-                    .distinct()
-                )
-            )
+            .where(outlet_index_eligibility_expression())
             .order_by(Outlet.id)
         )
     elif entity_type == "games":
@@ -82,13 +72,7 @@ async def _get_sitemap_entries(
                 Game.updated_at,
                 Game.last_review_sync_at,
             )
-            .where(
-                Game.id.in_(
-                    select(Review.game_id)
-                    .where(Review.score_normalized.isnot(None))
-                    .distinct()
-                )
-            )
+            .where(game_index_eligibility_expression())
             .order_by(Game.id)
         )
     else:

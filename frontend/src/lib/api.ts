@@ -18,6 +18,7 @@ import type {
   SimilarGame,
 } from "@/types";
 import { getApiUrl } from "@/lib/api-base-url";
+import { INDEX_ELIGIBILITY_POLICY_VERSION } from "@/lib/index-eligibility";
 
 const API_URL = getApiUrl();
 const journalistAllReviewsCache = new Map<string, Promise<ReviewWithDisparity[]>>();
@@ -161,7 +162,9 @@ export async function getJournalists(
 }
 
 export async function getJournalist(id: string | number): Promise<JournalistDetail> {
-  return fetchAPI<JournalistDetail>(`/journalists/${id}`);
+  return fetchAPI<JournalistDetail>(
+    `/journalists/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getJournalistReviews(
@@ -188,7 +191,9 @@ export async function getOutlets(
 }
 
 export async function getOutlet(id: string | number): Promise<OutletWithStats> {
-  return fetchAPI<OutletWithStats>(`/outlets/${id}`);
+  return fetchAPI<OutletWithStats>(
+    `/outlets/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getOutletReviews(
@@ -218,7 +223,9 @@ export async function getGames(
 }
 
 export async function getGame(id: string | number): Promise<GameWithScores> {
-  return fetchAPI<GameWithScores>(`/games/${id}`);
+  return fetchAPI<GameWithScores>(
+    `/games/${id}?seo_policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+  );
 }
 
 export async function getGameReviews(

@@ -28,6 +28,6 @@ jobs:
         env:
           SEO_BASE_URL: https://reviewdisparity.com
           SEO_EXPECTED_CANONICAL_ORIGIN: https://reviewdisparity.com
-          SITEMAP_MIN_GAMES: "15000"
-          SITEMAP_MIN_JOURNALISTS: "8000"
-          SITEMAP_MIN_OUTLETS: "500"
+          SITEMAP_MIN_GAMES: "3500"
+          SITEMAP_MIN_JOURNALISTS: "4000"
+          SITEMAP_MIN_OUTLETS: "600"

@@ -14,6 +14,7 @@
   "include": [
     "src/lib/entity-paths.ts",
     "src/lib/entity-request-policy.ts",
+    "src/lib/index-eligibility.ts",
     "src/lib/sitemap-entries.ts",
     "src/lib/sitemap-xml.ts",
     "src/lib/share-snapshot.ts",

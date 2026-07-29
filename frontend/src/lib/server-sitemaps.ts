@@ -10,6 +10,7 @@ import {
   type SitemapEntityEntry,
 } from "@/lib/sitemap-entries";
 import { buildSitemapIndexXml, buildUrlSetXml } from "@/lib/sitemap-xml";
+import { INDEX_ELIGIBILITY_POLICY_VERSION } from "@/lib/index-eligibility";
 
 export const SITEMAP_REVALIDATE_SECONDS = 3600;
 const SITEMAP_STALE_SECONDS = 86_400;
@@ -34,17 +35,17 @@ const ENTITY_CONFIG: Record<EntitySitemapType, EntitySitemapConfig> = {
   games: {
     labelKey: "title",
     combinedKey: "game_entries",
-    minimumCount: readMinimumCount("SITEMAP_MIN_GAMES", 15_000),
+    minimumCount: readMinimumCount("SITEMAP_MIN_GAMES", 3_500),
   },
   journalists: {
     labelKey: "name",
     combinedKey: "journalist_entries",
-    minimumCount: readMinimumCount("SITEMAP_MIN_JOURNALISTS", 8_000),
+    minimumCount: readMinimumCount("SITEMAP_MIN_JOURNALISTS", 4_000),
   },
   outlets: {
     labelKey: "name",
     combinedKey: "outlet_entries",
-    minimumCount: readMinimumCount("SITEMAP_MIN_OUTLETS", 500),
+    minimumCount: readMinimumCount("SITEMAP_MIN_OUTLETS", 600),
   },
 };
 
@@ -68,7 +69,7 @@ async function fetchJson(path: string): Promise<Record<string, unknown>> {
 async function fetchEntityEntries(type: EntitySitemapType): Promise<SitemapEntityEntry[]> {
   try {
     const buildPath = (page: number) =>
-      `/stats/sitemap-data/${type}?page=${page}&per_page=${SITEMAP_API_PAGE_SIZE}`;
+      `/stats/sitemap-data/${type}?page=${page}&per_page=${SITEMAP_API_PAGE_SIZE}&policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`;
     const payload = await fetchJson(buildPath(1));
     if (!Array.isArray(payload.entries)) {
       throw new Error(`Invalid entries payload for ${type}`);
@@ -103,7 +104,9 @@ async function fetchEntityEntries(type: EntitySitemapType): Promise<SitemapEntit
     return entries;
   } catch (primaryError) {
     console.error(`Primary ${type} sitemap fetch failed; trying combined endpoint.`, primaryError);
-    const combinedPayload = await fetchJson("/stats/sitemap-data");
+    const combinedPayload = await fetchJson(
+      `/stats/sitemap-data?policy=${INDEX_ELIGIBILITY_POLICY_VERSION}`,
+    );
     const combinedEntries = combinedPayload[ENTITY_CONFIG[type].combinedKey];
     if (!Array.isArray(combinedEntries)) {
       throw new Error(`Invalid combined entries payload for ${type}`);
