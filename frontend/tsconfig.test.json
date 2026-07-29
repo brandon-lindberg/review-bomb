@@ -12,6 +12,8 @@
     "paths": {}
   },
   "include": [
+    "src/lib/entity-paths.ts",
+    "src/lib/entity-request-policy.ts",
     "src/lib/share-snapshot.ts",
     "src/lib/share-url.ts",
     "tests/**/*.test.ts"

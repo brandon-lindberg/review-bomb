@@ -33,6 +33,7 @@ import {
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
 import { getCachedJournalist, getCachedJournalistHistory } from "@/lib/server-entity-loaders";
+import { isApiNotFoundError } from "@/lib/api";
 
 export const revalidate = 60;
 const JOURNALIST_CARD_VERSION = "j2";
@@ -244,8 +245,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         images: [openGraphImage],
       },
     };
-  } catch {
-    return { title: "Journalist Details" };
+  } catch (error) {
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 }
 
@@ -266,7 +270,10 @@ export default async function JournalistDetailPage({
     journalist = await getCachedJournalist(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching journalist:", error);
-    notFound();
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 
   if (!journalist) {

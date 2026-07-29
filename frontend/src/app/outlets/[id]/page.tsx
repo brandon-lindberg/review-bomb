@@ -33,6 +33,7 @@ import {
   toTrendSnapshot,
 } from "@/lib/share-snapshot";
 import { getCachedOutlet, getCachedOutletHistory } from "@/lib/server-entity-loaders";
+import { isApiNotFoundError } from "@/lib/api";
 
 export const revalidate = 60;
 const OUTLET_CARD_VERSION = "o3";
@@ -233,8 +234,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         images: [openGraphImage],
       },
     };
-  } catch {
-    return { title: "Outlet Details" };
+  } catch (error) {
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 }
 
@@ -252,7 +256,10 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
     outlet = await getCachedOutlet(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching outlet:", error);
-    notFound();
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 
   if (!outlet) {

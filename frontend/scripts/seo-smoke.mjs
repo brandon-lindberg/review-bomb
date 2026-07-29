@@ -280,6 +280,22 @@ async function assertMarkdownNegotiation(path) {
   );
 }
 
+async function assertUnknownEntity404() {
+  const path = "/games/index-safety-probe--00000000000000000000000000000000";
+  const { response, text } = await fetchText(path, { redirect: "manual" });
+
+  ok(response.status === 404, `${path}: expected a real 404, got ${response.status}`);
+  const xRobots = normalizeRobotsContent(response.headers.get("x-robots-tag"));
+  ok(xRobots.includes("noindex"), `${path}: missing noindex X-Robots-Tag`);
+
+  const robotsTags = text.match(/<meta\b[^>]*name=["']robots["'][^>]*>/gi) || [];
+  ok(robotsTags.length === 1, `${path}: expected one robots meta tag, got ${robotsTags.length}`);
+  const robots = normalizeRobotsContent(getMetaContent(text, "robots"));
+  ok(robots.includes("noindex"), `${path}: robots meta must include noindex`);
+  ok(!robots.includes("index"), `${path}: robots meta must not conflict with index`);
+  ok(!getCanonicalHref(text), `${path}: a missing entity must not inherit the homepage canonical`);
+}
+
 async function assertSitemapXml() {
   const { response, text } = await fetchText("/sitemap.xml", { redirect: "follow" });
   ok(response.ok, `/sitemap.xml: expected 200, got ${response.status}`);
@@ -586,6 +602,9 @@ async function run() {
   await assertMarkdownNegotiation("/");
   console.log("PASS markdown negotiation /");
 
+  await assertUnknownEntity404();
+  console.log("PASS unknown entity 404");
+
   const sitemapLocs = await assertSitemapXml();
   console.log("PASS /sitemap.xml");
 
@@ -617,6 +636,11 @@ async function run() {
       ok(robots.includes("index"), `${path}: expected robots meta to include index`);
       ok(robots.includes("follow"), `${path}: expected robots meta to include follow`);
       ok(!robots.includes("noindex"), `${path}: should not be noindex`);
+      const cacheControl = (response.headers.get("cache-control") || "").toLowerCase();
+      ok(cacheControl.includes("public"), `${path}: canonical HTML should be publicly cacheable`);
+      ok(cacheControl.includes("s-maxage="), `${path}: canonical HTML should set an edge-cache TTL`);
+      ok(!cacheControl.includes("no-store"), `${path}: canonical HTML must not use no-store`);
+      ok(!cacheControl.includes("private"), `${path}: canonical HTML must not use private caching`);
       assertServerRenderedDetailContent(path, text);
       assertBreadcrumbContent(path, text);
       await assertLegacyDetailRedirect(path);

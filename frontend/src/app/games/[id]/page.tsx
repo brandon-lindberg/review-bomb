@@ -37,6 +37,7 @@ import {
   getCachedGameNews,
   getCachedGameSimilarGames,
 } from "@/lib/server-entity-loaders";
+import { isApiNotFoundError } from "@/lib/api";
 
 export const revalidate = 60;
 const GAME_CARD_VERSION = "g15";
@@ -239,8 +240,11 @@ export async function generateMetadata({ params, searchParams }: PageProps): Pro
         images: [openGraphImage],
       },
     };
-  } catch {
-    return { title: "Game Details" };
+  } catch (error) {
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 }
 
@@ -261,7 +265,10 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
     game = await getCachedGame(requestedSegment.identifier);
   } catch (error) {
     console.error("Error fetching game:", error);
-    notFound();
+    if (isApiNotFoundError(error)) {
+      notFound();
+    }
+    throw error;
   }
 
   if (!game) {
