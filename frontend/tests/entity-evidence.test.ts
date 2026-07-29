@@ -62,7 +62,10 @@ test("game evidence explains separate user-score comparisons and sample sizes", 
   const evidence = buildGameEvidence(game, [gameReview], 42);
 
   assert.equal(evidence.reviews.length, 1);
-  assert.match(evidence.analysis.join(" "), /critic average is 81\.5\/100/);
+  assert.match(
+    evidence.analysis.join(" "),
+    /critics give this game an average score of 81\.5\/100/,
+  );
   assert.match(evidence.analysis.join(" "), /10\.5 points higher than Steam users/);
   assert.match(evidence.analysis.join(" "), /2\.5 points lower than Metacritic users/);
   assert.equal(

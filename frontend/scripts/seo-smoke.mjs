@@ -198,7 +198,8 @@ function assertServerRenderedDetailContent(path, text) {
     `${path}: expected a server-rendered evidence snapshot`,
   );
   ok(
-    text.includes("What the data shows"),
+    text.includes("Review summary") &&
+      text.includes("Sources behind this summary"),
     `${path}: expected data-derived analysis in initial HTML`,
   );
   ok(
@@ -299,8 +300,8 @@ async function assertGeoKnowledgePages() {
   }
 
   ok(
-    home.text.includes("What ReviewDisparity measures") &&
-      home.text.includes("It measures disagreement"),
+    home.text.includes("How to read review disparity") &&
+      home.text.includes("It shows disagreement"),
     "/: missing answer-first definition and limitation",
   );
   ok(

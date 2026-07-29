@@ -437,76 +437,6 @@ export default function Home() {
         )}
       </section>
 
-      <section
-        className="site-panel rounded-[1.5rem] p-6 sm:p-8"
-        aria-labelledby="answer-first-heading"
-      >
-        <div className="max-w-3xl">
-          <span className="site-data-label">At a glance</span>
-          <h2
-            id="answer-first-heading"
-            className="mt-2 text-2xl font-bold"
-            style={{ color: "var(--foreground)" }}
-          >
-            What ReviewDisparity measures
-          </h2>
-          <p className="mt-3 leading-7" style={{ color: "var(--foreground-muted)" }}>
-            Review disparity is the professional critic score minus the player score after
-            both are normalized to 0–100. Positive values mean critics scored higher;
-            negative values mean players scored higher. It measures disagreement—not review
-            quality, intent, or bias.
-          </p>
-        </div>
-        <div className="mt-6 grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
-              Two player comparisons
-            </h3>
-            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
-              Steam and Metacritic disparities stay separate because their audiences and
-              rating systems differ.
-            </p>
-          </div>
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
-              Source-linked evidence
-            </h3>
-            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
-              Detail pages show review dates, normalized scores, timing, sample context, and
-              original publisher links where available.
-            </p>
-          </div>
-          <div className="rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
-            <h3 className="font-semibold" style={{ color: "var(--foreground)" }}>
-              Independent analysis
-            </h3>
-            <p className="mt-2 text-sm leading-6" style={{ color: "var(--foreground-muted)" }}>
-              ReviewDisparity is not affiliated with OpenCritic, Steam, Metacritic, their
-              outlets, or the journalists represented.
-            </p>
-          </div>
-        </div>
-        <p className="mt-5 text-sm" style={{ color: "var(--foreground-muted)" }}>
-          Read the{" "}
-          <Link
-            href="/about#dataset"
-            className="font-medium hover:text-rust"
-            style={{ color: "var(--color-rust)" }}
-          >
-            dataset scope and methodology
-          </Link>{" "}
-          or the{" "}
-          <Link
-            href="/faq"
-            className="font-medium hover:text-rust"
-            style={{ color: "var(--color-rust)" }}
-          >
-            plain-language FAQ
-          </Link>
-          .
-        </p>
-      </section>
-
       {/* Trending Games */}
       {!trendingGames && trendingGamesResource.loading && (
         <section
@@ -838,6 +768,49 @@ export default function Home() {
           </div>
         </section>
       )}
+
+      <section
+        className="border-t pt-8"
+        style={{ borderColor: "var(--border)" }}
+        aria-labelledby="answer-first-heading"
+      >
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
+          <div className="max-w-3xl">
+            <span className="site-data-label">Reading the data</span>
+            <h2
+              id="answer-first-heading"
+              className="mt-2 text-xl font-bold"
+              style={{ color: "var(--foreground)" }}
+            >
+              How to read review disparity
+            </h2>
+            <p
+              className="mt-2 text-sm leading-6 sm:text-base"
+              style={{ color: "var(--foreground-muted)" }}
+            >
+              Review disparity is the critic score minus the player score after both are
+              normalized to 0–100. Positive values mean critics scored higher; negative
+              values mean players scored higher. It shows disagreement—not review quality,
+              intent, or bias.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/about#dataset" className="site-button site-button-secondary">
+              Methodology
+            </Link>
+            <Link href="/faq" className="site-button site-button-secondary">
+              Plain-language FAQ
+            </Link>
+          </div>
+        </div>
+        <p
+          className="mt-4 text-xs leading-5"
+          style={{ color: "var(--foreground-muted)" }}
+        >
+          Steam and Metacritic comparisons remain separate because their audiences and
+          rating systems differ.
+        </p>
+      </section>
 
     </div>
   );

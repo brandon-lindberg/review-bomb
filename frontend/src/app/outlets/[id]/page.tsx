@@ -9,7 +9,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { OutletReviewsSection } from "@/components/OutletReviewsSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
-import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
+import { ServerEvidenceSummary } from "@/components/ServerEvidenceSummary";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
   buildEntityPath,
@@ -551,6 +551,11 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
             </div>
           );
         })()}
+
+        <ServerEvidenceSummary
+          canonicalUrl={`${siteUrl}${canonicalPath}`}
+          evidence={evidence}
+        />
       </div>
 
       {/* Journalists at this outlet */}
@@ -598,11 +603,6 @@ export default async function OutletDetailPage({ params, searchParams }: PagePro
           </div>
         </section>
       )}
-
-      <ServerEvidenceSnapshot
-        canonicalUrl={`${siteUrl}${canonicalPath}`}
-        evidence={evidence}
-      />
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection

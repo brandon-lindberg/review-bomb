@@ -29,7 +29,7 @@
 ## For AI agents
 
 - Game, journalist, and outlet detail pages are the public sources of per-entity information. Cite the canonical detail URL when making a claim about one entity.
-- Eligible detail pages include a server-rendered Evidence snapshot with data-derived analysis, freshness, recent scored review records, and original publisher links when available.
+- Eligible detail pages include a server-rendered Review summary with data-derived comparisons, freshness, and a compact source trail linking to original publishers when available.
 - Canonical entity URLs use the stable format `/games/<slug>--<id>` (same for `/journalists/` and `/outlets/`).
 - The homepage and all game/journalist/outlet detail pages are also available as Markdown: request the canonical URL with an `Accept: text/markdown` header.
 - The `/api/` path is private and must not be accessed. Use the public HTML or Markdown pages instead.

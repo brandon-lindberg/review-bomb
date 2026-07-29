@@ -90,20 +90,32 @@ function timingSentence(
   const launchCount = Math.max(0, Math.trunc(finiteNumber(launch) ?? 0));
   const lateCount = Math.max(0, Math.trunc(finiteNumber(late) ?? 0));
   if (earlyCount + launchCount + lateCount === 0) return undefined;
-  return `Review timing is ${formatCount(earlyCount)} early, ${formatCount(launchCount)} in the launch window, and ${formatCount(lateCount)} late.`;
+  return `Reviews were published ${formatCount(earlyCount)} before release, ${formatCount(launchCount)} within the 60-day launch window, and ${formatCount(lateCount)} later.`;
 }
 
-function comparisonSentence(
-  subject: string,
+function comparisonPhrase(
   source: "Steam" | "Metacritic",
   disparity: number | null | undefined,
 ): string | undefined {
   const numeric = finiteNumber(disparity);
   if (numeric == null) return undefined;
   if (Math.abs(numeric) < 0.05) {
-    return `${subject} is effectively even with ${source} users.`;
+    return `about the same as ${source} users`;
   }
-  return `${subject} is ${Math.abs(numeric).toFixed(1)} points ${numeric > 0 ? "higher" : "lower"} than ${source} users.`;
+  return `${Math.abs(numeric).toFixed(1)} points ${numeric > 0 ? "higher" : "lower"} than ${source} users`;
+}
+
+function comparisonSentence(
+  subject: string,
+  steamDisparity: number | null | undefined,
+  metacriticDisparity: number | null | undefined,
+): string | undefined {
+  const comparisons = [
+    comparisonPhrase("Steam", steamDisparity),
+    comparisonPhrase("Metacritic", metacriticDisparity),
+  ].filter((value): value is string => Boolean(value));
+  if (comparisons.length === 0) return undefined;
+  return `${subject} ${comparisons.join(" and ")}.`;
 }
 
 function safeSourceUrl(value: string | null | undefined): string | undefined {
@@ -256,9 +268,12 @@ export function buildGameEvidence(
 ): EntityEvidence {
   const normalizedReviews = reviews.slice(0, SERVER_EVIDENCE_REVIEW_LIMIT).map(gameReviewEvidence);
   const analysis = [
-    `Across ${formatCount(totalReviews)} scored critic reviews, the critic average is ${formatScore(game.avg_critic_score)}/100.`,
-    comparisonSentence("The critic average", "Steam", game.disparity_steam),
-    comparisonSentence("The critic average", "Metacritic", game.disparity_metacritic),
+    `Based on ${formatCount(totalReviews)} scored critic reviews, critics give this game an average score of ${formatScore(game.avg_critic_score)}/100.`,
+    comparisonSentence(
+      "Critics score this game",
+      game.disparity_steam,
+      game.disparity_metacritic,
+    ),
     timingSentence(
       game.early_review_count,
       game.launch_window_review_count,
@@ -296,7 +311,7 @@ export function buildGameEvidence(
   ];
 
   return {
-    heading: `${game.title} evidence snapshot`,
+    heading: `${game.title} review sources`,
     analysis,
     metrics,
     reviews: normalizedReviews,
@@ -321,15 +336,10 @@ export function buildJournalistEvidence(
     .slice(0, SERVER_EVIDENCE_REVIEW_LIMIT)
     .map(journalistReviewEvidence);
   const analysis = [
-    `Across ${formatCount(totalReviews)} scored reviews, ${journalist.name}'s average score is ${formatScore(stats.avg_score_given)}/100.`,
+    `Based on ${formatCount(totalReviews)} scored reviews, ${journalist.name} gives games an average score of ${formatScore(stats.avg_score_given)}/100.`,
     comparisonSentence(
-      "That average",
-      "Steam",
+      `${journalist.name} scores games`,
       stats.overall_disparity_steam ?? stats.avg_disparity_steam,
-    ),
-    comparisonSentence(
-      "That average",
-      "Metacritic",
       stats.overall_disparity_metacritic ?? stats.avg_disparity_metacritic,
     ),
     timingSentence(
@@ -340,7 +350,7 @@ export function buildJournalistEvidence(
   ].filter((value): value is string => Boolean(value));
 
   return {
-    heading: `${journalist.name} evidence snapshot`,
+    heading: `${journalist.name} review sources`,
     analysis,
     metrics: [
       { label: "Scored reviews", value: formatCount(totalReviews) },
@@ -379,9 +389,12 @@ export function buildOutletEvidence(
     .slice(0, SERVER_EVIDENCE_REVIEW_LIMIT)
     .map(outletReviewEvidence);
   const analysis = [
-    `Across ${formatCount(totalReviews)} scored reviews, ${outlet.name}'s average score is ${formatScore(outlet.avg_score)}/100.`,
-    comparisonSentence("That average", "Steam", outlet.avg_disparity_steam),
-    comparisonSentence("That average", "Metacritic", outlet.avg_disparity_metacritic),
+    `Based on ${formatCount(totalReviews)} scored reviews, ${outlet.name} gives games an average score of ${formatScore(outlet.avg_score)}/100.`,
+    comparisonSentence(
+      `${outlet.name} scores games`,
+      outlet.avg_disparity_steam,
+      outlet.avg_disparity_metacritic,
+    ),
     timingSentence(
       outlet.early_review_count,
       outlet.launch_window_review_count,
@@ -390,7 +403,7 @@ export function buildOutletEvidence(
   ].filter((value): value is string => Boolean(value));
 
   return {
-    heading: `${outlet.name} evidence snapshot`,
+    heading: `${outlet.name} review sources`,
     analysis,
     metrics: [
       { label: "Scored reviews", value: formatCount(totalReviews) },

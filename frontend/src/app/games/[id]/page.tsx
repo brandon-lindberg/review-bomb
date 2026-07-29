@@ -8,7 +8,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
 import { ExpandableText } from "@/components/ExpandableText";
-import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
+import { ServerEvidenceSummary } from "@/components/ServerEvidenceSummary";
 import { getDisplayDisparity } from "@/lib/disparity-colors";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
@@ -581,12 +581,12 @@ export default async function GameDetailPage({ params, searchParams }: PageProps
             </div>
           );
         })()}
-      </div>
 
-      <ServerEvidenceSnapshot
-        canonicalUrl={`${siteUrl}${canonicalPath}`}
-        evidence={evidence}
-      />
+        <ServerEvidenceSummary
+          canonicalUrl={`${siteUrl}${canonicalPath}`}
+          evidence={evidence}
+        />
+      </div>
 
       {/* Disparity Chart + Critic Reviews + Journalist Alignment + News - lazy loaded on scroll */}
       <LazyChartSection

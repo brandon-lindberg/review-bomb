@@ -9,7 +9,7 @@ import { LazyChartSection } from "@/components/LazyChartSection";
 import { JournalistReviewsSection } from "@/components/JournalistReviewsSection";
 import { RecentEntityViewSync } from "@/components/RecentEntityViewSync";
 import { JsonLd } from "@/components/JsonLd";
-import { ServerEvidenceSnapshot } from "@/components/ServerEvidenceSnapshot";
+import { ServerEvidenceSummary } from "@/components/ServerEvidenceSummary";
 import { ShareButtons } from "@/components/ShareButtons";
 import {
   buildEntityPath,
@@ -664,12 +664,12 @@ export default async function JournalistDetailPage({
               </div>
             </div>
           )}
-      </div>
 
-      <ServerEvidenceSnapshot
-        canonicalUrl={`${siteUrl}${canonicalPath}`}
-        evidence={evidence}
-      />
+        <ServerEvidenceSummary
+          canonicalUrl={`${siteUrl}${canonicalPath}`}
+          evidence={evidence}
+        />
+      </div>
 
       {/* Disparity Trend Chart - lazy loaded on scroll */}
       <LazyChartSection
