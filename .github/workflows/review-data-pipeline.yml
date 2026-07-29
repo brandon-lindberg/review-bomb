@@ -37,3 +37,16 @@ jobs:
           python -u -m app metacritic --recent 10 --limit 300
           python -u -m app disparity --journalists --outlets
           python -u -m app disparity --games
+      - name: Revalidate public discovery surfaces
+        shell: bash
+        run: |
+          if [[ -z "$FRONTEND_REVALIDATE_URL" || -z "$FRONTEND_REVALIDATE_SECRET" ]]; then
+            echo "::warning::Frontend revalidation is not configured; skipping cache refresh."
+            exit 0
+          fi
+
+          curl --fail-with-body --silent --show-error --retry 2 \
+            --request POST "$FRONTEND_REVALIDATE_URL" \
+            --header "Authorization: Bearer $FRONTEND_REVALIDATE_SECRET" \
+            --header "Content-Type: application/json" \
+            --data '{"paths":["/","/about","/games","/journalists","/outlets","/leaderboards","/sitemap.xml","/sitemaps/games.xml","/sitemaps/journalists.xml","/sitemaps/outlets.xml"],"reason":"review_data_pipeline"}'

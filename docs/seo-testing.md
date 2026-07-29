@@ -1,131 +1,140 @@
-# SEO Testing
+# SEO and GEO Verification
 
-This project has automated SEO/indexability checks for build-time regressions and live production monitoring.
+The frontend includes one smoke suite for indexability, server-rendered evidence,
+structured data, agent-facing representations, redirects, and XML sitemap
+integrity. The same suite runs locally and against production.
 
-## Agent readiness (AI crawlers)
+## Automated production monitor
 
-The frontend serves several AI/agent-facing surfaces, all covered by `yarn test:seo`:
+`.github/workflows/sitemap-monitor.yml` defines the **Production SEO and GEO
+Monitor**. It runs at 04:15 and 16:15 UTC, after the two review-data pipeline
+windows, and can also be dispatched manually.
 
-- `/robots.txt` (route handler at `src/app/robots.txt/route.ts`) emits the crawl rules plus
-  `Content-Signal: ai-train=no, search=yes, ai-input=yes` — no AI training, but search indexing
-  and AI answering from live content are allowed.
-- `/llms.txt` (static file at `public/llms.txt`) describes the site for AI systems and states
-  that `/api/` is private.
-- Every public HTML page carries `Link: </llms.txt>; rel="describedby"; type="text/plain"`
-  (configured in `next.config.ts` `headers()`).
-- The homepage and game/journalist/outlet detail pages support Markdown content negotiation:
-  requests with `Accept: text/markdown` are rewritten (in `src/proxy.ts`) to the
-  `/md/[[...slug]]` route handler, which renders Markdown from the same cached API data
-  (`src/lib/markdown-pages.ts`). Markdown responses carry `Content-Type: text/markdown;
-  charset=utf-8`, `Vary: Accept`, and `X-Robots-Tag: noindex`; normal browser requests are
-  untouched and keep returning HTML.
-- Plain default-view pagination (`/games?page=2` etc.) is indexable with self-referencing
-  canonicals so detail pages keep followed internal links; sorted/filtered/search variants
-  remain `noindex, follow`.
+The production job fails when any of these conditions is detected:
 
-Cloudflare note: HTML is currently not edge-cached (`cf-cache-status: DYNAMIC`). If a
-"Cache Everything" rule is ever added, exclude the negotiated routes (or bypass on
-`Accept: text/markdown`) — Cloudflare ignores `Vary` for non-image content.
+- an indexable route returns a non-200 response, loses its title, description,
+  self-canonical, or `index, follow` directive;
+- a deliberately excluded search, filter, sort, share, or combined-query route
+  loses `noindex, follow`;
+- a detail page lacks server-rendered evidence, breadcrumb markup, connected
+  entity JSON-LD, public caching, Markdown representation, or its legacy
+  redirect;
+- `robots.txt`, `llms.txt`, Markdown negotiation, the GEO knowledge graph, or a
+  real entity 404 regresses;
+- an entity sitemap drops below its safety floor, contains invalid URLs or
+  `lastmod` values, exceeds protocol limits, or is served from the
+  `last-known-good` fallback instead of fresh backend data;
+- the public Dataset `dateModified` value is missing, invalid, or more than 24
+  hours old.
 
-Quick manual verification against production:
+GitHub Actions failure notifications are the alerting channel. Do not start a
+Search Console validation while this workflow is failing.
 
-```bash
-curl -I https://reviewdisparity.com/
-curl https://reviewdisparity.com/robots.txt
-curl https://reviewdisparity.com/sitemap.xml
-curl -I https://reviewdisparity.com/sitemaps/games.xml
-curl -I https://reviewdisparity.com/llms.txt
-curl -H "Accept: text/markdown" https://reviewdisparity.com/
-curl -I -H "Accept: text/markdown" https://reviewdisparity.com/
-```
+The review-data pipeline explicitly revalidates the homepage, `/about`, entity
+directories, leaderboards, the sitemap index, and all entity sitemaps after a
+successful refresh. If the frontend URL or shared secret is not configured, the
+pipeline emits a warning; if configured revalidation fails, the pipeline fails.
 
-## Workflows
+## Local commands
 
-- `SEO Smoke Tests`
-  - CI workflow that builds the frontend, starts `next start`, and checks canonical tags, robots meta, `robots.txt`, `sitemap.xml`, redirects, and sampled detail pages (when available).
-- `SEO Smoke Tests (Live)`
-  - Scheduled/manual workflow that runs the same checks directly against `https://reviewdisparity.com` and requires detail-page coverage.
-- `Production Sitemap Monitor`
-  - Daily/manual production check for the sitemap index, segmented URL counts,
-    canonical URL integrity, file limits, and complete `lastmod` coverage.
-- `Lighthouse SEO`
-  - CI workflow that runs Lighthouse SEO audits on key pages against a production build.
+Run these from `frontend/`.
 
-## Local Commands
-
-Run from `frontend/`.
-
-### 1) SEO smoke tests (local app)
-
-Terminal A:
+Build and run the production server:
 
 ```bash
-yarn build
-yarn start -p 3000
+npm run build
+npm start
 ```
 
-Terminal B:
+In another terminal, with the backend available:
 
 ```bash
-yarn test:seo
+npm run test:seo
 ```
 
-### 2) Require detail-page indexability checks (`/games/[id]`, `/journalists/[id]`, `/outlets/[id]`)
-
-Use this when backend is running and `sitemap.xml` includes detail URLs.
+Require three eligible examples from every entity sitemap:
 
 ```bash
-SEO_REQUIRE_DETAIL_PAGES=1 SEO_DETAIL_SAMPLES_PER_TYPE=3 yarn test:seo
+SEO_REQUIRE_DETAIL_PAGES=1 \
+SEO_DETAIL_SAMPLES_PER_TYPE=3 \
+npm run test:seo
 ```
 
-### 3) Add explicit detail pages (optional)
-
-```bash
-SEO_DETAIL_PATHS="/games/18971,/journalists/477,/outlets/24252" yarn test:seo
-```
-
-### 4) Run SEO smoke against production (optional local check)
+Run the complete production policy manually:
 
 ```bash
 SEO_BASE_URL=https://reviewdisparity.com \
 SEO_EXPECTED_CANONICAL_ORIGIN=https://reviewdisparity.com \
 SEO_REQUIRE_DETAIL_PAGES=1 \
 SEO_DETAIL_SAMPLES_PER_TYPE=3 \
-yarn test:seo
+SEO_REQUIRE_FRESH_SITEMAPS=1 \
+SEO_MAX_DATA_AGE_HOURS=24 \
+npm run test:seo
 ```
 
-### 5) Lighthouse SEO checks (local)
-
-Terminal A:
+Run sitemap inventory checks only:
 
 ```bash
-yarn build
-yarn start -p 3000
+SEO_SITEMAP_ONLY=1 \
+SEO_REQUIRE_FRESH_SITEMAPS=1 \
+npm run test:seo
 ```
 
-Terminal B:
+Run the unit and snapshot suite:
 
 ```bash
-npx @lhci/cli@0.15.x collect --config=.lighthouserc.json
-npx @lhci/cli@0.15.x assert --config=.lighthouserc.json
+npm run test:share-snapshots
 ```
 
-## Branch Protection (Master)
+## Policy controls
 
-Set branch protection on `master` and require these status checks before merge:
+- `SEO_BASE_URL`: target site; defaults to `http://127.0.0.1:3000`.
+- `SEO_EXPECTED_CANONICAL_ORIGIN`: required canonical origin; defaults to
+  `https://reviewdisparity.com`.
+- `SEO_REQUIRE_DETAIL_PAGES=1`: fail if no eligible detail URLs can be sampled.
+- `SEO_DETAIL_SAMPLES_PER_TYPE`: number sampled from each of games,
+  journalists, and outlets.
+- `SEO_DETAIL_PATHS`: optional comma-separated detail paths to add to the
+  sitemap-derived samples.
+- `SEO_SITEMAP_ONLY=1`: skip non-sitemap checks.
+- `SEO_REQUIRE_FRESH_SITEMAPS=1`: require `X-Sitemap-Source: fresh` on entity
+  sitemaps and `static` on the static sitemap.
+- `SEO_MAX_DATA_AGE_HOURS`: enforce the Dataset JSON-LD `dateModified` age; `0`
+  disables the policy.
+- `SITEMAP_MIN_GAMES`, `SITEMAP_MIN_JOURNALISTS`, and
+  `SITEMAP_MIN_OUTLETS`: inventory-collapse safety floors.
 
-- `SEO Smoke Tests`
-- `Lighthouse SEO`
+Local smoke tests leave production-only freshness policies disabled unless they
+are explicitly enabled. Production automation enables them.
 
-Recommended settings:
+## Agent and GEO surfaces
 
-- Require a pull request before merging
-- Require status checks to pass before merging
-- Require branches to be up to date before merging
-- Do not allow force pushes
-- Do not allow deletions
+- `/robots.txt` advertises the canonical sitemap, blocks `/api/`, and declares
+  the site's content-use signals.
+- `/llms.txt` explains the public dataset, its limitations, and the private API
+  boundary.
+- Public HTML responses link to `/llms.txt` with `rel="describedby"`.
+- The homepage and entity detail pages provide Markdown when the request
+  explicitly accepts `text/markdown`; normal requests continue to receive HTML.
+- `/about` publishes the connected Organization, WebSite, AboutPage, and
+  Dataset knowledge graph with visible provenance and methodology.
+- Entity HTML includes data-derived, server-rendered evidence and connected
+  entity/WebPage/BreadcrumbList JSON-LD.
 
-Note: branch protection is configured in GitHub repository settings (not in this repo). Use:
+If HTML is ever cached at the CDN, keep negotiated Markdown routes outside any
+cache rule that ignores `Vary: Accept`.
 
-- GitHub UI: `Settings` -> `Branches` -> `Add branch protection rule` -> branch pattern `master`
-- Required status checks: add the workflow names above
+## Incident triage
+
+1. Open the failed workflow step and identify whether the failure is transport,
+   indexability, sitemap inventory/source, rendered evidence, or data freshness.
+2. Check the same URL with the URL Inspection live test and a direct `curl`
+   request. CDN and deployment state can differ from repository state.
+3. For `last-known-good` sitemap failures, inspect backend availability before
+   changing sitemap floors. The fallback preserves discovery temporarily but is
+   not considered a healthy steady state.
+4. For stale Dataset failures, inspect the review-data pipeline and the
+   post-pipeline revalidation step.
+5. Re-run the production workflow after remediation. Only then use Search
+   Console's fix validation process described in
+   `docs/indexing-recovery-runbook.md`.

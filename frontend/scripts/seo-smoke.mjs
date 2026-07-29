@@ -1,5 +1,11 @@
 import http from "node:http";
 
+import {
+  parseJsonLdNodes,
+  validateDatasetFreshness,
+  validateSitemapSource,
+} from "./seo-monitor-policy.mjs";
+
 const BASE_URL = process.env.SEO_BASE_URL || "http://127.0.0.1:3000";
 const EXPECTED_CANONICAL_ORIGIN =
   process.env.SEO_EXPECTED_CANONICAL_ORIGIN || "https://reviewdisparity.com";
@@ -44,6 +50,12 @@ const DETAIL_SAMPLES_PER_TYPE = Math.max(
 );
 const REQUIRE_DETAIL_PAGES = process.env.SEO_REQUIRE_DETAIL_PAGES === "1";
 const SITEMAP_ONLY = process.env.SEO_SITEMAP_ONLY === "1";
+const REQUIRE_FRESH_SITEMAPS =
+  process.env.SEO_REQUIRE_FRESH_SITEMAPS === "1";
+const MAX_DATA_AGE_HOURS = Math.max(
+  0,
+  Number.parseFloat(process.env.SEO_MAX_DATA_AGE_HOURS || "0") || 0,
+);
 const SITEMAP_MIN_COUNTS = {
   games: Number.parseInt(process.env.SITEMAP_MIN_GAMES || "3500", 10),
   journalists: Number.parseInt(process.env.SITEMAP_MIN_JOURNALISTS || "4000", 10),
@@ -268,6 +280,17 @@ async function assertGeoKnowledgePages() {
 
   for (const [path, result] of [["/", home], ["/about", about], ["/faq", faq]]) {
     ok(result.response.ok, `${path}: expected 200 for GEO knowledge check`);
+    try {
+      result.jsonLdNodes = parseJsonLdNodes(result.text);
+    } catch (error) {
+      fail(
+        `${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    ok(
+      result.jsonLdNodes.length > 0,
+      `${path}: expected at least one valid JSON-LD node`,
+    );
     ok(
       result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#organization`) &&
         result.text.includes(`${EXPECTED_CANONICAL_ORIGIN}/#website`),
@@ -292,6 +315,11 @@ async function assertGeoKnowledgePages() {
       about.text.includes("Publishing Principles and Limitations"),
     "/about: structured dataset claims must have matching visible content",
   );
+  const freshnessError = validateDatasetFreshness(
+    about.jsonLdNodes,
+    MAX_DATA_AGE_HOURS,
+  );
+  ok(!freshnessError, freshnessError);
   ok(
     faq.text.includes("Disparity alone does not establish motive"),
     "/faq: missing neutral interpretation limit",
@@ -400,6 +428,12 @@ async function assertSitemapXml() {
   for (const childPath of expectedChildren) {
     const { response, text } = await fetchText(childPath, { redirect: "follow" });
     ok(response.ok, `${childPath}: expected 200, got ${response.status}`);
+    const sourceError = validateSitemapSource(
+      childPath,
+      response.headers.get("x-sitemap-source"),
+      REQUIRE_FRESH_SITEMAPS,
+    );
+    ok(!sourceError, sourceError);
     ok(text.includes("<urlset"), `${childPath}: expected a URL set`);
     ok(Buffer.byteLength(text, "utf8") < 50_000_000, `${childPath}: exceeds 50 MB sitemap limit`);
 
@@ -688,6 +722,9 @@ async function assertLegacyDetailRedirect(path) {
 async function run() {
   console.log(`SEO smoke checks against ${BASE_URL}`);
   console.log(`Expected canonical origin: ${EXPECTED_CANONICAL_ORIGIN}`);
+  console.log(
+    `Production policies: fresh sitemaps=${REQUIRE_FRESH_SITEMAPS ? "required" : "optional"}, dataset age=${MAX_DATA_AGE_HOURS > 0 ? `${MAX_DATA_AGE_HOURS}h max` : "not enforced"}`,
+  );
 
   if (SITEMAP_ONLY) {
     const sitemapLocs = await assertSitemapXml();

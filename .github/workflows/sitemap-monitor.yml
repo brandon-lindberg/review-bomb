@@ -1,18 +1,23 @@
-name: Production Sitemap Monitor
+name: Production SEO and GEO Monitor
 
 on:
   schedule:
-    - cron: "15 2 * * *"
+    # Run after both review-data pipeline windows, including its 3-hour timeout.
+    - cron: "15 4,16 * * *"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: production-seo-monitor
+  cancel-in-progress: true
+
 jobs:
-  sitemap-integrity:
-    name: Validate production sitemap inventory
+  production-indexability:
+    name: Validate production indexability, evidence, and freshness
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,12 +27,26 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
         working-directory: frontend
-      - name: Check sitemap index, counts, lastmod, and canonical URLs
+      - name: Check fresh sitemap inventory
         run: npm run monitor:sitemaps
         working-directory: frontend
         env:
           SEO_BASE_URL: https://reviewdisparity.com
           SEO_EXPECTED_CANONICAL_ORIGIN: https://reviewdisparity.com
+          SITEMAP_MIN_GAMES: "3500"
+          SITEMAP_MIN_JOURNALISTS: "4000"
+          SITEMAP_MIN_OUTLETS: "600"
+          SEO_REQUIRE_FRESH_SITEMAPS: "1"
+      - name: Check indexability, rendered evidence, GEO, and data freshness
+        run: npm run test:seo
+        working-directory: frontend
+        env:
+          SEO_BASE_URL: https://reviewdisparity.com
+          SEO_EXPECTED_CANONICAL_ORIGIN: https://reviewdisparity.com
+          SEO_REQUIRE_DETAIL_PAGES: "1"
+          SEO_DETAIL_SAMPLES_PER_TYPE: "3"
+          SEO_REQUIRE_FRESH_SITEMAPS: "1"
+          SEO_MAX_DATA_AGE_HOURS: "24"
           SITEMAP_MIN_GAMES: "3500"
           SITEMAP_MIN_JOURNALISTS: "4000"
           SITEMAP_MIN_OUTLETS: "600"
