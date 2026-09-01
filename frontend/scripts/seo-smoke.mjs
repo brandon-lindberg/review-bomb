@@ -1,6 +1,7 @@
 import http from "node:http";
 
 import {
+  fetchWithRetry,
   parseJsonLdNodes,
   validateDatasetFreshness,
   validateSitemapSource,
@@ -114,10 +115,12 @@ function getTitle(html) {
 
 async function fetchText(path, init = {}) {
   const url = new URL(path, BASE_URL).toString();
-  const response = await fetch(url, {
-    redirect: "manual",
-    ...init,
-  });
+  const response = await fetchWithRetry(() =>
+    fetch(url, {
+      redirect: "manual",
+      ...init,
+    }),
+  );
   const text = await response.text();
   return { response, text, url };
 }
@@ -593,7 +596,9 @@ async function assertCanonicalRedirectsLive() {
   ];
 
   for (const c of cases) {
-    const response = await fetch(c.url, { redirect: "manual" });
+    const response = await fetchWithRetry(() =>
+      fetch(c.url, { redirect: "manual" }),
+    );
     ok(
       [301, 308].includes(response.status),
       `${c.label}: expected 301/308 redirect, got ${response.status}`,

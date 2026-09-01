@@ -74,3 +74,103 @@ test("entity request policy rejects malformed success payloads", async () => {
 
   assert.deepEqual(result, { kind: "unavailable" });
 });
+
+test("entity request policy retries a transient upstream failure before giving up", async () => {
+  const statuses = [503, 500];
+  let calls = 0;
+  const fetchImpl: typeof fetch = async () => {
+    calls += 1;
+    const status = statuses.shift();
+    if (status) return jsonResponse(status, { detail: "upstream busy" });
+    return jsonResponse(200, { public_id: "abc123", name: "Eurogamer" });
+  };
+
+  const result = await resolveEntityRequest({
+    apiUrl: API_URL,
+    entityType: "outlets",
+    entitySegment: "eurogamer--abc123",
+    fetchImpl,
+    delayImpl: async () => {},
+  });
+
+  assert.equal(calls, 3);
+  assert.deepEqual(result, {
+    kind: "found",
+    canonicalPath: "/outlets/eurogamer--abc123",
+  });
+});
+
+test("entity request policy retries a dropped connection", async () => {
+  let calls = 0;
+  const fetchImpl: typeof fetch = async () => {
+    calls += 1;
+    if (calls === 1) throw new TypeError("network failure");
+    return jsonResponse(200, { public_id: "abc123", name: "IGN" });
+  };
+
+  const result = await resolveEntityRequest({
+    apiUrl: API_URL,
+    entityType: "outlets",
+    entitySegment: "ign--abc123",
+    fetchImpl,
+    delayImpl: async () => {},
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.kind, "found");
+});
+
+test("entity request policy never retries a definitive 404", async () => {
+  let calls = 0;
+  const result = await resolveEntityRequest({
+    apiUrl: API_URL,
+    entityType: "games",
+    entitySegment: "missing--abc123",
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse(404, { detail: "Not found" });
+    },
+    delayImpl: async () => {},
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { kind: "not_found" });
+});
+
+test("entity request policy gives up after the attempt budget", async () => {
+  let calls = 0;
+  const result = await resolveEntityRequest({
+    apiUrl: API_URL,
+    entityType: "journalists",
+    entitySegment: "abc123",
+    fetchImpl: async () => {
+      calls += 1;
+      return jsonResponse(503, { detail: "upstream busy" });
+    },
+    attempts: 2,
+    delayImpl: async () => {},
+  });
+
+  assert.equal(calls, 2);
+  assert.deepEqual(result, { kind: "unavailable" });
+});
+
+test("entity request policy stops retrying once the caller's budget is spent", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const result = await resolveEntityRequest({
+    apiUrl: API_URL,
+    entityType: "outlets",
+    entitySegment: "abc123",
+    fetchImpl: async () => {
+      calls += 1;
+      controller.abort();
+      return jsonResponse(503, { detail: "upstream busy" });
+    },
+    signal: controller.signal,
+    delayImpl: async () => {},
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { kind: "unavailable" });
+});

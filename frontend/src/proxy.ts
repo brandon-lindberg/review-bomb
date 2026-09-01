@@ -91,11 +91,14 @@ export async function proxy(request: NextRequest) {
     return passThroughWithVary();
   }
 
+  // Overall budget across the policy's retries. A single 5s shot used to turn
+  // one busy moment on the shared database into a 503 (and a de-indexed page),
+  // so the policy now retries inside this window instead.
   const resolution = await resolveEntityRequest({
     apiUrl: API_URL,
     entityType: entityType as EntityRouteType,
     entitySegment,
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(9_000),
   });
 
   if (resolution.kind === "not_found") {

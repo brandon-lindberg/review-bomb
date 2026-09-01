@@ -63,8 +63,8 @@ from app.services.sync_orchestrator import SyncOrchestrator, run_daily_sync, get
 
 _SIMILARITY_V3_CORPUS_BATCH_SIZE = 50
 _SIMILARITY_V3_PUBLISH_BATCH_SIZE = 25
-_SIMILARITY_V3_BATCH_RETRY_LIMIT = 5
-_SIMILARITY_V3_RETRYABLE_ERROR_MARKERS = (
+_TRANSIENT_DB_RETRY_LIMIT = 5
+_TRANSIENT_DB_ERROR_MARKERS = (
     "connection was closed in the middle of operation",
     "the database system is in recovery mode",
     "cannot connect now",
@@ -89,7 +89,7 @@ def _is_transient_database_error(exc: BaseException) -> bool:
         if getattr(exc, "connection_invalidated", False):
             return True
     lowered = str(exc).lower()
-    if any(marker in lowered for marker in _SIMILARITY_V3_RETRYABLE_ERROR_MARKERS):
+    if any(marker in lowered for marker in _TRANSIENT_DB_ERROR_MARKERS):
         return True
     for nested in (getattr(exc, "__cause__", None), getattr(exc, "__context__", None)):
         if nested is not None and nested is not exc and _is_transient_database_error(nested):
@@ -97,31 +97,32 @@ def _is_transient_database_error(exc: BaseException) -> bool:
     return False
 
 
-async def _retry_similarity_v3_batch(
-    label: str,
-    batch_number: int,
-    total_batches: int,
-    operation,
-):
+async def _retry_transient_db_operation(label: str, operation):
+    """Run `operation`, retrying only failures that look like a DB blip.
+
+    The scraper fleet shares this Postgres instance, so long write stages can
+    lose their connection mid-run through no fault of the query. Permanent
+    errors still raise on the first attempt.
+    """
     last_error: BaseException | None = None
-    for attempt in range(1, _SIMILARITY_V3_BATCH_RETRY_LIMIT + 1):
+    for attempt in range(1, _TRANSIENT_DB_RETRY_LIMIT + 1):
         try:
             return await operation()
         except Exception as exc:
             last_error = exc
-            if not _is_transient_database_error(exc) or attempt >= _SIMILARITY_V3_BATCH_RETRY_LIMIT:
+            if not _is_transient_database_error(exc) or attempt >= _TRANSIENT_DB_RETRY_LIMIT:
                 raise
             delay_seconds = min(30, 2 * attempt)
             print(
-                f"  {label} batch {batch_number}/{total_batches} hit transient DB failure "
-                f"(attempt {attempt}/{_SIMILARITY_V3_BATCH_RETRY_LIMIT}): {exc}"
+                f"  {label} hit transient DB failure "
+                f"(attempt {attempt}/{_TRANSIENT_DB_RETRY_LIMIT}): {exc}"
             )
             print(f"  Retrying after {delay_seconds}s...")
             await engine.dispose()
             await asyncio.sleep(delay_seconds)
     if last_error is not None:
         raise last_error
-    raise RuntimeError(f"{label} batch {batch_number}/{total_batches} failed without an exception")
+    raise RuntimeError(f"{label} failed without an exception")
 
 
 async def _load_similarity_v3_target_game_ids(
@@ -2611,10 +2612,8 @@ async def cmd_similarity_v3_corpus(args):
                 await db.commit()
                 return updated
 
-        updated = await _retry_similarity_v3_batch(
-            "Similarity V3 corpus",
-            batch_index,
-            total_batches,
+        updated = await _retry_transient_db_operation(
+            f"Similarity V3 corpus batch {batch_index}/{total_batches}",
             _process_batch,
         )
         processed += len(batch_ids)
@@ -2708,10 +2707,8 @@ async def cmd_similarity_v3_publish(args):
                 await db.commit()
                 return stats
 
-        stats = await _retry_similarity_v3_batch(
-            "Similarity V3 publish",
-            batch_index,
-            total_batches,
+        stats = await _retry_transient_db_operation(
+            f"Similarity V3 publish batch {batch_index}/{total_batches}",
             _process_batch,
         )
         processed += stats["processed"]
@@ -2915,38 +2912,63 @@ async def cmd_disparity(args):
         print(f"{'='*50}\n")
 
         start = time.time()
+        all_entities = not (args.journalists or args.outlets or args.games)
 
-        if args.journalists:
-            count = await calculator.generate_journalist_snapshots()
-            print(f"Created {count} journalist snapshots.")
+        # Each stage holds one long transaction against a Postgres the scraper
+        # fleet also writes to, so a dropped connection is expected rather than
+        # exceptional. Retry those; surface anything else as a non-zero exit so
+        # the workflow stops instead of reporting a half-finished refresh.
+        try:
+            if args.journalists:
+                count = await _retry_transient_db_operation(
+                    "Journalist disparity stage",
+                    calculator.generate_journalist_snapshots,
+                )
+                print(f"Created {count} journalist snapshots.")
 
-        if args.outlets:
-            count = await calculator.generate_outlet_snapshots()
-            print(f"Created {count} outlet snapshots.")
+            if args.outlets:
+                count = await _retry_transient_db_operation(
+                    "Outlet disparity stage",
+                    calculator.generate_outlet_snapshots,
+                )
+                print(f"Created {count} outlet snapshots.")
 
-        if args.games:
-            count = await calculator.generate_game_snapshots()
-            print(f"Created {count} game snapshots.")
+            if args.games:
+                count = await _retry_transient_db_operation(
+                    "Game disparity stage",
+                    calculator.generate_game_snapshots,
+                )
+                print(f"Created {count} game snapshots.")
 
-        if not (args.journalists or args.outlets or args.games):
-            results = await calculator.generate_all_snapshots()
-            print(f"\n{'='*50}")
-            print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
+            if all_entities:
+                results = await _retry_transient_db_operation(
+                    "Full disparity stage",
+                    calculator.generate_all_snapshots,
+                )
+                print(f"\n{'='*50}")
+                print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
 
-        # The review-data workflow finishes with the game disparity stage. Publish
-        # exact counts only after that final stage so readers see one consistent,
-        # current dataset without running full-table counts on every request.
-        if args.games or not (args.journalists or args.outlets or args.games):
-            site_stats = await refresh_site_stats_snapshot(db)
-            print(
-                "Published site stats: "
-                f"{site_stats.total_games:,} games, "
-                f"{site_stats.total_reviews:,} reviews"
-            )
+            # The review-data workflow finishes with the game disparity stage. Publish
+            # exact counts only after that final stage so readers see one consistent,
+            # current dataset without running full-table counts on every request.
+            if args.games or all_entities:
+                site_stats = await _retry_transient_db_operation(
+                    "Site stats publish",
+                    lambda: refresh_site_stats_snapshot(db),
+                )
+                print(
+                    "Published site stats: "
+                    f"{site_stats.total_games:,} games, "
+                    f"{site_stats.total_reviews:,} reviews"
+                )
+        except Exception as exc:
+            print(f"\nDisparity calculation failed: {exc}")
+            return 1
 
         elapsed = time.time() - start
         print(f"Completed in {elapsed:.1f}s")
         print(f"{'='*50}")
+        return 0
 
 
 async def cmd_refresh_images(args):

@@ -1,0 +1,93 @@
+"use strict";
+// Disparity color utility
+// Colors based on MAGNITUDE of disparity (how far from users), not direction
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.getDisparityLevel = getDisparityLevel;
+exports.getDisparityColor = getDisparityColor;
+exports.getDisparityBgColor = getDisparityBgColor;
+exports.getDisparityBorderColor = getDisparityBorderColor;
+exports.getDisparityLabel = getDisparityLabel;
+exports.formatDisparity = formatDisparity;
+exports.getDisplayDisparity = getDisplayDisparity;
+function getDisparityLevel(disparity) {
+    if (disparity == null)
+        return "aligned";
+    const magnitude = Math.abs(Number(disparity));
+    if (magnitude < 5)
+        return "aligned";
+    if (magnitude < 10)
+        return "moderate";
+    if (magnitude < 15)
+        return "high";
+    return "extreme";
+}
+// Get color based on disparity magnitude
+function getDisparityColor(disparity) {
+    const level = getDisparityLevel(disparity);
+    switch (level) {
+        case "aligned":
+            return "#708160"; // sage green - close to users
+        case "moderate":
+            return "#D4A017"; // golden yellow - some divergence
+        case "high":
+            return "#DD7631"; // orange - significant divergence
+        case "extreme":
+            return "#BB3B0E"; // rust red - major divergence
+    }
+}
+// Get background color (lighter version) based on disparity magnitude
+function getDisparityBgColor(disparity) {
+    const level = getDisparityLevel(disparity);
+    switch (level) {
+        case "aligned":
+            return "rgba(112, 129, 96, 0.15)"; // light sage
+        case "moderate":
+            return "rgba(212, 160, 23, 0.15)"; // light yellow
+        case "high":
+            return "rgba(221, 118, 49, 0.15)"; // light orange
+        case "extreme":
+            return "rgba(187, 59, 14, 0.15)"; // light rust
+    }
+}
+// Get border color based on disparity magnitude
+function getDisparityBorderColor(disparity) {
+    const level = getDisparityLevel(disparity);
+    switch (level) {
+        case "aligned":
+            return "rgba(112, 129, 96, 0.4)";
+        case "moderate":
+            return "rgba(212, 160, 23, 0.4)";
+        case "high":
+            return "rgba(221, 118, 49, 0.4)";
+        case "extreme":
+            return "rgba(187, 59, 14, 0.4)";
+    }
+}
+// Get a label describing the disparity level
+function getDisparityLabel(disparity) {
+    const level = getDisparityLevel(disparity);
+    switch (level) {
+        case "aligned":
+            return "Aligned with users";
+        case "moderate":
+            return "Moderate divergence";
+        case "high":
+            return "High divergence";
+        case "extreme":
+            return "Major divergence";
+    }
+}
+// Format disparity value with + sign for positive
+function formatDisparity(value) {
+    if (value == null)
+        return "N/A";
+    const num = Number(value);
+    return `${num > 0 ? "+" : ""}${num.toFixed(1)}`;
+}
+// Prefer combined disparity when both sources are available.
+function getDisplayDisparity(steamDisparity, metacriticDisparity) {
+    if (steamDisparity != null && metacriticDisparity != null) {
+        return (Number(steamDisparity) + Number(metacriticDisparity)) / 2;
+    }
+    return steamDisparity ?? metacriticDisparity ?? null;
+}

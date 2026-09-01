@@ -82,3 +82,40 @@ export function validateDatasetFreshness(
   }
   return null;
 }
+
+/**
+ * The monitor runs on a schedule that overlaps long-running scraper workers on
+ * the shared database, so a single slow moment used to fail the whole run. A
+ * server-side failure is worth a second look; a 3xx/4xx is a real answer.
+ */
+const RETRY_BACKOFF_MS = [250, 1000];
+
+export function isTransientStatus(status) {
+  return typeof status === "number" && status >= 500;
+}
+
+function defaultDelay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function fetchWithRetry(
+  perform,
+  { attempts = 3, delayImpl = defaultDelay } = {},
+) {
+  const budget = Math.max(1, attempts);
+  let lastError;
+
+  for (let attempt = 0; attempt < budget; attempt += 1) {
+    const isLast = attempt === budget - 1;
+    try {
+      const response = await perform();
+      if (!isTransientStatus(response?.status) || isLast) return response;
+    } catch (error) {
+      lastError = error;
+      if (isLast) throw error;
+    }
+    await delayImpl(RETRY_BACKOFF_MS[attempt] ?? RETRY_BACKOFF_MS.at(-1) ?? 0);
+  }
+
+  throw lastError ?? new Error("fetchWithRetry exhausted its attempts");
+}

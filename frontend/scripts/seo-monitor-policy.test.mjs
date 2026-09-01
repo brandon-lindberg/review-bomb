@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  fetchWithRetry,
+  isTransientStatus,
   parseJsonLdNodes,
   validateDatasetFreshness,
   validateSitemapSource,
@@ -113,4 +115,83 @@ test("dataset freshness rejects missing, invalid, stale, and future data", () =>
 
 test("dataset freshness policy can be disabled", () => {
   assert.equal(validateDatasetFreshness([], 0), null);
+});
+
+test("transient status policy retries only server-side failures", () => {
+  assert.equal(isTransientStatus(503), true);
+  assert.equal(isTransientStatus(500), true);
+  assert.equal(isTransientStatus(502), true);
+  assert.equal(isTransientStatus(200), false);
+  assert.equal(isTransientStatus(308), false);
+  assert.equal(isTransientStatus(404), false);
+});
+
+test("fetchWithRetry retries a 503 and returns the eventual success", async () => {
+  const statuses = [503, 200];
+  let calls = 0;
+  const response = await fetchWithRetry(
+    async () => {
+      calls += 1;
+      return { status: statuses.shift() };
+    },
+    { delayImpl: async () => {} },
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(response.status, 200);
+});
+
+test("fetchWithRetry retries a thrown network error", async () => {
+  let calls = 0;
+  const response = await fetchWithRetry(
+    async () => {
+      calls += 1;
+      if (calls < 3) throw new TypeError("network failure");
+      return { status: 200 };
+    },
+    { delayImpl: async () => {} },
+  );
+
+  assert.equal(calls, 3);
+  assert.equal(response.status, 200);
+});
+
+test("fetchWithRetry does not retry a definitive response", async () => {
+  let calls = 0;
+  const response = await fetchWithRetry(
+    async () => {
+      calls += 1;
+      return { status: 404 };
+    },
+    { delayImpl: async () => {} },
+  );
+
+  assert.equal(calls, 1);
+  assert.equal(response.status, 404);
+});
+
+test("fetchWithRetry surfaces the last failure once the budget is spent", async () => {
+  let calls = 0;
+  const response = await fetchWithRetry(
+    async () => {
+      calls += 1;
+      return { status: 503 };
+    },
+    { attempts: 2, delayImpl: async () => {} },
+  );
+
+  assert.equal(calls, 2);
+  assert.equal(response.status, 503);
+});
+
+test("fetchWithRetry rethrows when every attempt throws", async () => {
+  await assert.rejects(
+    fetchWithRetry(
+      async () => {
+        throw new TypeError("network failure");
+      },
+      { attempts: 2, delayImpl: async () => {} },
+    ),
+    /network failure/,
+  );
 });

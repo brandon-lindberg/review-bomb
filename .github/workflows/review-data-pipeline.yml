@@ -29,14 +29,34 @@ jobs:
           cache: 'pip'
       - run: pip install -r requirements.txt
       - run: python -m playwright install --with-deps chromium
-      - name: Run review data pipeline
-        timeout-minutes: 180
-        run: |
-          python -u -m app sync --stale-pages 0
-          python -m app match --days 10 --limit 300
-          python -u -m app metacritic --recent 10 --limit 300
-          python -u -m app disparity --journalists --outlets
-          python -u -m app disparity --games
+
+      # Each stage below is its own step with its own budget. Chaining them in a
+      # single `run:` block meant a failure reported nothing but "exit code 1",
+      # and a stage that overran starved every stage after it.
+      - name: Migrate database schema
+        timeout-minutes: 10
+        run: alembic upgrade head
+
+      - name: Sync OpenCritic catalog
+        timeout-minutes: 90
+        run: python -u -m app sync
+
+      - name: Match games to Steam and Metacritic
+        timeout-minutes: 30
+        run: python -u -m app match --days 10 --limit 300
+
+      - name: Sync Metacritic scores
+        timeout-minutes: 60
+        run: python -u -m app metacritic --recent 10 --limit 300
+
+      - name: Refresh journalist and outlet disparity
+        timeout-minutes: 45
+        run: python -u -m app disparity --journalists --outlets
+
+      - name: Refresh game disparity and publish site stats
+        timeout-minutes: 45
+        run: python -u -m app disparity --games
+
       - name: Revalidate public discovery surfaces
         shell: bash
         run: |

@@ -2,8 +2,12 @@ name: Production SEO and GEO Monitor
 
 on:
   schedule:
-    # Run after both review-data pipeline windows, including its 3-hour timeout.
-    - cron: "15 4,16 * * *"
+    # Runs after both review-data pipeline windows have exhausted their step
+    # budgets (00:30 and 12:30 + ~4h40m), so the dataset it validates is
+    # already published. Minute 43 deliberately avoids the player-count-scraper
+    # worker minutes (*/5, 5/20/35/50, 12/27/42/57), which all write to the
+    # same database and made the site least available exactly on the old :15.
+    - cron: "43 6,18 * * *"
   workflow_dispatch:
 
 permissions:
