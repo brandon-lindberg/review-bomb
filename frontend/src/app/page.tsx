@@ -16,6 +16,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 const siteUrl = getSiteUrl();
 const LIVE_FETCH_OPTIONS = { cache: "no-store" as const };
 const LIVE_REFRESH_MIN_INTERVAL_MS = 15_000;
+// Backstop for the in-flight guard below. Requests carry their own abort
+// timeout (see BROWSER_FETCH_TIMEOUT_MS in lib/api), so this only matters if a
+// promise never settles at all — a service-worker handler that neither
+// resolves nor rejects, say. Must stay above the fetch timeout.
+const LIVE_REQUEST_STALE_MS = 30_000;
 
 function loadLiveStats() {
   return getStats(LIVE_FETCH_OPTIONS);
@@ -55,10 +60,16 @@ function useLiveResource<T>(
   const mountedRef = useRef(false);
   const inFlightRef = useRef(false);
   const lastStartedAtRef = useRef(0);
+  // Identifies the newest attempt. A superseded request that settles late must
+  // not overwrite fresher data or release the in-flight guard the live one holds.
+  const attemptRef = useRef(0);
 
   const refresh = useCallback(async (force = false) => {
     const now = Date.now();
-    if (inFlightRef.current) return;
+    // A request that never settles must not wedge the panel forever: this guard
+    // used to run ahead of `force`, so once it stuck, "Try again" did nothing.
+    const inFlightIsStale = now - lastStartedAtRef.current >= LIVE_REQUEST_STALE_MS;
+    if (inFlightRef.current && !inFlightIsStale) return;
     if (
       !force
       && now - lastStartedAtRef.current < LIVE_REFRESH_MIN_INTERVAL_MS
@@ -66,22 +77,26 @@ function useLiveResource<T>(
       return;
     }
 
+    const attempt = attemptRef.current + 1;
+    attemptRef.current = attempt;
     inFlightRef.current = true;
     lastStartedAtRef.current = now;
     setLoading(true);
 
     try {
       const nextData = await load();
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || attemptRef.current !== attempt) return;
       setData(nextData);
       setError(false);
     } catch {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || attemptRef.current !== attempt) return;
       setError(true);
     } finally {
-      inFlightRef.current = false;
-      if (mountedRef.current) {
-        setLoading(false);
+      if (attemptRef.current === attempt) {
+        inFlightRef.current = false;
+        if (mountedRef.current) {
+          setLoading(false);
+        }
       }
     }
   }, [load]);

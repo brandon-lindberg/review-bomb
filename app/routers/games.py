@@ -560,6 +560,53 @@ async def _load_steam_activity_previews(
     return previews
 
 
+# The row count and the rows themselves have very different freshness needs.
+# `total`/`total_pages` only drive the pagination controls and move when the
+# pipeline adds a game; the items must stay live. Counting is also the expensive
+# half — see `_count_games_matching` — so it gets its own, longer-lived entry.
+GAMES_LIST_COUNT_TTL = CACHE_TTL_MEDIUM
+
+
+async def _count_games_matching(
+    db: AsyncSession,
+    *,
+    filters: list,
+    year: Optional[int],
+    search: Optional[str],
+) -> int:
+    """Count games matching the list filters, cached independently of the page.
+
+    This used to be a `count(*) OVER ()` riding along on the list query. A
+    window function has to buffer and fully sort every matching row before
+    LIMIT can apply, so returning 5 games cost the same as returning all 15k:
+    measured at 1.8-8.6s cold against production while the other three home
+    page panels answered in 0.4s. Without it the planner can use a top-N
+    heapsort and stop at `per_page` rows.
+
+    The count depends only on the filters, never on page or sort order, so one
+    cache entry serves every page and both sort directions.
+    """
+    key_hash = cache_key("games:list:count:v1", year=year, search=search)
+    cache_name = f"games:list:count:{key_hash}"
+
+    cached = await get_cached(cache_name)
+    if cached is not None:
+        try:
+            return int(cached)
+        except (TypeError, ValueError):
+            pass
+
+    count_query = select(func.count()).select_from(Game).where(*filters)
+    if year:
+        count_query = count_query.where(extract("year", Game.release_date) == year)
+    if search:
+        count_query = count_query.where(Game.title.ilike(f"%{search}%"))
+
+    total = (await db.execute(count_query)).scalar() or 0
+    await set_cached(cache_name, str(total), GAMES_LIST_COUNT_TTL)
+    return total
+
+
 @router.get("", response_model=PaginatedResponse[GameWithScores])
 async def list_games(
     page: int = Query(1, ge=1, le=10000),
@@ -601,10 +648,7 @@ async def list_games(
         ),
     ]
 
-    query = select(
-        Game,
-        func.count().over().label("total_count"),
-    ).where(*filters)
+    query = select(Game).where(*filters)
 
     # Filter by year if provided
     if year:
@@ -697,17 +741,8 @@ async def list_games(
     query = query.offset((page - 1) * per_page).limit(per_page)
 
     result = await db.execute(query)
-    rows = result.all()
-    games = [row[0] for row in rows]
-    total = rows[0].total_count if rows else 0
-
-    if not rows and page > 1:
-        count_query = select(func.count()).select_from(Game).where(*filters)
-        if year:
-            count_query = count_query.where(extract("year", Game.release_date) == year)
-        if search:
-            count_query = count_query.where(Game.title.ilike(f"%{search}%"))
-        total = (await db.execute(count_query)).scalar() or 0
+    games = list(result.scalars().all())
+    total = await _count_games_matching(db, filters=filters, year=year, search=search)
 
     latest_review_lookup: dict[int, ReviewWithJournalist] = {}
     steam_activity_preview_lookup: dict[int, list[int]] = {}

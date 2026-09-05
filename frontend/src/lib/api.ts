@@ -49,6 +49,13 @@ function getServerRevalidateSeconds(endpoint: string): number {
 // restart, 2026-07-11). Fail the individual render fast instead.
 const SERVER_FETCH_TIMEOUT_MS = 10_000;
 
+// Browser fetches had no timeout at all. A request that never settled left the
+// live home-page panels stuck behind their in-flight guard with an inert "Try
+// again" button, which is what made a slow backend look like a broken section.
+// More headroom than the server budget: a phone on a bad connection is not the
+// same failure as a render pile-up.
+const BROWSER_FETCH_TIMEOUT_MS = 20_000;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly endpoint: string;
@@ -78,8 +85,10 @@ async function fetchAPI<T>(endpoint: string, options?: NextFetchOptions): Promis
     },
   };
 
-  if (isServer && requestOptions.signal == null) {
-    requestOptions.signal = AbortSignal.timeout(SERVER_FETCH_TIMEOUT_MS);
+  if (requestOptions.signal == null) {
+    requestOptions.signal = AbortSignal.timeout(
+      isServer ? SERVER_FETCH_TIMEOUT_MS : BROWSER_FETCH_TIMEOUT_MS,
+    );
   }
 
   if (isServer && !hasExplicitRevalidate && !hasExplicitCache) {
