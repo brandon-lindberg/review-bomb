@@ -21,9 +21,25 @@ settings = get_settings()
 # TODO: Revert to 10 requests/second after premium plan expires
 rate_limiter = AsyncLimiter(100, 1)
 
+CONNECT_TIMEOUT_SECONDS = 10.0
+READ_TIMEOUT_SECONDS = 30.0
+
+# Backoff between attempts after a network-level failure (DNS, connect, read),
+# indexed by attempt number. Longer than the HTTP-status backoff below it: a
+# hosted runner can lose name resolution for tens of seconds, and the previous
+# 2s/3s pair gave up after five seconds of trouble.
+NETWORK_RETRY_BACKOFF_SECONDS = (5, 10, 20)
+
 
 class OpenCriticAuthError(RuntimeError):
     """Raised when OpenCritic API credentials are missing or invalid."""
+
+
+def _network_retry_backoff(attempt: int) -> int:
+    """Seconds to wait before retrying attempt ``attempt`` (0-indexed)."""
+    if attempt < len(NETWORK_RETRY_BACKOFF_SECONDS):
+        return NETWORK_RETRY_BACKOFF_SECONDS[attempt]
+    return NETWORK_RETRY_BACKOFF_SECONDS[-1]
 
 
 class OpenCriticService:
@@ -66,6 +82,44 @@ class OpenCriticService:
             "X-RapidAPI-Key": api_key,
             "X-RapidAPI-Host": settings.opencritic_api_host,
         }
+        self._client: Optional[httpx.AsyncClient] = None
+
+    async def __aenter__(self) -> "OpenCriticService":
+        await self._get_client()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        """Close underlying HTTP client."""
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+        self._client = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Lazily create and reuse a single AsyncClient.
+
+        A sync run makes thousands of calls (the ID reconcile window alone is
+        2,500), and this used to build a fresh client per attempt per request —
+        a new DNS lookup, TCP connect and TLS handshake every time. Every other
+        HTTP service here already pools (see steam.py, player_scraper.py).
+
+        The connect timeout is deliberately much shorter than the read timeout:
+        a runner that has lost name resolution should fail over to the retry
+        backoff quickly rather than sitting on the full budget three times.
+        """
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=CONNECT_TIMEOUT_SECONDS,
+                    read=READ_TIMEOUT_SECONDS,
+                    write=READ_TIMEOUT_SECONDS,
+                    pool=READ_TIMEOUT_SECONDS,
+                ),
+                headers=self.headers,
+            )
+        return self._client
 
     async def _request(
         self,
@@ -79,52 +133,61 @@ class OpenCriticService:
         retryable_status_codes = {429, 500, 502, 503, 504}
         quiet_status_codes = quiet_status_codes or set()
         
+        client = await self._get_client()
+
         for attempt in range(max_retries):
             async with rate_limiter:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    try:
-                        response = await client.request(
-                            method,
-                            f"{self.BASE_URL}{endpoint}",
-                            headers=self.headers,
-                            params=params,
+                try:
+                    response = await client.request(
+                        method,
+                        f"{self.BASE_URL}{endpoint}",
+                        params=params,
+                    )
+                    response.raise_for_status()
+
+                    # Handle empty responses
+                    if not response.content:
+                        print(f"Empty response from {endpoint}")
+                        return None
+
+                    return response.json()
+                except httpx.HTTPStatusError as e:
+                    status_code = e.response.status_code
+                    if status_code in {401, 403}:
+                        raise OpenCriticAuthError(
+                            f"OpenCritic API authentication failed ({status_code}). "
+                            "Check RAPIDAPI_KEY and RapidAPI subscription status."
+                        ) from e
+                    if status_code in retryable_status_codes and attempt < max_retries - 1:
+                        wait_time = (2 ** attempt) + 1  # 2, 3, 5 seconds
+                        print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    if status_code not in quiet_status_codes:
+                        print(f"HTTP error {status_code}: {e.response.text[:200]}")
+                    return None
+                except httpx.RequestError as e:
+                    # Some httpx network errors carry an empty message (a bare
+                    # ConnectError, say), which produced log lines that ended at
+                    # the colon and said nothing. Always name the type.
+                    detail = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+                    if attempt < max_retries - 1:
+                        wait_time = _network_retry_backoff(attempt)
+                        print(
+                            f"Request error on {endpoint}, retrying in {wait_time}s "
+                            f"(attempt {attempt + 1}/{max_retries}): {detail}"
                         )
-                        response.raise_for_status()
+                        await asyncio.sleep(wait_time)
+                        continue
+                    print(
+                        f"Request error on {endpoint} after {max_retries} attempts: {detail}"
+                    )
+                    return None
+                except ValueError as e:
+                    # JSON decode error - don't retry
+                    print(f"JSON decode error for {endpoint}: {e}")
+                    return None
 
-                        # Handle empty responses
-                        if not response.content:
-                            print(f"Empty response from {endpoint}")
-                            return None
-
-                        return response.json()
-                    except httpx.HTTPStatusError as e:
-                        status_code = e.response.status_code
-                        if status_code in {401, 403}:
-                            raise OpenCriticAuthError(
-                                f"OpenCritic API authentication failed ({status_code}). "
-                                "Check RAPIDAPI_KEY and RapidAPI subscription status."
-                            ) from e
-                        if status_code in retryable_status_codes and attempt < max_retries - 1:
-                            wait_time = (2 ** attempt) + 1  # 2, 3, 5 seconds
-                            print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        if status_code not in quiet_status_codes:
-                            print(f"HTTP error {status_code}: {e.response.text[:200]}")
-                        return None
-                    except httpx.RequestError as e:
-                        if attempt < max_retries - 1:
-                            wait_time = (2 ** attempt) + 1
-                            print(f"Request error, retrying in {wait_time}s: {e}")
-                            await asyncio.sleep(wait_time)
-                            continue
-                        print(f"Request error after {max_retries} attempts: {e}")
-                        return None
-                    except ValueError as e:
-                        # JSON decode error - don't retry
-                        print(f"JSON decode error for {endpoint}: {e}")
-                        return None
-        
         return None
 
     # =========================================================================

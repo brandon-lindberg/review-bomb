@@ -1085,6 +1085,10 @@ class SyncOrchestrator:
             sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
             raise
+        finally:
+            # The service now pools one connection across the whole run instead
+            # of building a client per request, so it has to be closed.
+            await self.service.aclose()
 
         return stats
 
@@ -1340,6 +1344,8 @@ class SyncOrchestrator:
             sync_log.completed_at = datetime.now(timezone.utc)
             await self.db.commit()
             raise
+        finally:
+            await self.service.aclose()
 
         return stats
 
