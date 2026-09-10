@@ -97,12 +97,20 @@ def _is_transient_database_error(exc: BaseException) -> bool:
     return False
 
 
-async def _retry_transient_db_operation(label: str, operation):
+async def _retry_transient_db_operation(label: str, operation, *, session=None):
     """Run `operation`, retrying only failures that look like a DB blip.
 
     The scraper fleet shares this Postgres instance, so long write stages can
     lose their connection mid-run through no fault of the query. Permanent
     errors still raise on the first attempt.
+
+    Pass `session` when the operation reuses a session created outside this
+    helper. A failed flush leaves that session in a pending-rollback state, so
+    every later attempt dies on `PendingRollbackError` before reaching the
+    database — and because that error quotes the original one, it still matches
+    the transient markers and burns the whole retry budget for nothing. Callers
+    that open their own session per attempt (the similarity-v3 batches) already
+    recover on their own and can leave this unset.
     """
     last_error: BaseException | None = None
     for attempt in range(1, _TRANSIENT_DB_RETRY_LIMIT + 1):
@@ -118,6 +126,13 @@ async def _retry_transient_db_operation(label: str, operation):
                 f"(attempt {attempt}/{_TRANSIENT_DB_RETRY_LIMIT}): {exc}"
             )
             print(f"  Retrying after {delay_seconds}s...")
+            if session is not None:
+                # Before disposing the pool, while the session still has its
+                # connection. Cleanup must never mask the failure that got us here.
+                try:
+                    await session.rollback()
+                except Exception as rollback_error:
+                    print(f"  Rollback before retry failed: {rollback_error}")
             await engine.dispose()
             await asyncio.sleep(delay_seconds)
     if last_error is not None:
@@ -2923,6 +2938,7 @@ async def cmd_disparity(args):
                 count = await _retry_transient_db_operation(
                     "Journalist disparity stage",
                     calculator.generate_journalist_snapshots,
+                    session=db,
                 )
                 print(f"Created {count} journalist snapshots.")
 
@@ -2930,6 +2946,7 @@ async def cmd_disparity(args):
                 count = await _retry_transient_db_operation(
                     "Outlet disparity stage",
                     calculator.generate_outlet_snapshots,
+                    session=db,
                 )
                 print(f"Created {count} outlet snapshots.")
 
@@ -2937,6 +2954,7 @@ async def cmd_disparity(args):
                 count = await _retry_transient_db_operation(
                     "Game disparity stage",
                     calculator.generate_game_snapshots,
+                    session=db,
                 )
                 print(f"Created {count} game snapshots.")
 
@@ -2944,6 +2962,7 @@ async def cmd_disparity(args):
                 results = await _retry_transient_db_operation(
                     "Full disparity stage",
                     calculator.generate_all_snapshots,
+                    session=db,
                 )
                 print(f"\n{'='*50}")
                 print(f"Created snapshots: {results['journalists']} journalists, {results['outlets']} outlets, {results['games']} games")
@@ -2955,6 +2974,7 @@ async def cmd_disparity(args):
                 site_stats = await _retry_transient_db_operation(
                     "Site stats publish",
                     lambda: refresh_site_stats_snapshot(db),
+                    session=db,
                 )
                 print(
                     "Published site stats: "
