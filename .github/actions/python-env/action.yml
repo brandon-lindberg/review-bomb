@@ -15,7 +15,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.11'
         cache: 'pip'
@@ -27,4 +27,40 @@ runs:
     - name: Install Playwright browser
       if: inputs.playwright == 'true'
       shell: bash
-      run: python -m playwright install --with-deps chromium
+      run: |
+        set -euo pipefail
+
+        # `--with-deps` shells out to `apt-get update`, and apt exits 100 when
+        # ANY configured repository is unhealthy — including ones nothing here
+        # uses. On 2026-09-09 Google's Chrome repo served a Packages.gz that did
+        # not match its own InRelease (its CDN had the 09:41 index behind the
+        # 17:16 release file), apt reported "Hash Sum mismatch" and exited 100,
+        # and Playwright aborted 24 seconds into the Metacritic stage.
+        #
+        # Playwright takes its system libraries from the Ubuntu archives and
+        # downloads its own Chromium build over HTTPS, so the third-party repos
+        # baked into the runner image contribute nothing to this job. Drop them
+        # rather than let their uptime decide whether the pipeline runs.
+        for source in /etc/apt/sources.list.d/*; do
+          [ -f "$source" ] || continue
+          if grep -Eq 'dl\.google\.com|packages\.microsoft\.com' "$source"; then
+            echo "Disabling apt source unused by Playwright: $source"
+            sudo rm -f "$source"
+          fi
+        done
+
+        # The browser download itself can still flake, and an index can go stale
+        # on the Ubuntu mirrors too. Neither is worth losing the stage over.
+        for attempt in 1 2 3; do
+          if python -m playwright install --with-deps chromium; then
+            exit 0
+          fi
+          if [ "$attempt" -lt 3 ]; then
+            delay=$((attempt * 30))
+            echo "::warning::Playwright install failed (attempt ${attempt}/3); retrying in ${delay}s"
+            sleep "$delay"
+          fi
+        done
+
+        echo "::error::Playwright browser install failed after 3 attempts"
+        exit 1
