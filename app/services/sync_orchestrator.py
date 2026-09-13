@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
-from sqlalchemy import select, func, and_, or_, update
+from sqlalchemy import select, func, and_, or_, case, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -62,6 +62,7 @@ class SyncOrchestrator:
     # their catalog position. Keep this wide enough to catch those backfills.
     RECENT_ID_RECON_WINDOW = 2500  # Reconcile /game/{id} for recent IDs missing from /game list
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
+    MATCH_STEAM_RETRY_DAYS = 7  # Retry window-only Steam misses (mostly console exclusives) weekly
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
     AUTO_REVIEW_REFRESH_LIMIT = None  # Refresh all games in the rolling window
     AUTO_REVIEW_REFRESH_MIN_HOURS = 6  # Skip games refreshed very recently
@@ -1460,25 +1461,22 @@ class SyncOrchestrator:
 
         return stats
 
-    async def match_games_to_steam(
+    def _build_match_query(
         self,
-        limit: Optional[int] = None,
-        days: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        days: Optional[int],
+        limit: Optional[int],
+        now: datetime,
+    ):
         """
-        Match games in database to Steam app IDs and Metacritic slugs.
+        Select games missing a Steam ID or Metacritic slug for the match stage.
 
-        Args:
-            limit: Optional limit on number of games to process
-            days: Optional release-date filter (only games in last N days)
-
-        Returns:
-            Stats about matching results
+        With a day window, games that just became matchable (released or added
+        recently, or pre-release with reviews) go first. Games that qualify only
+        through the recent OpenCritic ID window are mostly console exclusives
+        that will never be on Steam, so they are retried weekly and go last:
+        re-searching them every run used to fill the whole batch and push
+        launching games past the limit.
         """
-        from app.services.game_matcher import GameMatcher
-
-        matcher = GameMatcher()
-
         # Match games that are missing either platform identifier.
         query = select(Game).where(
             or_(
@@ -1487,8 +1485,9 @@ class SyncOrchestrator:
             )
         )
         mode = "missing Steam ID or Metacritic slug"
-        if days is not None:
-            now = datetime.now(timezone.utc)
+        if days is None:
+            query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+        else:
             today = now.date()
             cutoff_date = (now - timedelta(days=days)).date()
             created_cutoff_date = (now - timedelta(days=self.MATCH_NEW_GAME_GRACE_DAYS)).date()
@@ -1516,33 +1515,61 @@ class SyncOrchestrator:
                 or_(Game.release_date.is_(None), Game.release_date > today),
                 Game.id.in_(published_review_game_ids),
             )
+            newly_matchable_condition = or_(
+                and_(
+                    Game.release_date.isnot(None),
+                    Game.release_date >= cutoff_date,
+                ),
+                Game.created_at >= created_cutoff_dt,
+                release_date_reconcile_condition,
+            )
+            steam_retry_cutoff = now - timedelta(days=self.MATCH_STEAM_RETRY_DAYS)
+            steam_retry_due_condition = or_(
+                Game.steam_match_last_attempted_at.is_(None),
+                Game.steam_match_last_attempted_at < steam_retry_cutoff,
+            )
             query = query.where(
                 or_(
-                    and_(
-                        Game.release_date.isnot(None),
-                        Game.release_date >= cutoff_date,
-                    ),
-                    Game.created_at >= created_cutoff_dt,
-                    recent_opencritic_condition,
-                    release_date_reconcile_condition,
+                    newly_matchable_condition,
+                    and_(recent_opencritic_condition, steam_retry_due_condition),
                 )
-            )
-            mode = (
-                f"released in last {days} days, or added in last "
-                f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or in recent OpenCritic ID window, "
-                "or release-date reconciliation needed with missing platform IDs"
-            )
-        if days is not None:
-            query = query.order_by(
+            ).order_by(
+                case((newly_matchable_condition, 0), else_=1),
                 Game.created_at.desc().nulls_last(),
                 Game.release_date.desc().nulls_last(),
                 Game.id.desc(),
             )
-        else:
-            query = query.order_by(Game.release_date.desc().nulls_last(), Game.id.desc())
+            mode = (
+                f"released in last {days} days, or added in last "
+                f"{self.MATCH_NEW_GAME_GRACE_DAYS} days, or release-date reconciliation "
+                "needed, or in recent OpenCritic ID window (retried every "
+                f"{self.MATCH_STEAM_RETRY_DAYS} days) with missing platform IDs"
+            )
         if limit:
             query = query.limit(limit)
+        return query, mode
 
+    async def match_games_to_steam(
+        self,
+        limit: Optional[int] = None,
+        days: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Match games in database to Steam app IDs and Metacritic slugs.
+
+        Args:
+            limit: Optional limit on number of games to process
+            days: Optional release-date filter (only games in last N days)
+
+        Returns:
+            Stats about matching results
+        """
+        from app.services.game_matcher import GameMatcher, STEAM_SEARCH_FAILED
+
+        matcher = GameMatcher()
+        now = datetime.now(timezone.utc)
+
+        query, mode = self._build_match_query(days=days, limit=limit, now=now)
         result = await self.db.execute(query)
         games = result.scalars().all()
 
@@ -1567,6 +1594,10 @@ class SyncOrchestrator:
                     release_date=game.release_date,
                     opencritic_id=game.opencritic_id,
                 )
+                # Steam answered, match or not: the weekly retry clock starts.
+                # A search Steam never answered leaves it due next run.
+                if match_result.get("steam_match_reason") != STEAM_SEARCH_FAILED:
+                    game.steam_match_last_attempted_at = now
 
                 if match_result["steam_app_id"]:
                     if game.steam_app_id != match_result["steam_app_id"]:

@@ -10,7 +10,7 @@ class DummySteamService:
         self._results = results
         self._app_details = app_details or {}
 
-    async def search_games(self, query):
+    async def search_games_or_none(self, query):
         return self._results.get(query, [])
 
     async def get_app_details(self, app_id):

@@ -440,6 +440,16 @@ class SteamService:
         Returns:
             List of matching games with basic info
         """
+        return await self.search_games_or_none(query) or []
+
+    async def search_games_or_none(self, query: str) -> Optional[list[Dict[str, Any]]]:
+        """
+        Search Steam, returning None when the request failed.
+
+        `search_games` folds a failed request into an empty list. Callers that
+        act on "Steam has no such game" need to tell that apart from "Steam did
+        not answer".
+        """
         # Steam store search (unofficial, may break)
         data = await self._request(
             "https://store.steampowered.com/api/storesearch",
@@ -450,6 +460,8 @@ class SteamService:
             },
         )
 
+        if data is None:
+            return None
         if not data:
             return []
 

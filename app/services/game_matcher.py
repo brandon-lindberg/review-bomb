@@ -14,6 +14,10 @@ from app.services.steam import SteamService
 from app.services.metacritic import MetacriticService
 
 
+# Steam match reason for a search that never got an answer from Steam.
+STEAM_SEARCH_FAILED = "steam_search_failed"
+
+
 class GameMatcher:
     """Service for matching games across different platforms."""
 
@@ -273,11 +277,20 @@ class GameMatcher:
 
         # Search Steam with fallbacks for known store-search quirks.
         search_results: List[Dict[str, Any]] = []
+        search_failed = False
         for query in self.build_search_queries(title):
-            search_results = await self.steam_service.search_games(query)
+            results = await self.steam_service.search_games_or_none(query)
+            if results is None:
+                search_failed = True
+                continue
+            search_results = results
             if search_results:
                 break
         if not search_results:
+            # A failed request is not evidence the game is missing from Steam;
+            # the caller must not treat it as a real miss.
+            if search_failed:
+                return None, STEAM_SEARCH_FAILED
             return None, "no_search_results"
 
         comparison_titles = self.build_similarity_titles(title)

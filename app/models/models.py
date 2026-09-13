@@ -316,6 +316,15 @@ class Game(Base):
     image_url: Mapped[Optional[str]] = mapped_column(String(512))
     last_review_sync_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     metacritic_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # When the match stage last searched Steam for this game. Deferred so that
+    # loading a Game never selects it: the web service can deploy this model
+    # before the pipeline's migrate step adds the column, and only the match
+    # stage (which runs after that step) ever reads it. ORM inserts still name
+    # the column, but games are only inserted by CLI commands, never the API.
+    steam_match_last_attempted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        deferred=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
