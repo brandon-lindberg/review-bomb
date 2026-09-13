@@ -1,0 +1,92 @@
+name: Refresh Specific Games
+
+# Pull named games up to date without waiting for, or re-running, the whole
+# review pipeline. Built for big releases: on 2026-09-13 Marvel's Wolverine had
+# been reviewed for three days while the scheduled pipeline never selected it.
+on:
+  workflow_dispatch:
+    inputs:
+      opencritic_ids:
+        description: 'OpenCritic IDs, space- or comma-separated (e.g. 17842)'
+        required: true
+        type: string
+      metacritic_title:
+        description: 'Optional: also re-scrape Metacritic for titles containing this text'
+        required: false
+        type: string
+        default: ''
+
+# Runs of this workflow queue behind each other. It does not share the review
+# pipeline's group: that would park a one-game refresh behind a two-hour run,
+# and every write here is an idempotent per-game upsert.
+concurrency:
+  group: refresh-games
+  cancel-in-progress: false
+
+env:
+  DATABASE_URL: ${{ secrets.DATABASE_URL }}
+  REDIS_URL: ${{ secrets.REDIS_URL }}
+  RAPIDAPI_KEY: ${{ secrets.RAPIDAPI_KEY }}
+  ENVIRONMENT: production
+  FRONTEND_REVALIDATE_URL: ${{ secrets.FRONTEND_REVALIDATE_URL }}
+  FRONTEND_REVALIDATE_SECRET: ${{ secrets.FRONTEND_REVALIDATE_SECRET }}
+
+jobs:
+  refresh:
+    name: Refresh games
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/python-env
+        with:
+          playwright: ${{ inputs.metacritic_title != '' && 'true' || 'false' }}
+
+      - name: Migrate database schema
+        timeout-minutes: 10
+        run: alembic upgrade head
+
+      - name: Refresh OpenCritic metadata and reviews
+        timeout-minutes: 20
+        # Inputs arrive through env, never interpolated into the script, so a
+        # crafted value cannot run as shell.
+        env:
+          OPENCRITIC_IDS: ${{ inputs.opencritic_ids }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          for id in ${OPENCRITIC_IDS//,/ }; do
+            if [[ ! "$id" =~ ^[0-9]+$ ]]; then
+              echo "::error::Not an OpenCritic ID: $id"
+              exit 1
+            fi
+            args+=(--opencritic-id "$id")
+          done
+          if [[ ${#args[@]} -eq 0 ]]; then
+            echo "::error::No OpenCritic IDs given"
+            exit 1
+          fi
+          python -u -m app refresh-reviews "${args[@]}"
+
+      - name: Refresh Metacritic scores
+        if: ${{ inputs.metacritic_title != '' }}
+        timeout-minutes: 20
+        env:
+          METACRITIC_TITLE: ${{ inputs.metacritic_title }}
+        run: python -u -m app metacritic --title "$METACRITIC_TITLE" --stale-days 0
+
+      # Game pages revalidate every 60s on their own. A game that just gained
+      # its first reviews also becomes eligible for the listings, which do not.
+      - name: Revalidate listings
+        shell: bash
+        run: |
+          if [[ -z "$FRONTEND_REVALIDATE_URL" || -z "$FRONTEND_REVALIDATE_SECRET" ]]; then
+            echo "::warning::Frontend revalidation is not configured; skipping cache refresh."
+            exit 0
+          fi
+
+          curl --fail-with-body --silent --show-error --retry 2 \
+            --request POST "$FRONTEND_REVALIDATE_URL" \
+            --header "Authorization: Bearer $FRONTEND_REVALIDATE_SECRET" \
+            --header "Content-Type: application/json" \
+            --data '{"paths":["/","/games"],"reason":"refresh_games"}'

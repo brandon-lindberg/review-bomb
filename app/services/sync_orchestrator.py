@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
 from typing import Optional, Dict, Any, List, Set
 
-from sqlalchemy import select, func, and_, or_, case, update
+from sqlalchemy import select, func, and_, or_, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -65,6 +65,9 @@ class SyncOrchestrator:
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
     AUTO_REVIEW_REFRESH_LIMIT = None  # Refresh all games in the rolling window
     AUTO_REVIEW_REFRESH_MIN_HOURS = 6  # Skip games refreshed very recently
+    # Critic reviews published within this many days of a claimed future launch
+    # are treated as embargo coverage, not proof the game is already out.
+    PRE_RELEASE_REVIEW_WINDOW_DAYS = 60
 
     # State keys for persistence
     STATE_SYNCED_GAMES = "synced_opencritic_game_ids"
@@ -91,6 +94,7 @@ class SyncOrchestrator:
         existing_release_date: Optional[date],
         candidate_release_date: Optional[date],
         today: Optional[date] = None,
+        has_release_evidence: bool = True,
     ) -> bool:
         """
         Decide whether an incoming release date should replace the existing one.
@@ -98,6 +102,12 @@ class SyncOrchestrator:
         Guardrail: once a game has a known released date (<= today), do not allow
         OpenCritic to overwrite it with a future date, which can happen when the
         upstream API temporarily serves placeholder/fallback dates.
+
+        The guardrail only holds when the game shows evidence of having shipped.
+        A past date on a game with no user reviews and no established critic
+        coverage is itself the placeholder: Marvel's Wolverine was ingested with
+        OpenCritic's 2024-10-01 stand-in, and this rule then rejected its real
+        2026-09-15 date on every sync from its February announcement onward.
         """
         if candidate_release_date is None:
             return False
@@ -110,7 +120,7 @@ class SyncOrchestrator:
             today = datetime.now(timezone.utc).date()
 
         if existing_release_date <= today and candidate_release_date > today:
-            return False
+            return not has_release_evidence
 
         # For already-released dates, do not drift backward in time from
         # upstream placeholder/regression noise.
@@ -122,6 +132,80 @@ class SyncOrchestrator:
             return False
 
         return True
+
+    @staticmethod
+    def _no_release_evidence_condition():
+        """SQL condition for games with no sign of having shipped at all."""
+        scored_review_exists = (
+            select(Review.id)
+            .where(
+                Review.game_id == Game.id,
+                Review.score_normalized.isnot(None),
+            )
+            .exists()
+        )
+        return and_(
+            func.coalesce(Game.steam_sample_size, 0) == 0,
+            Game.metacritic_user_score.is_(None),
+            ~scored_review_exists,
+        )
+
+    async def _has_release_evidence(
+        self,
+        game: Any,
+        candidate_release_date: date,
+    ) -> bool:
+        """
+        Whether a game shows signs of having already shipped.
+
+        User reviews only open at launch on both Steam and Metacritic, so either
+        one is conclusive. Critic reviews are not: embargoes lift days before
+        launch, so only coverage published well ahead of the claimed date counts.
+        """
+        if (game.steam_sample_size or 0) > 0:
+            return True
+        if game.metacritic_user_score is not None:
+            return True
+
+        established_coverage_cutoff = datetime.combine(
+            candidate_release_date - timedelta(days=self.PRE_RELEASE_REVIEW_WINDOW_DAYS),
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        result = await self.db.execute(
+            select(Review.id)
+            .where(
+                Review.game_id == game.id,
+                Review.score_normalized.isnot(None),
+                Review.published_at < established_coverage_cutoff,
+            )
+            .limit(1)
+        )
+        return result.first() is not None
+
+    async def _should_apply_release_date(
+        self,
+        game: Any,
+        candidate_release_date: Optional[date],
+        today: date,
+    ) -> bool:
+        """Apply the release-date guard, looking up release evidence only when it decides."""
+        existing_release_date = game.release_date
+        has_release_evidence = True
+        if (
+            existing_release_date is not None
+            and candidate_release_date is not None
+            and existing_release_date <= today < candidate_release_date
+        ):
+            has_release_evidence = await self._has_release_evidence(
+                game, candidate_release_date
+            )
+        return self._should_replace_release_date(
+            existing_release_date,
+            candidate_release_date,
+            today=today,
+            has_release_evidence=has_release_evidence,
+        )
 
     @staticmethod
     def _opencritic_game_rejection_reason(game_data: Dict[str, Any]) -> Optional[str]:
@@ -401,34 +485,39 @@ class SyncOrchestrator:
         transformed = OpenCriticService.transform_game(game_data)
         stmt = insert(Game).values(public_id=generate_public_id(), **transformed)
         today = datetime.now(timezone.utc).date()
-        incoming_release_date = stmt.excluded.release_date
-        preserve_existing_released_date = and_(
-            Game.release_date.isnot(None),
-            Game.release_date <= today,
-            incoming_release_date.isnot(None),
-            incoming_release_date > today,
+
+        # Decide the conflict-path release date with the same guard every other
+        # sync path uses. Columns only: loading the Game entity here would put a
+        # pre-upsert copy in the identity map for the lookup below.
+        existing_result = await self.db.execute(
+            select(
+                Game.id,
+                Game.release_date,
+                Game.steam_sample_size,
+                Game.metacritic_user_score,
+            ).where(Game.opencritic_id == transformed["opencritic_id"])
         )
-        preserve_existing_backward_past_shift = and_(
-            Game.release_date.isnot(None),
-            Game.release_date <= today,
-            incoming_release_date.isnot(None),
-            incoming_release_date <= today,
-            incoming_release_date < Game.release_date,
+        existing = existing_result.first()
+        keep_existing_release_date = existing is not None and not (
+            await self._should_apply_release_date(
+                existing,
+                transformed["release_date"],
+                today,
+            )
         )
+
         stmt = stmt.on_conflict_do_update(
             index_elements=["opencritic_id"],
             set_={
                 "title": stmt.excluded.title,
                 "description": stmt.excluded.description,
                 "opencritic_description": stmt.excluded.opencritic_description,
-                # Keep existing date when OpenCritic omits it temporarily,
-                # and prevent future placeholder dates from replacing known released dates.
-                "release_date": case(
-                    (or_(preserve_existing_released_date, preserve_existing_backward_past_shift), Game.release_date),
-                    else_=func.coalesce(
-                        incoming_release_date,
-                        Game.release_date,
-                    ),
+                # Keep existing date when OpenCritic omits it temporarily, and
+                # when the guard rejects the incoming one.
+                "release_date": (
+                    Game.release_date
+                    if keep_existing_release_date
+                    else stmt.excluded.release_date
                 ),
                 "top_critic_score": stmt.excluded.top_critic_score,
                 "percent_recommended": stmt.excluded.percent_recommended,
@@ -675,6 +764,11 @@ class SyncOrchestrator:
         Some titles are discovered pre-release (or with missing release date),
         then later get metadata corrections. Refresh them explicitly so release
         dates are corrected as titles ship.
+
+        Past-dated games with no sign of having shipped are rechecked too. A
+        placeholder date that has already passed otherwise drops the game out of
+        every sync path: the tail scan skips known IDs and the review refresh
+        only looks at recent release dates.
         """
         stats = {
             "games_checked": 0,
@@ -693,6 +787,7 @@ class SyncOrchestrator:
                 or_(
                     Game.release_date.is_(None),
                     Game.release_date > today,
+                    self._no_release_evidence_condition(),
                 ),
             )
             .order_by(
@@ -707,7 +802,7 @@ class SyncOrchestrator:
 
         print(
             f"Refreshing {len(candidates)} games with unknown/future "
-            "release dates..."
+            "release dates or no release evidence..."
         )
 
         for game in candidates:
@@ -747,10 +842,10 @@ class SyncOrchestrator:
                     mark_game_similarity_v3_dirty(game, "source_text_opencritic")
 
                 new_release_date = transformed.get("release_date")
-                if self._should_replace_release_date(
-                    game.release_date,
+                if await self._should_apply_release_date(
+                    game,
                     new_release_date,
-                    today=today,
+                    today,
                 ):
                     game.release_date = new_release_date
                     metadata_updated = True
@@ -1058,7 +1153,7 @@ class SyncOrchestrator:
                 f"{stats['id_reconcile_discovered']}"
             )
             print(
-                "  Unknown/future-date games rechecked: "
+                "  Unknown/future-date or unshipped games rechecked: "
                 f"{stats['unreleased_games_rechecked']}"
             )
             print(f"  Release dates updated: {stats['release_dates_updated']}")
@@ -1129,9 +1224,12 @@ class SyncOrchestrator:
         days: int,
         all_games: bool,
         min_hours_since_last_sync: Optional[int] = None,
+        opencritic_ids: Optional[List[int]] = None,
     ):
         """Build query for selecting games whose reviews should be refreshed."""
-        if all_games:
+        if opencritic_ids:
+            query = select(Game).where(Game.opencritic_id.in_(opencritic_ids))
+        elif all_games:
             query = select(Game).where(Game.opencritic_id.isnot(None))
         else:
             now = datetime.now(timezone.utc)
@@ -1178,12 +1276,14 @@ class SyncOrchestrator:
         limit: Optional[int],
         all_games: bool,
         min_hours_since_last_sync: Optional[int] = None,
+        opencritic_ids: Optional[List[int]] = None,
     ) -> List[Game]:
         """Fetch candidate games for review refresh."""
         query = self._build_recent_review_refresh_query(
             days=days,
             all_games=all_games,
             min_hours_since_last_sync=min_hours_since_last_sync,
+            opencritic_ids=opencritic_ids,
         )
         if limit:
             query = query.limit(limit)
@@ -1239,10 +1339,10 @@ class SyncOrchestrator:
                     if apply_opencritic_description(game, transformed.get("description")):
                         refresh_game_taxonomy_v2_text(game)
                         mark_game_similarity_v3_dirty(game, "source_text_opencritic")
-                    if self._should_replace_release_date(
-                        game.release_date,
+                    if await self._should_apply_release_date(
+                        game,
                         transformed.get("release_date"),
-                        today=today,
+                        today,
                     ):
                         game.release_date = transformed["release_date"]
                     game.top_critic_score = transformed.get("top_critic_score")
@@ -1286,6 +1386,7 @@ class SyncOrchestrator:
         limit: Optional[int] = None,
         all_games: bool = False,
         min_hours_since_last_sync: Optional[int] = None,
+        opencritic_ids: Optional[List[int]] = None,
     ) -> Dict[str, Any]:
         """
         Re-fetch reviews for recently released games to pick up new reviews.
@@ -1297,13 +1398,16 @@ class SyncOrchestrator:
             min_hours_since_last_sync: Optional freshness gate. If provided,
                 only refresh games whose `last_review_sync_at` is older than
                 this many hours (or NULL).
+            opencritic_ids: Refresh exactly these games, ignoring the release
+                window. For pulling a specific title up to date on demand.
 
         Returns stats about what was refreshed.
         """
         print(
             "Starting review refresh "
             f"(days={days}, all={all_games}, "
-            f"min_hours_since_last_sync={min_hours_since_last_sync})"
+            f"min_hours_since_last_sync={min_hours_since_last_sync}, "
+            f"opencritic_ids={opencritic_ids})"
         )
 
         sync_log = SyncLog(
@@ -1321,9 +1425,16 @@ class SyncOrchestrator:
                 limit=limit,
                 all_games=all_games,
                 min_hours_since_last_sync=min_hours_since_last_sync,
+                opencritic_ids=opencritic_ids,
             )
 
             print(f"Found {len(games)} games to refresh")
+            if opencritic_ids:
+                missing_ids = sorted(
+                    set(opencritic_ids) - {game.opencritic_id for game in games}
+                )
+                if missing_ids:
+                    print(f"No catalog game for OpenCritic IDs: {missing_ids}")
             stats = await self._refresh_games_reviews(games)
 
             # Update sync log

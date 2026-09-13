@@ -20,6 +20,8 @@ Usage:
     python -m app metacritic --recent  Sync only games released in last 90 days
     python -m app disparity         Calculate disparity snapshots
     python -m app refresh-reviews   Re-fetch reviews for recent games (last 90 days)
+    python -m app refresh-reviews --opencritic-id 17842
+                                    Refresh one game's metadata and reviews now
     python -m app clear             Clear all data from database
     python -m app backfill          Backfill denormalized Game columns from UserScore/Review data
     python -m app recompute-scores  Recompute review score_normalized values from score_raw/score_scale
@@ -3064,8 +3066,11 @@ async def cmd_refresh_reviews(args):
         orchestrator = SyncOrchestrator(db)
 
         days = args.days
+        opencritic_ids = args.opencritic_id or None
         print(f"\n{'='*50}")
-        if args.all:
+        if opencritic_ids:
+            print(f"Refreshing reviews for OpenCritic IDs: {opencritic_ids}")
+        elif args.all:
             print("Refreshing reviews for ALL games")
         else:
             print(f"Refreshing reviews for games released in last {days} days")
@@ -3080,7 +3085,16 @@ async def cmd_refresh_reviews(args):
                 limit=args.limit,
                 all_games=args.all,
                 min_hours_since_last_sync=args.min_hours_since_last_sync,
+                opencritic_ids=opencritic_ids,
             )
+            # A targeted refresh is someone asking for specific games, so a game
+            # that was missing or errored has to fail the command, not just log.
+            if opencritic_ids and stats["games_refreshed"] < len(set(opencritic_ids)):
+                print(
+                    f"\nRefreshed {stats['games_refreshed']} of "
+                    f"{len(set(opencritic_ids))} requested games"
+                )
+                return 1
             print(f"\n{'='*50}")
             print("Review refresh completed successfully!")
             print(f"{'='*50}")
@@ -3842,6 +3856,12 @@ def main():
     refresh_parser.add_argument("--days", type=int, default=90, help="Refresh games released within N days (default: 90)")
     refresh_parser.add_argument("--limit", type=int, help="Limit number of games to process")
     refresh_parser.add_argument("--all", action="store_true", help="Refresh ALL games (full re-sync of reviews)")
+    refresh_parser.add_argument(
+        "--opencritic-id",
+        type=int,
+        action="append",
+        help="Refresh only this game, regardless of release date (repeatable)",
+    )
     refresh_parser.add_argument(
         "--min-hours-since-last-sync",
         type=int,
