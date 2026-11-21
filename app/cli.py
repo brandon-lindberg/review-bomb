@@ -274,6 +274,15 @@ async def cmd_sync(args):
     async with async_session_maker() as db:
         orchestrator = SyncOrchestrator(db)
 
+        if args.catalog_gaps:
+            stats = await orchestrator.audit_catalog_gaps()
+            print(
+                f"OpenCritic catalog audit checked {stats['ids_checked']} IDs, "
+                f"imported {stats['games_synced']} games and {stats['reviews_synced']} reviews, "
+                f"and quarantined {stats['malformed']} malformed results."
+            )
+            return 0
+
         if args.status:
             status = await orchestrator.get_sync_status()
             print("\n=== Sync Status ===")
@@ -1142,6 +1151,9 @@ async def cmd_metacritic(args):
         result = await db.execute(query)
         games = result.scalars().all()
         print(f"Found {len(games)} games {mode} Metacritic sync")
+        if args.title and not games:
+            print("No matching catalog games with Metacritic slugs.")
+            return 1
 
         if args.limit:
             print(f"Processing up to {args.limit} games")
@@ -1167,6 +1179,12 @@ async def cmd_metacritic(args):
 
                     if not score_data:
                         print(f"  No data returned from Metacritic")
+                        failed += 1
+                        continue
+                    if args.title and score_data.get("metascore") is None and score_data.get("user_score") is None:
+                        print("  Metacritic has no scores for this game yet")
+                        failed += 1
+                        continue
 
                     if score_data:
                         await sync_game_source_taxonomy(
@@ -1319,6 +1337,7 @@ async def cmd_metacritic(args):
 
         await db.commit()
         print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")
+        return 1 if args.title and failed else 0
 
 
 async def cmd_taxonomy_backfill(args):
@@ -3743,9 +3762,15 @@ def main():
 
     # Sync command
     sync_parser = subparsers.add_parser("sync", help="OpenCritic sync operations")
-    sync_parser.add_argument("--status", action="store_true", help="Show sync status")
-    sync_parser.add_argument("--reset", action="store_true", help="Reset sync state")
-    sync_parser.add_argument("--full-scan", action="store_true", help="Force full OpenCritic catalog sweep (slower)")
+    sync_mode = sync_parser.add_mutually_exclusive_group()
+    sync_mode.add_argument("--status", action="store_true", help="Show sync status")
+    sync_mode.add_argument("--reset", action="store_true", help="Reset sync state")
+    sync_mode.add_argument("--full-scan", action="store_true", help="Force full OpenCritic catalog sweep (slower)")
+    sync_mode.add_argument(
+        "--catalog-gaps",
+        action="store_true",
+        help="Audit every gap in known OpenCritic IDs and import valid missing games",
+    )
     sync_parser.add_argument("--stale-pages", type=int, default=5, help="Incremental mode: stop after N consecutive pages with no new games (default: 5, use 0 to disable)")
     sync_parser.add_argument(
         "--no-auto-review-refresh",
@@ -3860,7 +3885,7 @@ def main():
         "--opencritic-id",
         type=int,
         action="append",
-        help="Refresh only this game, regardless of release date (repeatable)",
+        help="Import or refresh this game, regardless of release date (repeatable)",
     )
     refresh_parser.add_argument(
         "--min-hours-since-last-sync",

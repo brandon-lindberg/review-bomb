@@ -11,8 +11,10 @@ import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.cli
 from app.services.sync_orchestrator import SyncOrchestrator
@@ -119,3 +121,61 @@ def test_window_refresh_is_unchanged_without_opencritic_ids(monkeypatch):
     assert code == 0
     assert calls[0]["opencritic_ids"] is None
     assert calls[0]["days"] == 14
+
+
+@pytest.mark.asyncio
+async def test_release_feeds_find_missing_old_ids_and_deduplicate():
+    game = {"id": 15398, "name": "Grand Theft Auto VI"}
+    already_stored = {"id": 21711, "name": "Pikmin 4"}
+    db = AsyncMock()
+    db.scalars.return_value = [21711]
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = db
+    orchestrator.service = AsyncMock()
+    orchestrator._request_count = 0
+    orchestrator.service.get_release_feed.side_effect = [
+        [game, already_stored], [game], []
+    ]
+    orchestrator.service.get_game.return_value = game
+    orchestrator._import_opencritic_game = AsyncMock(return_value=75)
+
+    assert await orchestrator._discover_release_games() == {
+        "games_synced": 1, "reviews_synced": 75,
+    }
+    orchestrator.service.get_game.assert_awaited_once_with(
+        15398, quiet_missing=True, strict=True
+    )
+    orchestrator._import_opencritic_game.assert_awaited_once_with(game)
+
+
+@pytest.mark.asyncio
+async def test_targeted_refresh_imports_missing_game():
+    game = {"id": 15398, "name": "Grand Theft Auto VI"}
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = AsyncMock(spec=AsyncSession)
+    orchestrator.service = AsyncMock()
+    orchestrator._get_recent_review_refresh_games = AsyncMock(return_value=[])
+    orchestrator._get_discovery_game = AsyncMock(return_value=game)
+    orchestrator._import_opencritic_game = AsyncMock(return_value=75)
+
+    result = await orchestrator.refresh_recent_reviews(opencritic_ids=[15398])
+
+    assert result["games_refreshed"] == 1
+    assert result["reviews_synced"] == 75
+    orchestrator._import_opencritic_game.assert_awaited_once_with(game)
+
+
+@pytest.mark.asyncio
+async def test_catalog_gap_audit_distinguishes_missing_and_importable_ids():
+    game = {"id": 3, "name": "Missing game"}
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = AsyncMock(spec=AsyncSession)
+    orchestrator.db.scalars.return_value = [1, 4]
+    orchestrator.service = AsyncMock()
+    orchestrator._get_discovery_game = AsyncMock(side_effect=[None, game])
+    orchestrator._import_opencritic_game = AsyncMock(return_value=0)
+
+    assert await orchestrator.audit_catalog_gaps() == {
+        "ids_checked": 2, "games_synced": 1, "reviews_synced": 0, "malformed": 0,
+    }
+    orchestrator._import_opencritic_game.assert_awaited_once_with(game)

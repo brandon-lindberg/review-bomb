@@ -391,8 +391,9 @@ class GameMatcher:
 
         return None, f"below_threshold (best={best_score:.2f}, candidate=\"{best_match_title}\" app_id={best_match})"
 
+    @classmethod
     def find_metacritic_slug(
-        self,
+        cls,
         title: str,
         opencritic_id: Optional[int] = None,
     ) -> str:
@@ -407,8 +408,8 @@ class GameMatcher:
             Metacritic slug
         """
         # Check manual overrides first
-        if opencritic_id and opencritic_id in self.MANUAL_OVERRIDES:
-            override = self.MANUAL_OVERRIDES[opencritic_id]
+        if opencritic_id and opencritic_id in cls.MANUAL_OVERRIDES:
+            override = cls.MANUAL_OVERRIDES[opencritic_id]
             if "metacritic_slug" in override:
                 return override["metacritic_slug"]
 

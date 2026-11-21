@@ -128,6 +128,7 @@ class OpenCriticService:
         params: Optional[Dict[str, Any]] = None,
         max_retries: int = 3,
         quiet_status_codes: Optional[Set[int]] = None,
+        strict: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Make a rate-limited request to the OpenCritic API with retry logic."""
         retryable_status_codes = {429, 500, 502, 503, 504}
@@ -147,6 +148,8 @@ class OpenCriticService:
 
                     # Handle empty responses
                     if not response.content:
+                        if strict:
+                            raise RuntimeError(f"Empty OpenCritic response from {endpoint}")
                         print(f"Empty response from {endpoint}")
                         return None
 
@@ -164,6 +167,8 @@ class OpenCriticService:
                         await asyncio.sleep(wait_time)
                         continue
                     if status_code not in quiet_status_codes:
+                        if strict:
+                            raise RuntimeError(f"OpenCritic returned HTTP {status_code} for {endpoint}") from e
                         print(f"HTTP error {status_code}: {e.response.text[:200]}")
                     return None
                 except httpx.RequestError as e:
@@ -182,9 +187,13 @@ class OpenCriticService:
                     print(
                         f"Request error on {endpoint} after {max_retries} attempts: {detail}"
                     )
+                    if strict:
+                        raise RuntimeError(f"OpenCritic request failed for {endpoint}: {detail}") from e
                     return None
                 except ValueError as e:
                     # JSON decode error - don't retry
+                    if strict:
+                        raise RuntimeError(f"Invalid OpenCritic JSON for {endpoint}") from e
                     print(f"JSON decode error for {endpoint}: {e}")
                     return None
 
@@ -293,13 +302,23 @@ class OpenCriticService:
         self,
         game_id: int,
         quiet_missing: bool = False,
+        *,
+        strict: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Fetch a single game by ID with full details."""
         return await self._request(
             "GET",
             f"/game/{game_id}",
             quiet_status_codes={400, 404} if quiet_missing else None,
+            **({"strict": True} if strict else {}),
         )
+
+    async def get_release_feed(self, feed: str) -> List[Dict[str, Any]]:
+        """Fetch a release or popularity feed independently of catalog order."""
+        data = await self._request("GET", f"/game/{feed}", strict=True)
+        if not isinstance(data, list):
+            raise RuntimeError(f"Invalid OpenCritic {feed} feed")
+        return data
 
     async def search_games(self, query: str) -> List[Dict[str, Any]]:
         """Search for games by title."""
@@ -344,6 +363,8 @@ class OpenCriticService:
         self,
         game_id: int,
         batch_size: int = 20,
+        *,
+        strict: bool = False,
     ) -> List[Dict[str, Any]]:
         """Fetch all reviews for a specific game (paginated)."""
         all_reviews: List[Dict[str, Any]] = []
@@ -354,7 +375,10 @@ class OpenCriticService:
                 "GET",
                 f"/reviews/game/{game_id}",
                 params={"skip": skip, "limit": batch_size},
+                **({"strict": True} if strict else {}),
             )
+            if strict and not isinstance(data, list):
+                raise RuntimeError(f"Invalid OpenCritic reviews for game {game_id}")
             reviews = data if isinstance(data, list) else []
             if not reviews:
                 break

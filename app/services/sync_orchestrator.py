@@ -61,6 +61,8 @@ class SyncOrchestrator:
     # review metadata after our incremental tail scan has already moved past
     # their catalog position. Keep this wide enough to catch those backfills.
     RECENT_ID_RECON_WINDOW = 2500  # Reconcile /game/{id} for recent IDs missing from /game list
+    DISCOVERY_FEEDS = ("recently-released", "popular", "upcoming")
+    CATALOG_GAP_BATCH_SIZE = 12
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
     MATCH_STEAM_RETRY_DAYS = 7  # Retry window-only Steam misses (mostly console exclusives) weekly
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
@@ -544,7 +546,9 @@ class SyncOrchestrator:
             return game.id
         return None
 
-    async def _sync_game_reviews(self, opencritic_game_id: int, internal_game_id: int) -> int:
+    async def _sync_game_reviews(
+        self, opencritic_game_id: int, internal_game_id: int, *, strict: bool = False
+    ) -> int:
         """
         Fetch and sync all reviews for a game.
 
@@ -552,7 +556,9 @@ class SyncOrchestrator:
 
         Returns number of reviews synced.
         """
-        reviews = await self.service.get_game_reviews(opencritic_game_id)
+        reviews = await self.service.get_game_reviews(
+            opencritic_game_id, **({"strict": True} if strict else {})
+        )
         self._request_count += 1
 
         synced_count = 0
@@ -632,6 +638,8 @@ class SyncOrchestrator:
                     print(f"Warning: Skipping future date {pub_at} for review {transformed.get('opencritic_review_id')}")
 
             except Exception as e:
+                if strict:
+                    raise
                 print(f"Error processing review: {e}")
                 continue
 
@@ -646,7 +654,8 @@ class SyncOrchestrator:
             if o_obj and (o_obj.last_review_at is None or latest > o_obj.last_review_at):
                 o_obj.last_review_at = latest
 
-        await self.db.commit()
+        if not strict:
+            await self.db.commit()
         return synced_count
 
     async def _update_game_critic_aggregates(self, internal_game_id: int) -> None:
@@ -677,6 +686,92 @@ class SyncOrchestrator:
         else:
             game_obj.avg_critic_score = None
             game_obj.critic_review_count = 0
+
+    async def _import_opencritic_game(self, game_data: Dict[str, Any]) -> Optional[int]:
+        """Ingest a game, its source identifiers, and reviews in one transaction."""
+        internal_id = await self._upsert_game(game_data)
+        if internal_id is None:
+            await self.db.commit()  # Persist the malformed payload for diagnosis.
+            return None
+
+        opencritic_id = game_data["id"]
+        game = await self.db.get(Game, internal_id)
+        if not game.metacritic_slug:
+            game.metacritic_slug = GameMatcher.find_metacritic_slug(game.title, opencritic_id)
+            mark_game_similarity_v3_dirty(game, "source_identifier_metacritic")
+        reviews = await self._sync_game_reviews(opencritic_id, internal_id, strict=True)
+        await self._update_game_critic_aggregates(internal_id)
+        game.last_review_sync_at = datetime.now(timezone.utc)
+        await self.db.commit()
+        print(f"Imported {game.title} (OC ID: {opencritic_id}, {reviews} scored reviews)")
+        return reviews
+
+    async def _get_discovery_game(self, opencritic_id: int) -> Optional[Dict[str, Any]]:
+        self._request_count += 1
+        game_data = await self.service.get_game(opencritic_id, quiet_missing=True, strict=True)
+        if game_data is not None and (
+            not isinstance(game_data, dict) or game_data.get("id") != opencritic_id
+        ):
+            raise RuntimeError(f"OpenCritic returned the wrong game for ID {opencritic_id}")
+        return game_data
+
+    async def _discover_release_games(self) -> Dict[str, int]:
+        """Find releases even when their OpenCritic ID is years old."""
+        candidate_ids = set()
+        for feed in self.DISCOVERY_FEEDS:
+            self._request_count += 1
+            rows = await self.service.get_release_feed(feed)
+            candidate_ids.update(game["id"] for game in rows if self._is_valid_opencritic_game_data(game))
+        candidate_ids.difference_update(self.GAME_MERGES)
+        present = await self.db.scalars(
+            select(Game.opencritic_id).where(Game.opencritic_id.in_(candidate_ids))
+        )
+        missing_ids = candidate_ids.difference(present)
+        print(f"OpenCritic discovery feeds: {len(candidate_ids)} titles, {len(missing_ids)} missing")
+        stats = {"games_synced": 0, "reviews_synced": 0}
+        for opencritic_id in sorted(missing_ids):
+            data = await self._get_discovery_game(opencritic_id)
+            if data is None:
+                raise RuntimeError(f"OpenCritic discovery feed game {opencritic_id} has no details")
+            reviews = await self._import_opencritic_game(data)
+            if reviews is not None:
+                stats["games_synced"] += 1
+                stats["reviews_synced"] += reviews
+        return stats
+
+    async def audit_catalog_gaps(self) -> Dict[str, int]:
+        """Check every untracked ID up to the highest known OpenCritic ID."""
+        try:
+            known_ids = set(await self.db.scalars(
+                select(Game.opencritic_id).where(Game.opencritic_id > 0)
+            ))
+            if not known_ids:
+                raise RuntimeError("Seed the OpenCritic catalog before checking for ID gaps")
+            highest_id = max(known_ids)
+            missing_ids = sorted(set(range(1, highest_id + 1)) - known_ids - self.GAME_MERGES.keys())
+            print(f"Auditing {len(missing_ids)} untracked OpenCritic IDs between 1 and {highest_id}")
+            stats = {"ids_checked": 0, "games_synced": 0, "reviews_synced": 0, "malformed": 0}
+            for start in range(0, len(missing_ids), self.CATALOG_GAP_BATCH_SIZE):
+                batch = missing_ids[start:start + self.CATALOG_GAP_BATCH_SIZE]
+                results = await asyncio.gather(
+                    *(self._get_discovery_game(opencritic_id) for opencritic_id in batch),
+                    return_exceptions=True,
+                )
+                for data in results:
+                    if isinstance(data, BaseException):
+                        raise data
+                    stats["ids_checked"] += 1
+                    if data is None:
+                        continue
+                    reviews = await self._import_opencritic_game(data)
+                    if reviews is None:
+                        stats["malformed"] += 1
+                    else:
+                        stats["games_synced"] += 1
+                        stats["reviews_synced"] += reviews
+            return stats
+        finally:
+            await self.service.aclose()
 
     async def _reconcile_recent_id_window(self, synced_ids: Set[int]) -> Dict[str, int]:
         """
@@ -932,6 +1027,7 @@ class SyncOrchestrator:
             "games_synced": 0,
             "reviews_synced": 0,
             "id_reconcile_discovered": 0,
+            "release_feed_discovered": 0,
             "release_dates_updated": 0,
             "unreleased_games_rechecked": 0,
             "recent_reviews_refreshed_games": 0,
@@ -951,6 +1047,11 @@ class SyncOrchestrator:
             outlets_count_before = outlets_before.scalar() or 0
 
             synced_ids = await self._get_synced_game_ids()
+            if continuous:
+                discovery = await self._discover_release_games()
+                stats["release_feed_discovered"] = discovery["games_synced"]
+                stats["games_synced"] += discovery["games_synced"]
+                stats["reviews_synced"] += discovery["reviews_synced"]
             games_queue = await self._get_games_queue()
             all_games_fetched = False
             last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
@@ -1149,6 +1250,7 @@ class SyncOrchestrator:
             print(f"\nSync complete:")
             print(f"  Games synced: {stats['games_synced']}")
             print(f"  Reviews synced: {stats['reviews_synced']}")
+            print(f"  Games imported from release feeds: {stats['release_feed_discovered']}")
             print(
                 "  Out-of-list games discovered via ID reconciliation: "
                 f"{stats['id_reconcile_discovered']}"
@@ -1430,16 +1532,28 @@ class SyncOrchestrator:
             )
 
             print(f"Found {len(games)} games to refresh")
+            stats = await self._refresh_games_reviews(games)
             if opencritic_ids:
                 missing_ids = sorted(
-                    set(opencritic_ids) - {game.opencritic_id for game in games}
+                    set(opencritic_ids) - {game.opencritic_id for game in games} - self.GAME_MERGES.keys()
                 )
-                if missing_ids:
-                    print(f"No catalog game for OpenCritic IDs: {missing_ids}")
-            stats = await self._refresh_games_reviews(games)
+                for opencritic_id in missing_ids:
+                    try:
+                        data = await self._get_discovery_game(opencritic_id)
+                        reviews = await self._import_opencritic_game(data) if data else None
+                        if reviews is None:
+                            print(f"No publishable OpenCritic game for ID {opencritic_id}")
+                            stats["games_failed"] += 1
+                            continue
+                        stats["games_refreshed"] += 1
+                        stats["reviews_synced"] += reviews
+                    except Exception as exc:
+                        await self.db.rollback()
+                        print(f"Error importing OpenCritic game {opencritic_id}: {exc}")
+                        stats["games_failed"] += 1
 
             # Update sync log
-            sync_log.status = SyncStatus.COMPLETED
+            sync_log.status = SyncStatus.FAILED if stats["games_failed"] else SyncStatus.COMPLETED
             sync_log.records_processed = stats["games_refreshed"]
             sync_log.records_created = stats["reviews_synced"]
             sync_log.completed_at = datetime.now(timezone.utc)
