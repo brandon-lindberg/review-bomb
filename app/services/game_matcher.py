@@ -55,6 +55,8 @@ class GameMatcher:
         # Edge — the tracked OpenCritic record is the legacy 2011 game, not the
         # newer Metacritic "edge" page.
         1130: {"metacritic_slug": "edge-2011"},
+        # The Switch 2 remake shares its title with the Nintendo 64 original.
+        21344: {"metacritic_slug": "the-legend-of-zelda-ocarina-of-time-2026"},
     }
 
     # Common title transformations to improve matching

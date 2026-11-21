@@ -923,6 +923,8 @@ async def cmd_metacritic(args):
     """Handle Metacritic sync command."""
     import asyncio
     import time
+    from app.services.disparity import DisparityCalculator
+    from app.services.game_matcher import GameMatcher
     from app.services.game_taxonomy import (
         extract_metacritic_source_labels,
         sync_game_source_taxonomy,
@@ -939,6 +941,8 @@ async def cmd_metacritic(args):
 
     min_recent_add_window_days = 14
     recent_opencritic_id_window = 300
+    opencritic_ids = set(args.opencritic_id or [])
+    targeted = bool(opencritic_ids or args.title)
 
     async with async_session_maker() as db:
         # Handle --status flag
@@ -1023,7 +1027,10 @@ async def cmd_metacritic(args):
         recent_review_activity_condition = Game.id.in_(recent_review_game_ids)
 
         # Get games with Metacritic slugs
-        if args.backfill_counts:
+        if opencritic_ids:
+            query = select(Game).where(Game.opencritic_id.in_(opencritic_ids))
+            mode = f"OpenCritic IDs {sorted(opencritic_ids)}"
+        elif args.backfill_counts:
             # Only re-scrape games missing metacritic_sample_size
             query = select(Game).where(
                 Game.metacritic_slug.isnot(None),
@@ -1151,7 +1158,11 @@ async def cmd_metacritic(args):
         result = await db.execute(query)
         games = result.scalars().all()
         print(f"Found {len(games)} games {mode} Metacritic sync")
-        if args.title and not games:
+        missing_ids = opencritic_ids.difference(game.opencritic_id for game in games)
+        if missing_ids:
+            print(f"No catalog games for OpenCritic IDs: {sorted(missing_ids)}")
+            return 1
+        if targeted and not games:
             print("No matching catalog games with Metacritic slugs.")
             return 1
 
@@ -1165,6 +1176,7 @@ async def cmd_metacritic(args):
         processed = 0
         total_games = len(games)
         per_game_timeout_seconds = 120
+        disparity_calculator = DisparityCalculator(db) if targeted else None
 
         async with MetacriticService() as service:
             for index, game in enumerate(games, start=1):
@@ -1172,8 +1184,16 @@ async def cmd_metacritic(args):
                 try:
                     print(f"[{index}/{total_games}] Fetching Metacritic scores for: {game.title}...")
 
+                    override_slug = GameMatcher.MANUAL_OVERRIDES.get(
+                        game.opencritic_id, {}
+                    ).get("metacritic_slug")
+                    slug = game.metacritic_slug or GameMatcher.find_metacritic_slug(
+                        game.title, game.opencritic_id
+                    )
+                    # A verified edition-specific mapping must stay on that page.
+                    target = service.build_game_url(override_slug) if override_slug else slug
                     score_data = await asyncio.wait_for(
-                        service.get_scores(game.metacritic_slug, title=game.title),
+                        service.get_scores(target, title=game.title),
                         timeout=per_game_timeout_seconds,
                     )
 
@@ -1181,7 +1201,7 @@ async def cmd_metacritic(args):
                         print(f"  No data returned from Metacritic")
                         failed += 1
                         continue
-                    if args.title and score_data.get("metascore") is None and score_data.get("user_score") is None:
+                    if targeted and score_data.get("metascore") is None and score_data.get("user_score") is None:
                         print("  Metacritic has no scores for this game yet")
                         failed += 1
                         continue
@@ -1194,7 +1214,7 @@ async def cmd_metacritic(args):
                             source_labels=extract_metacritic_source_labels(score_data),
                         )
                         updated_anything = False
-                        resolved_slug = score_data.get("resolved_slug")
+                        resolved_slug = override_slug or score_data.get("resolved_slug")
                         if resolved_slug and resolved_slug != game.metacritic_slug:
                             print(f"  Slug resolved: {game.metacritic_slug} -> {resolved_slug}")
                             game.metacritic_slug = resolved_slug
@@ -1303,6 +1323,16 @@ async def cmd_metacritic(args):
                                 updated_anything = True
                                 print(f"  Release Date: {old_release} -> {mc_release_date}")
 
+                        if disparity_calculator:
+                            await db.flush()
+                            disparity = await disparity_calculator.calculate_game_disparity(
+                                game.id, refresh_review_cache=True
+                            )
+                            if disparity:
+                                game.disparity_steam = disparity["avg_disparity_steam"]
+                                game.disparity_metacritic = disparity["avg_disparity_metacritic"]
+                                print(f"  Updated Metacritic disparity: {game.disparity_metacritic}")
+
                         if not updated_anything:
                             skipped += 1
 
@@ -1337,7 +1367,7 @@ async def cmd_metacritic(args):
 
         await db.commit()
         print(f"\nMetacritic sync complete: {synced_user} user scores updated, {synced_meta} metascores updated, {skipped} unchanged, {failed} failed")
-        return 1 if args.title and failed else 0
+        return 1 if targeted and failed else 0
 
 
 async def cmd_taxonomy_backfill(args):
@@ -3868,7 +3898,12 @@ def main():
     metacritic_parser.add_argument("--recent", type=int, nargs="?", const=90, default=None, help="Only process games released in the last N days that still need Metacritic sync (default: 90)")
     metacritic_parser.add_argument("--new-only", type=int, nargs="?", const=60, default=None, help="Only process games released in last N days that have never been synced (default: 60)")
     metacritic_parser.add_argument("--stale-days", type=int, default=30, help="Skip games synced within the last N days (default: 30, use 0 to disable)")
-    metacritic_parser.add_argument("--title", type=str, help="Only process games whose title contains this text")
+    metacritic_target = metacritic_parser.add_mutually_exclusive_group()
+    metacritic_target.add_argument("--title", type=str, help="Only process games whose title contains this text")
+    metacritic_target.add_argument(
+        "--opencritic-id", type=int, action="append",
+        help="Only process the game with this OpenCritic ID (repeatable)",
+    )
 
     # Disparity command
     disparity_parser = subparsers.add_parser("disparity", help="Calculate disparity snapshots")

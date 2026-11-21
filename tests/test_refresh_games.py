@@ -10,13 +10,16 @@ from __future__ import annotations
 import re
 import sys
 from contextlib import asynccontextmanager
+from decimal import Decimal
 from pathlib import Path
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.cli
+from app.services.disparity import DisparityCalculator
 from app.services.sync_orchestrator import SyncOrchestrator
 
 WORKFLOW = (
@@ -44,7 +47,9 @@ def test_workflow_is_manual_only(workflow_text: str):
 def test_inputs_never_reach_a_shell_script_directly(workflow_text: str):
     # `${{ inputs.x }}` inside `run:` is substituted before bash parses the
     # script, so a crafted input would execute. They must go through env.
-    allowed_prefixes = ("OPENCRITIC_IDS:", "METACRITIC_TITLE:", "if:", "playwright:")
+    allowed_prefixes = (
+        "OPENCRITIC_IDS:", "METACRITIC_TITLE:", "METACRITIC_FOR_IDS:", "if:", "playwright:",
+    )
     for line in workflow_text.splitlines():
         if "${{ inputs." in line:
             assert line.strip().startswith(allowed_prefixes), line
@@ -146,6 +151,25 @@ async def test_release_feeds_find_missing_old_ids_and_deduplicate():
         15398, quiet_missing=True, strict=True
     )
     orchestrator._import_opencritic_game.assert_awaited_once_with(game)
+
+
+@pytest.mark.asyncio
+async def test_targeted_disparity_populates_metacritic_review_cache():
+    review = SimpleNamespace(score_normalized=Decimal("98"))
+    db = AsyncMock(spec=AsyncSession)
+    db.execute.return_value = Mock()
+    db.execute.return_value.scalars.return_value.all.return_value = [review]
+    calculator = DisparityCalculator(db)
+    calculator.get_game_user_scores = AsyncMock(
+        return_value={"steam_score": None, "metacritic_score": Decimal("54")}
+    )
+
+    stats = await calculator.calculate_game_disparity(1, refresh_review_cache=True)
+
+    assert stats["avg_disparity_metacritic"] == Decimal("44")
+    assert review.cached_metacritic_user_score == Decimal("54")
+    assert review.cached_disparity_metacritic == Decimal("44")
+    assert review.cached_steam_user_score is None
 
 
 @pytest.mark.asyncio

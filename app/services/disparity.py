@@ -550,12 +550,14 @@ class DisparityCalculator:
     async def calculate_game_disparity(
         self,
         game_id: int,
+        *,
+        refresh_review_cache: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """
         Calculate aggregate disparity statistics for a game.
         Uses bulk-loaded cache if available.
         """
-        if self._user_scores_cache is not None and self._reviews_cache is not None:
+        if not refresh_review_cache and self._user_scores_cache is not None and self._reviews_cache is not None:
             return self._calculate_entity_disparity_from_cache(
                 "game", game_id
             )
@@ -584,6 +586,12 @@ class DisparityCalculator:
                 user_scores["steam_score"],
                 user_scores["metacritic_score"],
             )
+            if refresh_review_cache:
+                review.cached_steam_user_score = user_scores["steam_score"]
+                review.cached_metacritic_user_score = user_scores["metacritic_score"]
+                review.cached_disparity_steam = disparity["disparity_steam"]
+                review.cached_disparity_metacritic = disparity["disparity_metacritic"]
+                review.cached_disparity_combined = disparity["disparity_combined"]
 
             if disparity["disparity_steam"] is not None:
                 steam_disparities.append(float(disparity["disparity_steam"]))
