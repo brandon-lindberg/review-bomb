@@ -35,6 +35,10 @@ class OpenCriticAuthError(RuntimeError):
     """Raised when OpenCritic API credentials are missing or invalid."""
 
 
+class OpenCriticQuotaError(RuntimeError):
+    """Raised when the daily OpenCritic request allowance is exhausted."""
+
+
 def _network_retry_backoff(attempt: int) -> int:
     """Seconds to wait before retrying attempt ``attempt`` (0-indexed)."""
     if attempt < len(NETWORK_RETRY_BACKOFF_SECONDS):
@@ -160,6 +164,12 @@ class OpenCriticService:
                         raise OpenCriticAuthError(
                             f"OpenCritic API authentication failed ({status_code}). "
                             "Check RAPIDAPI_KEY and RapidAPI subscription status."
+                        ) from e
+                    if status_code == 429 and "daily quota" in e.response.text.lower():
+                        reset = e.response.headers.get("X-RateLimit-Requests-Reset", "")
+                        retry_message = f" It resets in {reset} seconds." if reset.isdecimal() else ""
+                        raise OpenCriticQuotaError(
+                            f"OpenCritic daily request quota exhausted.{retry_message}"
                         ) from e
                     if status_code in retryable_status_codes and attempt < max_retries - 1:
                         retry_after = e.response.headers.get("Retry-After", "")

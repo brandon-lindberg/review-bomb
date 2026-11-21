@@ -28,8 +28,8 @@ on:
       catalog_audit_from:
         description: 'OpenCritic ID to resume the catalog audit from'
         required: false
-        type: number
-        default: 1
+        type: string
+        default: ''
 
 # Runs of this workflow queue behind each other. It does not share the review
 # pipeline's group: that would park a one-game refresh behind a two-hour run,
@@ -115,7 +115,14 @@ jobs:
         timeout-minutes: 45
         env:
           CATALOG_AUDIT_FROM: ${{ inputs.catalog_audit_from }}
-        run: python -u -m app sync --catalog-gaps --catalog-gap-start "$CATALOG_AUDIT_FROM"
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ -n "$CATALOG_AUDIT_FROM" ]]; then
+            args+=(--catalog-gap-start "$CATALOG_AUDIT_FROM")
+          fi
+          python -u -m app sync --catalog-gaps "${args[@]}"
 
       # Game pages revalidate every 60s on their own. A game that just gained
       # its first reviews also becomes eligible for the listings, which do not.

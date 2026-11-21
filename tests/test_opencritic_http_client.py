@@ -13,7 +13,7 @@ import httpx
 import pytest
 
 from app.services import opencritic as opencritic_module
-from app.services.opencritic import OpenCriticService
+from app.services.opencritic import OpenCriticQuotaError, OpenCriticService
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +55,19 @@ def _service_with(transport: RecordingTransport) -> OpenCriticService:
     service = OpenCriticService()
     service._client = httpx.AsyncClient(transport=transport, headers=service.headers)
     return service
+
+
+@pytest.mark.asyncio
+async def test_daily_quota_is_reported_without_retrying(no_sleep):
+    transport = RecordingTransport([httpx.Response(
+        429, json={"message": "You have exceeded the DAILY quota for Requests"},
+        headers={"X-RateLimit-Requests-Reset": "1200"},
+    )])
+    async with _service_with(transport) as service:
+        with pytest.raises(OpenCriticQuotaError, match="resets in 1200 seconds"):
+            await service.get_game(7)
+    assert len(transport.requests) == 1
+    assert no_sleep == []
 
 
 @pytest.mark.asyncio

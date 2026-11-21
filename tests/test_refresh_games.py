@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import app.cli
 from app.services.disparity import DisparityCalculator
+from app.services.opencritic import OpenCriticQuotaError
 from app.services.sync_orchestrator import SyncOrchestrator
 
 WORKFLOW = (
@@ -134,7 +135,7 @@ async def test_release_feeds_find_missing_old_ids_and_deduplicate():
     game = {"id": 15398, "name": "Grand Theft Auto VI"}
     already_stored = {"id": 21711, "name": "Pikmin 4"}
     db = AsyncMock()
-    db.scalars.return_value = [21711]
+    db.scalars.return_value = [SimpleNamespace(opencritic_id=21711)]
     orchestrator = object.__new__(SyncOrchestrator)
     orchestrator.db = db
     orchestrator.service = AsyncMock()
@@ -152,6 +153,27 @@ async def test_release_feeds_find_missing_old_ids_and_deduplicate():
         15398, quiet_missing=True, strict=True, max_retries=6
     )
     orchestrator._import_opencritic_game.assert_awaited_once_with(game)
+
+
+@pytest.mark.asyncio
+async def test_release_feed_recovers_reviews_for_an_existing_unscored_game():
+    stored_game = SimpleNamespace(
+        opencritic_id=21344, critic_review_count=0, last_review_sync_at=None
+    )
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = AsyncMock(spec=AsyncSession)
+    orchestrator.db.scalars.return_value = [stored_game]
+    orchestrator.service = AsyncMock()
+    orchestrator._request_count = 0
+    orchestrator.service.get_release_feed.return_value = [{
+        "id": 21344, "name": "The Legend of Zelda: Ocarina of Time", "topCriticScore": 95.6,
+    }]
+    orchestrator._refresh_games_reviews = AsyncMock(return_value={"reviews_synced": 105})
+
+    assert await orchestrator._discover_release_games() == {
+        "games_synced": 0, "reviews_synced": 105,
+    }
+    orchestrator._refresh_games_reviews.assert_awaited_once_with([stored_game])
 
 
 @pytest.mark.asyncio
@@ -205,3 +227,21 @@ async def test_catalog_gap_audit_distinguishes_missing_and_importable_ids():
     }
     assert [call.args[0] for call in orchestrator._get_discovery_game.await_args_list] == [3, 4]
     orchestrator._import_opencritic_game.assert_awaited_once_with(game)
+
+
+@pytest.mark.asyncio
+async def test_catalog_audit_saves_first_unchecked_id_when_quota_runs_out():
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = AsyncMock(spec=AsyncSession)
+    orchestrator.db.scalars.return_value = [1, 5]
+    orchestrator._get_discovery_game = AsyncMock(side_effect=[
+        None, OpenCriticQuotaError("daily quota exhausted"), None,
+    ])
+    orchestrator._set_state = AsyncMock()
+
+    stats = await orchestrator.audit_catalog_gaps(start_id=2)
+
+    assert stats["ids_checked"] == 1
+    orchestrator._set_state.assert_awaited_once_with(
+        SyncOrchestrator.STATE_CATALOG_GAP_START, "3"
+    )
