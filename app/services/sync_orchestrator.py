@@ -62,7 +62,7 @@ class SyncOrchestrator:
     # their catalog position. Keep this wide enough to catch those backfills.
     RECENT_ID_RECON_WINDOW = 2500  # Reconcile /game/{id} for recent IDs missing from /game list
     DISCOVERY_FEEDS = ("recently-released", "popular", "upcoming")
-    CATALOG_GAP_BATCH_SIZE = 12
+    CATALOG_GAP_BATCH_SIZE = 5
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
     MATCH_STEAM_RETRY_DAYS = 7  # Retry window-only Steam misses (mostly console exclusives) weekly
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
@@ -708,7 +708,9 @@ class SyncOrchestrator:
 
     async def _get_discovery_game(self, opencritic_id: int) -> Optional[Dict[str, Any]]:
         self._request_count += 1
-        game_data = await self.service.get_game(opencritic_id, quiet_missing=True, strict=True)
+        game_data = await self.service.get_game(
+            opencritic_id, quiet_missing=True, strict=True, max_retries=6
+        )
         if game_data is not None and (
             not isinstance(game_data, dict) or game_data.get("id") != opencritic_id
         ):
@@ -739,7 +741,7 @@ class SyncOrchestrator:
                 stats["reviews_synced"] += reviews
         return stats
 
-    async def audit_catalog_gaps(self) -> Dict[str, int]:
+    async def audit_catalog_gaps(self, start_id: int = 1) -> Dict[str, int]:
         """Check every untracked ID up to the highest known OpenCritic ID."""
         try:
             known_ids = set(await self.db.scalars(
@@ -748,8 +750,13 @@ class SyncOrchestrator:
             if not known_ids:
                 raise RuntimeError("Seed the OpenCritic catalog before checking for ID gaps")
             highest_id = max(known_ids)
-            missing_ids = sorted(set(range(1, highest_id + 1)) - known_ids - self.GAME_MERGES.keys())
-            print(f"Auditing {len(missing_ids)} untracked OpenCritic IDs between 1 and {highest_id}")
+            missing_ids = sorted(
+                set(range(start_id, highest_id + 1)) - known_ids - self.GAME_MERGES.keys()
+            )
+            print(
+                f"Auditing {len(missing_ids)} untracked OpenCritic IDs between "
+                f"{start_id} and {highest_id}"
+            )
             stats = {"ids_checked": 0, "games_synced": 0, "reviews_synced": 0, "malformed": 0}
             for start in range(0, len(missing_ids), self.CATALOG_GAP_BATCH_SIZE):
                 batch = missing_ids[start:start + self.CATALOG_GAP_BATCH_SIZE]

@@ -162,7 +162,10 @@ class OpenCriticService:
                             "Check RAPIDAPI_KEY and RapidAPI subscription status."
                         ) from e
                     if status_code in retryable_status_codes and attempt < max_retries - 1:
-                        wait_time = (2 ** attempt) + 1  # 2, 3, 5 seconds
+                        retry_after = e.response.headers.get("Retry-After", "")
+                        wait_time = (2 ** attempt) + 1
+                        if status_code == 429 and retry_after.isdecimal():
+                            wait_time = max(wait_time, min(int(retry_after), 60))
                         print(f"HTTP {status_code} error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})...")
                         await asyncio.sleep(wait_time)
                         continue
@@ -304,12 +307,14 @@ class OpenCriticService:
         quiet_missing: bool = False,
         *,
         strict: bool = False,
+        max_retries: int = 3,
     ) -> Optional[Dict[str, Any]]:
         """Fetch a single game by ID with full details."""
         return await self._request(
             "GET",
             f"/game/{game_id}",
             quiet_status_codes={400, 404} if quiet_missing else None,
+            max_retries=max_retries,
             **({"strict": True} if strict else {}),
         )
 
@@ -375,7 +380,7 @@ class OpenCriticService:
                 "GET",
                 f"/reviews/game/{game_id}",
                 params={"skip": skip, "limit": batch_size},
-                **({"strict": True} if strict else {}),
+                **({"strict": True, "max_retries": 6} if strict else {}),
             )
             if strict and not isinstance(data, list):
                 raise RuntimeError(f"Invalid OpenCritic reviews for game {game_id}")

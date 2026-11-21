@@ -275,7 +275,10 @@ async def cmd_sync(args):
         orchestrator = SyncOrchestrator(db)
 
         if args.catalog_gaps:
-            stats = await orchestrator.audit_catalog_gaps()
+            if args.catalog_gap_start < 1:
+                print("--catalog-gap-start must be at least 1")
+                return 1
+            stats = await orchestrator.audit_catalog_gaps(start_id=args.catalog_gap_start)
             print(
                 f"OpenCritic catalog audit checked {stats['ids_checked']} IDs, "
                 f"imported {stats['games_synced']} games and {stats['reviews_synced']} reviews, "
@@ -3800,6 +3803,10 @@ def main():
         "--catalog-gaps",
         action="store_true",
         help="Audit every gap in known OpenCritic IDs and import valid missing games",
+    )
+    sync_parser.add_argument(
+        "--catalog-gap-start", type=int, default=1,
+        help="Resume the catalog gap audit at this OpenCritic ID",
     )
     sync_parser.add_argument("--stale-pages", type=int, default=5, help="Incremental mode: stop after N consecutive pages with no new games (default: 5, use 0 to disable)")
     sync_parser.add_argument(

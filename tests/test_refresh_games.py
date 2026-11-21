@@ -48,7 +48,8 @@ def test_inputs_never_reach_a_shell_script_directly(workflow_text: str):
     # `${{ inputs.x }}` inside `run:` is substituted before bash parses the
     # script, so a crafted input would execute. They must go through env.
     allowed_prefixes = (
-        "OPENCRITIC_IDS:", "METACRITIC_TITLE:", "METACRITIC_FOR_IDS:", "if:", "playwright:",
+        "OPENCRITIC_IDS:", "METACRITIC_TITLE:", "METACRITIC_FOR_IDS:",
+        "CATALOG_AUDIT_FROM:", "if:", "playwright:",
     )
     for line in workflow_text.splitlines():
         if "${{ inputs." in line:
@@ -148,7 +149,7 @@ async def test_release_feeds_find_missing_old_ids_and_deduplicate():
         "games_synced": 1, "reviews_synced": 75,
     }
     orchestrator.service.get_game.assert_awaited_once_with(
-        15398, quiet_missing=True, strict=True
+        15398, quiet_missing=True, strict=True, max_retries=6
     )
     orchestrator._import_opencritic_game.assert_awaited_once_with(game)
 
@@ -191,15 +192,16 @@ async def test_targeted_refresh_imports_missing_game():
 
 @pytest.mark.asyncio
 async def test_catalog_gap_audit_distinguishes_missing_and_importable_ids():
-    game = {"id": 3, "name": "Missing game"}
+    game = {"id": 4, "name": "Missing game"}
     orchestrator = object.__new__(SyncOrchestrator)
     orchestrator.db = AsyncMock(spec=AsyncSession)
-    orchestrator.db.scalars.return_value = [1, 4]
+    orchestrator.db.scalars.return_value = [1, 5]
     orchestrator.service = AsyncMock()
     orchestrator._get_discovery_game = AsyncMock(side_effect=[None, game])
     orchestrator._import_opencritic_game = AsyncMock(return_value=0)
 
-    assert await orchestrator.audit_catalog_gaps() == {
+    assert await orchestrator.audit_catalog_gaps(start_id=3) == {
         "ids_checked": 2, "games_synced": 1, "reviews_synced": 0, "malformed": 0,
     }
+    assert [call.args[0] for call in orchestrator._get_discovery_game.await_args_list] == [3, 4]
     orchestrator._import_opencritic_game.assert_awaited_once_with(game)
