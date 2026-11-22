@@ -177,4 +177,17 @@ async def test_count_applies_the_same_filters_as_the_list():
 
     sql = _compiled(db.statements[0]).upper()
     assert "CRITIC_REVIEW_COUNT" in sql
-    assert "LIKE" in sql  # ilike compiles to lower(...) LIKE lower(...)
+    assert "LIKE" in sql
+
+
+@pytest.mark.asyncio
+async def test_catalog_search_can_find_an_edition_before_scores_arrive():
+    db = FakeAsyncSession(results=[FakeResult(scalars_all=[]), FakeResult(scalar=1)])
+    args = _list_args(page=1, per_page=5)
+    args["search"] = "Ocarina of Time Remake"
+    await list_games(**args, db=db)
+
+    for statement in db.statements:
+        predicate = str(statement.whereclause)
+        assert predicate == "games.opencritic_id = :opencritic_id_1"
+        assert statement.whereclause.compile().params == {"opencritic_id_1": 21344}

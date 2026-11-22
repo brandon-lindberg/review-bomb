@@ -63,6 +63,7 @@ from app.services.game_similarity_v3 import (
     SIMILARITY_V3_VERSION,
 )
 from app.services.index_eligibility import game_is_index_eligible
+from app.services.title_search import game_title_search_clause
 from app.services.tokyo_time import tokyo_tomorrow_start_utc, to_tokyo_date
 
 router = APIRouter()
@@ -586,7 +587,7 @@ async def _count_games_matching(
     The count depends only on the filters, never on page or sort order, so one
     cache entry serves every page and both sort directions.
     """
-    key_hash = cache_key("games:list:count:v1", year=year, search=search)
+    key_hash = cache_key("games:list:count:v2", year=year, search=search)
     cache_name = f"games:list:count:{key_hash}"
 
     cached = await get_cached(cache_name)
@@ -600,7 +601,7 @@ async def _count_games_matching(
     if year:
         count_query = count_query.where(extract("year", Game.release_date) == year)
     if search:
-        count_query = count_query.where(Game.title.ilike(f"%{search}%"))
+        count_query = count_query.where(game_title_search_clause(search))
 
     total = (await db.execute(count_query)).scalar() or 0
     await set_cached(cache_name, str(total), GAMES_LIST_COUNT_TTL)
@@ -618,8 +619,9 @@ async def list_games(
     db: AsyncSession = Depends(get_db),
 ):
     """List all games with pagination (uses denormalized columns - instant!)."""
+    search = (search.strip() or None) if search else None
     key_hash = cache_key(
-        "games:list:v4",
+        "games:list:v5",
         page=page,
         per_page=per_page,
         year=year,
@@ -631,22 +633,22 @@ async def list_games(
     if cached:
         return PaginatedResponse[GameWithScores](**json.loads(cached))
 
-    filters = [
-        # Include games with either:
-        # - at least one valid user-score signal, or
-        # - at least N critic reviews (for new releases that have critic coverage first).
-        or_(
-            Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
-            and_(
-                Game.metacritic_user_score.isnot(None),
-                or_(
-                    Game.metacritic_sample_size.is_(None),
-                    Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
-                )
-            ),
-            Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAMES_LIST,
-        ),
-    ]
+    filters = []
+    if not search:
+        # The browse list is scored. Explicit searches span the full catalog.
+        filters.append(
+            or_(
+                Game.steam_sample_size >= MIN_STEAM_USER_REVIEWS,
+                and_(
+                    Game.metacritic_user_score.isnot(None),
+                    or_(
+                        Game.metacritic_sample_size.is_(None),
+                        Game.metacritic_sample_size >= MIN_METACRITIC_USER_REVIEWS,
+                    ),
+                ),
+                Game.critic_review_count >= MIN_CRITIC_REVIEWS_FOR_GAMES_LIST,
+            )
+        )
 
     query = select(Game).where(*filters)
 
@@ -656,7 +658,7 @@ async def list_games(
 
     # Filter by search term if provided
     if search:
-        query = query.where(Game.title.ilike(f"%{search}%"))
+        query = query.where(game_title_search_clause(search))
 
     # Use the same validity rules as the API response fields/UI badge so sort order
     # matches what users actually see on the page.

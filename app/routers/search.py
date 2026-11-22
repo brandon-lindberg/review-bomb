@@ -1,9 +1,7 @@
 """Search API endpoints - uses denormalized columns for speed."""
 
-import re
-
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import select, func, desc, or_
+from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from slowapi import Limiter
 from slowapi.util import get_remote_address
@@ -11,6 +9,7 @@ from slowapi.util import get_remote_address
 from app.config import get_settings
 from app.database import get_db
 from app.models.models import Journalist, Outlet, Game
+from app.services.title_search import game_title_search_clause, text_search_clause
 from app.schemas.schemas import (
     JournalistSummary,
     OutletSummary,
@@ -22,28 +21,6 @@ settings = get_settings()
 limiter = Limiter(key_func=get_remote_address)
 
 router = APIRouter()
-
-
-def _compact_search_value(value: str) -> str:
-    """Normalize search text so punctuation differences do not block matches."""
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
-
-
-def _escape_like_value(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
-def _search_match_clause(column, query: str):
-    normalized_query = query.strip().lower()
-    literal_pattern = f"%{_escape_like_value(normalized_query)}%"
-    compact_query = _compact_search_value(normalized_query)
-
-    clauses = [func.lower(column).like(literal_pattern, escape="\\")]
-    if compact_query:
-        compact_column = func.regexp_replace(func.lower(column), "[^a-z0-9]+", "", "g")
-        clauses.append(compact_column.like(f"%{compact_query}%", escape="\\"))
-
-    return or_(*clauses)
 
 
 @router.get("", response_model=SearchResult)
@@ -62,7 +39,7 @@ async def search(
     # Search journalists - use denormalized review_count_scored and avg_disparity
     journalist_query = (
         select(Journalist)
-        .where(_search_match_clause(Journalist.name, search_query))
+        .where(text_search_clause(Journalist.name, search_query))
         .limit(limit)
     )
     journalist_result = await db.execute(journalist_query)
@@ -85,7 +62,7 @@ async def search(
     # Search outlets
     outlet_query = (
         select(Outlet)
-        .where(_search_match_clause(Outlet.name, search_query))
+        .where(text_search_clause(Outlet.name, search_query))
         .limit(limit)
     )
     outlet_result = await db.execute(outlet_query)
@@ -109,7 +86,7 @@ async def search(
     # Search games - use denormalized critic_review_count
     game_query = (
         select(Game)
-        .where(_search_match_clause(Game.title, search_query))
+        .where(game_title_search_clause(search_query))
         .order_by(desc(func.coalesce(Game.release_date, func.date(Game.created_at))))
         .limit(limit)
     )

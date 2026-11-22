@@ -7,9 +7,11 @@ no YAML parser.
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
@@ -245,3 +247,24 @@ async def test_catalog_audit_saves_first_unchecked_id_when_quota_runs_out():
     orchestrator._set_state.assert_awaited_once_with(
         SyncOrchestrator.STATE_CATALOG_GAP_START, "3"
     )
+
+
+@pytest.mark.asyncio
+async def test_recent_reconciliation_retries_only_expired_misses():
+    now = datetime.now(timezone.utc)
+    orchestrator = object.__new__(SyncOrchestrator)
+    orchestrator.db = AsyncMock(spec=AsyncSession)
+    orchestrator.db.scalars.return_value = [3]
+    orchestrator._get_state = AsyncMock(return_value=json.dumps({
+        "1": now.timestamp(),
+        "2": (now - timedelta(hours=25)).timestamp(),
+    }))
+    orchestrator._set_state = AsyncMock()
+    orchestrator._get_discovery_game = AsyncMock(return_value=None)
+
+    await orchestrator._reconcile_recent_id_window({4})
+
+    orchestrator._get_discovery_game.assert_awaited_once_with(2)
+    key, data = orchestrator._set_state.await_args.args
+    assert key == SyncOrchestrator.STATE_RECENT_ID_MISSES
+    assert json.loads(data)["2"] >= now.timestamp()

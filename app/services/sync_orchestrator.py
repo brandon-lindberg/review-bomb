@@ -61,9 +61,10 @@ class SyncOrchestrator:
     # review metadata after our incremental tail scan has already moved past
     # their catalog position. Keep this wide enough to catch those backfills.
     RECENT_ID_RECON_WINDOW = 2500  # Reconcile /game/{id} for recent IDs missing from /game list
+    RECENT_ID_MISS_RECHECK_HOURS = 24
     DISCOVERY_FEEDS = ("recently-released", "popular", "upcoming")
     CATALOG_GAP_BATCH_SIZE = 5
-    SCHEDULED_CATALOG_GAP_CHECKS = 75
+    SCHEDULED_CATALOG_GAP_CHECKS = 150
     MATCH_NEW_GAME_GRACE_DAYS = 14  # Include newly added games even if release_date is old
     MATCH_STEAM_RETRY_DAYS = 7  # Retry window-only Steam misses (mostly console exclusives) weekly
     AUTO_REVIEW_REFRESH_DAYS = 14  # Rolling refresh window for existing games
@@ -78,6 +79,7 @@ class SyncOrchestrator:
     STATE_GAMES_QUEUE = "games_queue"
     STATE_LAST_GAME_SKIP = "last_game_skip"
     STATE_CATALOG_GAP_START = "opencritic_catalog_gap_start"
+    STATE_RECENT_ID_MISSES = "opencritic_recent_id_misses"
 
     # Merged games: maps deprecated OpenCritic IDs to their canonical OpenCritic ID.
     # Reviews from deprecated games are redirected to the canonical game.
@@ -828,9 +830,21 @@ class SyncOrchestrator:
 
         max_seen_id = max(synced_ids)
         start_id = max(1, max_seen_id - self.RECENT_ID_RECON_WINDOW)
+        nearby_games = await self.db.scalars(
+            select(Game.opencritic_id).where(Game.opencritic_id.between(start_id, max_seen_id))
+        )
+        known_ids = synced_ids.union(nearby_games)
+        now = datetime.now(timezone.utc)
+        expires_before = (now - timedelta(hours=self.RECENT_ID_MISS_RECHECK_HOURS)).timestamp()
+        previous_misses = json.loads(await self._get_state(self.STATE_RECENT_ID_MISSES, "{}"))
+        recent_misses = {
+            game_id: checked_at for game_id, checked_at in previous_misses.items()
+            if checked_at > expires_before and start_id <= int(game_id) <= max_seen_id
+            and int(game_id) not in known_ids
+        }
         print(
             f"Reconciling direct OpenCritic IDs {start_id}-{max_seen_id} "
-            f"for out-of-list games..."
+            f"for out-of-list games ({len(recent_misses)} recent misses skipped)..."
         )
 
         stats = {
@@ -840,12 +854,12 @@ class SyncOrchestrator:
         }
 
         for opencritic_game_id in range(start_id, max_seen_id + 1):
-            if opencritic_game_id in synced_ids:
+            if opencritic_game_id in known_ids or str(opencritic_game_id) in recent_misses:
                 continue
 
-            game_data = await self.service.get_game(opencritic_game_id, quiet_missing=True)
-            self._request_count += 1
-            if not game_data or not game_data.get("id"):
+            game_data = await self._get_discovery_game(opencritic_game_id)
+            if game_data is None:
+                recent_misses[str(opencritic_game_id)] = now.timestamp()
                 continue
 
             stats["discovered"] += 1
@@ -892,6 +906,8 @@ class SyncOrchestrator:
             stats["reviews_synced"] += reviews_synced
             print(f"  Synced {reviews_synced} reviews")
 
+        if recent_misses != previous_misses:
+            await self._set_state(self.STATE_RECENT_ID_MISSES, json.dumps(recent_misses))
         return stats
 
     async def _refresh_recent_unreleased_games(
@@ -1095,6 +1111,12 @@ class SyncOrchestrator:
                 stats["release_feed_discovered"] = discovery["games_synced"]
                 stats["games_synced"] += discovery["games_synced"]
                 stats["reviews_synced"] += discovery["reviews_synced"]
+                # Give the audit quota before the wider reconciliation and review sweeps.
+                if synced_ids:
+                    audit = await self.audit_catalog_gaps(limit=self.SCHEDULED_CATALOG_GAP_CHECKS)
+                    stats["games_synced"] += audit["games_synced"]
+                    stats["reviews_synced"] += audit["reviews_synced"]
+                    print(f"  Historical OpenCritic gaps checked: {audit['ids_checked']}")
             games_queue = await self._get_games_queue()
             all_games_fetched = False
             last_skip = int(await self._get_state(self.STATE_LAST_GAME_SKIP, "0"))
@@ -1270,11 +1292,6 @@ class SyncOrchestrator:
                     stats["recent_reviews_refreshed_reviews"] += refresh_stats["reviews_synced"]
                     stats["recent_reviews_refresh_failed"] += refresh_stats["games_failed"]
                     stats["reviews_synced"] += refresh_stats["reviews_synced"]
-
-                audit = await self.audit_catalog_gaps(limit=self.SCHEDULED_CATALOG_GAP_CHECKS)
-                stats["games_synced"] += audit["games_synced"]
-                stats["reviews_synced"] += audit["reviews_synced"]
-                print(f"  Historical OpenCritic gaps checked: {audit['ids_checked']}")
 
             # Clear persisted queue on clean completion so next run starts fresh.
             await self._set_games_queue([])

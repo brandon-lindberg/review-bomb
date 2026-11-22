@@ -9,17 +9,18 @@ from sqlalchemy.dialects import postgresql
 from starlette.requests import Request
 
 from app.models.models import Game
-from app.routers.search import _compact_search_value, _search_match_clause, search
+from app.routers.search import search
+from app.services.title_search import compact_search_value, game_title_search_clause, text_search_clause
 
 
 def test_compact_search_value_removes_punctuation_and_spacing():
-    assert _compact_search_value("baldurs gate") == "baldursgate"
-    assert _compact_search_value("Baldur's Gate 3") == "baldursgate3"
-    assert _compact_search_value("  Baldur’s   Gate  ") == "baldursgate"
+    assert compact_search_value("baldurs gate") == "baldursgate"
+    assert compact_search_value("Baldur's Gate 3") == "baldursgate3"
+    assert compact_search_value("  Baldur’s   Gate  ") == "baldursgate"
 
 
 def test_search_match_clause_matches_literal_and_compact_normalized_terms():
-    clause = _search_match_clause(Game.title, "baldurs gate")
+    clause = text_search_clause(Game.title, "baldurs gate")
 
     compiled = str(
         clause.compile(
@@ -31,6 +32,17 @@ def test_search_match_clause_matches_literal_and_compact_normalized_terms():
     assert "lower(games.title) LIKE '%%baldurs gate%%'" in compiled
     assert "regexp_replace(lower(games.title), '[^a-z0-9]+', '', 'g')" in compiled
     assert "LIKE '%%baldursgate%%'" in compiled
+
+
+@pytest.mark.parametrize("query", [
+    "The Legend of Zelda Ocarina Time Remake",
+    "Ocarina of Time (Remake)",
+    "Ocarina of Time Switch 2",
+])
+def test_remake_alias_search_matches_the_exact_game(query):
+    clause = game_title_search_clause(query)
+    assert str(clause) == "games.opencritic_id = :opencritic_id_1"
+    assert clause.compile().params == {"opencritic_id_1": 21344}
 
 
 @pytest.mark.asyncio
