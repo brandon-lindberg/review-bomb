@@ -601,7 +601,9 @@ async def _count_games_matching(
     if year:
         count_query = count_query.where(extract("year", Game.release_date) == year)
     if search:
-        count_query = count_query.where(game_title_search_clause(search))
+        count_query = count_query.where(
+            game_title_search_clause(search, match_punctuation_variants=False)
+        )
 
     total = (await db.execute(count_query)).scalar() or 0
     await set_cached(cache_name, str(total), GAMES_LIST_COUNT_TTL)
@@ -658,7 +660,7 @@ async def list_games(
 
     # Filter by search term if provided
     if search:
-        query = query.where(game_title_search_clause(search))
+        query = query.where(game_title_search_clause(search, match_punctuation_variants=False))
 
     # Use the same validity rules as the API response fields/UI badge so sort order
     # matches what users actually see on the page.

@@ -178,6 +178,7 @@ async def test_count_applies_the_same_filters_as_the_list():
     sql = _compiled(db.statements[0]).upper()
     assert "CRITIC_REVIEW_COUNT" in sql
     assert "LIKE" in sql
+    assert "REGEXP_REPLACE" not in sql
 
 
 @pytest.mark.asyncio
